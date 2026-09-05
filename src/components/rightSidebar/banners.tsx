@@ -48,7 +48,7 @@ const PlanApprovalBanner: React.FC = memo(() => {
             borderRadius: 8, fontSize: 11,
         }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 13 }}>📋</span>
+                <span style={{ fontSize: 13 }}></span>
                 <strong style={{ color: '#fbbf24' }}>Plan ready — approve to execute</strong>
             </div>
             {planData.plan && (
@@ -140,30 +140,60 @@ const MultiFileReviewBanner: React.FC = memo(() => {
     const edits = useStore(s => s.pendingAgentEdits);
     const isThinking = useStore(s => s.isAgentThinking);
     const openReview = useStore(s => s.openMultiFileReview);
+    const clearEdits = useStore(s => s.clearPendingAgentEdits);
+    const rollbackAll = useStore(s => s.rollbackLastAgentCheckpoint);
+    const lastCheckpoint = useStore(s => s.lastAgentCheckpoint);
     // Only show after the turn finishes, with 2+ files. Single-file edits
     // are usually obvious and don't warrant a modal.
     if (isThinking) return null;
     if (edits.length < 2) return null;
+
+    const acceptAll = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        clearEdits(); // keep all changes on disk; just dismiss the review
+    };
+    const rejectAll = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!lastCheckpoint) return;
+        if (!window.confirm(`Revert all ${edits.length} files to the checkpoint? This cannot be undone.`)) return;
+        const res = await rollbackAll();
+        if (res?.ok) {
+            edits.forEach(ed => window.dispatchEvent(new CustomEvent('editor:reload-file', { detail: { path: ed.path } })));
+        } else {
+            window.alert('Rollback failed: ' + (res?.message || 'unknown error'));
+        }
+    };
+
+    const pill: React.CSSProperties = {
+        padding: '2px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
+        border: '1px solid rgba(255,255,255,0.12)', cursor: 'pointer',
+    };
     return (
         <div
             onClick={openReview}
             style={{
                 display: 'flex', alignItems: 'center', gap: 8,
-                padding: '6px 10px', marginBottom: 6,
-                background: 'rgba(34,197,94,0.08)',
-                border: '1px solid rgba(34,197,94,0.25)',
+                padding: '7px 10px', marginBottom: 6,
+                background: 'rgba(255,255,255,0.035)',
+                border: '1px solid rgba(255,255,255,0.10)',
                 borderRadius: 8, fontSize: 11,
                 cursor: 'pointer',
             }}
         >
-            <i className="codicon codicon-diff-multiple" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: '#4ade80', fontSize: 13 }} />
-            <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)' }}>
-                Agent edited <b>{edits.length}</b> files — review the diff
+            <i className="codicon codicon-chevron-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', opacity: 0.5, fontSize: 11 }} />
+            <i className="codicon codicon-diff-multiple" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: '#4ade80', fontSize: 12 }} />
+            <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontWeight: 500 }}>
+                {edits.length} {edits.length === 1 ? 'File' : 'Files'}
             </span>
-            <span style={{
-                background: '#4ade80', color: '#000', padding: '2px 8px', fontSize: 10,
-                fontWeight: 600, borderRadius: 4,
-            }}>Review</span>
+            {lastCheckpoint && (
+                <span onClick={rejectAll} style={{ ...pill, background: 'rgba(239,68,68,0.14)', color: '#f87171', borderColor: 'rgba(239,68,68,0.35)' }} title="Revert all files to the checkpoint">
+                    Reject all
+                </span>
+            )}
+            <span onClick={acceptAll} style={{ ...pill, background: 'rgba(16,185,129,0.16)', color: '#34d399', borderColor: 'rgba(16,185,129,0.4)' }} title="Keep all changes">
+                Accept all
+            </span>
+            <span style={{ ...pill, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.92)' }}>Review</span>
         </div>
     );
 });

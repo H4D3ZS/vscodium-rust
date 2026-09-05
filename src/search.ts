@@ -22,7 +22,7 @@ export function initSearch() {
                 `;
 
                 try {
-                    const results = await invoke<any[]>("search_project", { query });
+                    const results = await invoke<any[]>("grep_files", { pattern: query });
                     renderSearchResults(results, searchResults);
                 } catch (err) {
                     console.error("Search failed:", err);

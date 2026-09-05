@@ -1,12 +1,11 @@
 //! Gradle build system — thin Tauri adapters.
 
-use crate::EditorState;
 use serde_json::json;
 use tauri::State;
 
 #[tauri::command]
 pub async fn gradle_detect_project(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     root: String,
 ) -> Result<serde_json::Value, String> {
     let project = state.mobile.gradle.detect(&root)?;
@@ -15,7 +14,7 @@ pub async fn gradle_detect_project(
 
 #[tauri::command]
 pub async fn gradle_sync_project(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     root: String,
 ) -> Result<serde_json::Value, String> {
     let project = state.mobile.gradle.sync(&root)?;
@@ -24,7 +23,7 @@ pub async fn gradle_sync_project(
 
 #[tauri::command]
 pub async fn gradle_list_tasks(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     root: String,
 ) -> Result<serde_json::Value, String> {
     let tasks = state.mobile.gradle.list_tasks(&root)?;
@@ -33,7 +32,7 @@ pub async fn gradle_list_tasks(
 
 #[tauri::command]
 pub async fn gradle_run_task(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     root: String,
     task: String,
 ) -> Result<serde_json::Value, String> {

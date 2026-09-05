@@ -2,6 +2,7 @@
 //! impl blocks distributed across submodules.
 
 pub mod autonomous;
+pub mod prefix_cache;
 pub mod prompt;
 pub mod providers;
 pub mod sentient;

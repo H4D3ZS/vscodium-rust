@@ -4,6 +4,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::thread;
 use serde_json::{Value, json};
+#[cfg(feature = "tauri")]
 use tauri::{AppHandle, Emitter};
 use tokio::sync::RwLock;
 
@@ -37,6 +38,7 @@ impl LspClient {
 
     /// Start an LSP server process, perform `initialize` handshake, and
     /// spawn a background reader that stores `publishDiagnostics` notifications.
+    #[cfg(feature = "tauri")]
     pub fn start(&mut self, command: &str, args: &[String], app_handle: AppHandle) -> std::io::Result<()> {
         use crate::process_ext::CommandExtHidden;
 

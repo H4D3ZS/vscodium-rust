@@ -36,7 +36,7 @@ export interface OllamaResponse {
 
 class HadesOllamaService {
   private config: HadesOllamaConfig = {
-    baseUrl: 'http://localhost:11434',
+    baseUrl: 'http://localhost:13305',
     model: '',
     aimVfsEnabled: true,
     thermalGovernorEnabled: true,
@@ -51,7 +51,7 @@ class HadesOllamaService {
   private loadConfig() {
     const s = useStore.getState();
     this.config = {
-      baseUrl: s.ollamaUrl || 'http://localhost:11434',
+      baseUrl: s.ollamaUrl || 'http://localhost:13305',
       model: s.agentModel?.split('|')[1] || s.agentModel || '',
       aimVfsEnabled: (s as { aimVfsEnabled?: boolean }).aimVfsEnabled ?? true,
       thermalGovernorEnabled: (s as { thermalGovernorEnabled?: boolean }).thermalGovernorEnabled ?? true,
@@ -64,22 +64,19 @@ class HadesOllamaService {
     if (!this.config.model.trim()) {
       throw new Error('No Ollama model selected. Choose a local model in Settings before starting local inference.');
     }
-    const raw = (this.config.baseUrl || '').trim() || 'http://localhost:11434';
+    const raw = (this.config.baseUrl || '').trim() || 'http://localhost:13305';
     let base: string;
     try {
       base = normalizeOllamaUrl(raw);
     } catch {
-      base = 'http://localhost:11434';
+      base = 'http://localhost:13305';
     }
-    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-      await invoke('set_ollama_url', { url: base }).catch(() => {});
-      const data = await invoke<Record<string, unknown>>('ollama_native_post', { path, body });
-      return data as unknown as OllamaResponse;
-    }
+    // Lemonade sends `Access-Control-Allow-Origin: *`, so the webview calls it
+    // directly — the old Rust CORS-bypass bridge is gone.
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     try {
       const keys = await invoke<Record<string, string>>('get_api_keys');
-      const tok = keys?.ollama?.trim();
+      const tok = keys?.lemonade?.trim();
       if (tok) headers.Authorization = `Bearer ${tok}`;
     } catch {
       /* no Tauri / no keys */
@@ -91,7 +88,7 @@ class HadesOllamaService {
       try {
         const u = new URL(base);
         if (u.origin !== window.location.origin) {
-          url = `${window.location.origin}/__ollama${path}`;
+          url = `${base}${path}`;
         }
       } catch {
         /* malformed base → keep as-is */

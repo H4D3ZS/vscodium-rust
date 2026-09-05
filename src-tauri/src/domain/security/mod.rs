@@ -5,6 +5,7 @@
 pub mod apex_orchestrator;
 pub mod apex_red_team;
 pub mod chunk_secrets;
+pub mod finding_ledger;
 pub mod hunter;
 pub mod intercept_proxy;
 pub mod intruder;
@@ -12,6 +13,7 @@ pub mod oast;
 pub mod pentest_executor;
 pub mod pentest_report;
 pub mod pentest_scope;
+pub mod probe_engine;
 pub mod repeater;
 pub mod sec_distro;
 pub mod security_distiller;

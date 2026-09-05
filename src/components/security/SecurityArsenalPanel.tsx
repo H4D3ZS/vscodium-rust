@@ -108,7 +108,7 @@ export const SecurityArsenalPanel: React.FC<{ onOpenReview?: () => void }> = ({ 
             <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--vscode-panel-border)', flexShrink: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>Security Arsenal</div>
                 <div style={{ opacity: 0.55, marginTop: 4, lineHeight: 1.45 }}>
-                    Obsidian Labs–style toolkit built into Community AI IDE. Requires Bug Bounty ToS + Security Researcher tier.
+                    Obsidian Labs–style toolkit built into Cyber-Ifrit IDE. Requires Bug Bounty ToS + Security Researcher tier.
                 </div>
             </div>
 
@@ -130,11 +130,11 @@ export const SecurityArsenalPanel: React.FC<{ onOpenReview?: () => void }> = ({ 
                         <div style={{ fontWeight: 600, marginBottom: 6 }}>Pricing vs Obsidian Labs</div>
                         <div style={{ opacity: 0.75, lineHeight: 1.5 }}>
                             Obsidian: Starter $10 · Pro $25 · Enterprise $60 + API ([obsidianlabs.cloud](https://obsidianlabs.cloud/pricing)).
-                            Community AI: Community (local) free · Pro $30 · Security $75 (this arsenal + vuln-hunt) · Enterprise $225 + REST API.
+                            Cyber-Ifrit: Community (local) free · Pro $30 · Security $75 (this arsenal + vuln-hunt) · Enterprise $225 + REST API.
                         </div>
                     </div>
                     <div style={{ marginTop: 10, opacity: 0.45, fontSize: 10 }}>
-                        Enterprise: REST API at example.invalid/docs/api · Voice uses browser speech (no cloud upload).
+                        Enterprise: REST API at cyberifrit.xyz/docs/api · Voice uses browser speech (no cloud upload).
                     </div>
                 </div>
             ) : (

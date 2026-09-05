@@ -95,7 +95,7 @@ pub async fn remote_ssh_list_dir(
 
 #[tauri::command]
 pub async fn remote_ssh_mount(
-    state: tauri::State<'_, crate::EditorState>,
+    state: tauri::State<'_, std::sync::Arc<crate::EditorState>>,
     host: String,
     user: String,
     remote_path: String,

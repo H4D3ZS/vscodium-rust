@@ -109,7 +109,7 @@ pub struct MemoryStore {
     aim_path: Arc<RwLock<Option<PathBuf>>>,
     binary_body: Arc<RwLock<Vec<u8>>>, // Cache the binary suffix of the .aim file
     binary_header_raw: Arc<RwLock<Value>>, // Cache the non-kortex parts of the header
-    app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
+    editor_state: Arc<std::sync::RwLock<std::sync::Weak<crate::EditorState>>>,
     pub is_dirty: Arc<AtomicBool>, // Made pub for bridge sync
     vfs_bridge: Arc<RwLock<Option<crate::vfs_bridge::VfsBridge>>>,
     events: Arc<tokio::sync::Mutex<Vec<Value>>>,
@@ -130,7 +130,7 @@ impl MemoryStore {
             aim_path: Arc::new(RwLock::new(None)),
             binary_body: Arc::new(RwLock::new(Vec::new())),
             binary_header_raw: Arc::new(RwLock::new(json!({}))),
-            app_handle: Arc::new(RwLock::new(None)),
+            editor_state: Arc::new(std::sync::RwLock::new(std::sync::Weak::new())),
             is_dirty: is_dirty.clone(),
             vfs_bridge: Arc::new(RwLock::new(None)),
             events: Arc::new(tokio::sync::Mutex::new(Vec::new())),
@@ -146,7 +146,7 @@ impl MemoryStore {
         let aim_path = store.aim_path.clone();
         let binary_body = store.binary_body.clone();
         let header_raw = store.binary_header_raw.clone();
-        let app_handle = store.app_handle.clone();
+        let editor_state = store.editor_state.clone();
         let symbol_graph = store.symbol_graph.clone();
         let project_tree = store.project_tree.clone();
         let project_metadata = store.project_metadata.clone();
@@ -155,13 +155,11 @@ impl MemoryStore {
         // Singleton background flusher: ensures only one task ever handles disk I/O per process
         static FLUSHER_ACTIVE: AtomicBool = AtomicBool::new(false);
         if !FLUSHER_ACTIVE.swap(true, Ordering::SeqCst) {
-            tauri::async_runtime::spawn(async move {
+            let flusher = async move {
                 loop {
-                    // Optimized Flush Interval: 10 seconds for performance balance
-                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                     
                     if dirty.load(Ordering::SeqCst) {
-                        // Silent persistence to protect logs; only error if I/O fails
                         let path_lock = aim_path.read().await;
                         if let Some(path) = path_lock.as_ref() {
                             let mut header = header_raw.read().await.clone();
@@ -184,17 +182,13 @@ impl MemoryStore {
                                 let body = binary_body.read().await;
                                 final_bytes.extend_from_slice(&body);
                                 
-                                // Perform atomic-like write to the same .aim file (zero disk growth, one file)
                                 if let Err(e) = tokio::fs::write(path, final_bytes).await {
                                     eprintln!("[Kortex-AIM] Critical Persistence Error: {}", e);
                                 } else {
                                     dirty.store(false, Ordering::SeqCst);
                                     
-                                    // Telemetry only: no log spam
-                                    let app_lock = app_handle.read().await;
-                                    if let Some(handle) = app_lock.as_ref() {
-                                        use tauri::Emitter;
-                                        let _ = handle.emit("memory-update", json!({
+                                    if let Some(es) = editor_state.read().ok().and_then(|w| w.upgrade()) {
+                                        es.emit("memory-update", json!({
                                             "slots": snapshot.slots.len(),
                                             "entities": snapshot.entities.len(),
                                             "messages": snapshot.session_messages.len()
@@ -205,22 +199,40 @@ impl MemoryStore {
                         }
                     }
                 }
-            });
+            };
+
+            // Try to spawn on the current tokio runtime; if none exists (e.g. during
+            // early EditorState::new before the Tauri runtime is fully up), fall back
+            // to a dedicated std::thread with its own mini-runtime.
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => { handle.spawn(flusher); }
+                Err(_) => {
+                    std::thread::Builder::new()
+                        .name("kortex-flusher".into())
+                        .spawn(move || {
+                            let rt = tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .expect("failed to create flusher runtime");
+                            rt.block_on(flusher);
+                        })
+                        .ok();
+                }
+            }
         }
 
         store
     }
 
-    pub async fn set_app_handle(&self, handle: tauri::AppHandle) {
-        let mut lock = self.app_handle.write().await;
-        *lock = Some(handle);
+    pub fn set_editor_state(&self, weak: std::sync::Weak<crate::EditorState>) {
+        if let Ok(mut g) = self.editor_state.write() {
+            *g = weak;
+        }
     }
 
     pub async fn emit_event(&self, event: &str, payload: Value) {
-        let lock = self.app_handle.read().await;
-        if let Some(handle) = lock.as_ref() {
-            use tauri::Emitter;
-            let _ = handle.emit(event, payload);
+        if let Some(es) = self.editor_state.read().ok().and_then(|w| w.upgrade()) {
+            es.emit(event, payload);
         }
     }
 
@@ -230,9 +242,20 @@ impl MemoryStore {
 
     /// Mount Kortex persistent storage directly into a .aim file.
     /// Surgical extraction of JSON header and binary tensor body.
+    /// Guarded against multiple mounts to prevent OOM from loading the same data repeatedly.
     pub async fn mount_project(&self, project_path: Option<PathBuf>) {
         if let Some(pp) = project_path {
             let path = pp.join(".aim").join("memory.aim");
+            // Guard: skip if already mounted the same path
+            {
+                let lock = self.aim_path.read().await;
+                if let Some(ref existing) = *lock {
+                    if *existing == path && path.exists() {
+                        println!("[Kortex-AIM] Already mounted: {} — skipping duplicate load", path.display());
+                        return;
+                    }
+                }
+            }
             self.load_from_path(path).await;
         }
     }
@@ -244,6 +267,14 @@ impl MemoryStore {
         }
 
         if path.exists() {
+            // Cap .aim file read at 10MB to prevent OOM on corrupted files
+            const MAX_AIM_FILE_SIZE: u64 = 10 * 1024 * 1024;
+            if let Ok(meta) = std::fs::metadata(&path) {
+                if meta.len() > MAX_AIM_FILE_SIZE {
+                    eprintln!("[Kortex-AIM] File too large ({}MB) — skipping load to prevent OOM", meta.len() / 1_000_000);
+                    return;
+                }
+            }
             if let Ok(bytes) = tokio::fs::read(&path).await {
                 // Manually find the JSON boundary to bypass serde_json version issues
                 let mut header_end = 0;
@@ -378,6 +409,12 @@ impl MemoryStore {
     pub async fn store_message(&self, message: &ChatMessage) {
         let mut lock = self.messages.write().await;
         lock.push(message.clone());
+        // Cap at 500 messages to prevent unbounded growth
+        const MAX_MESSAGES: usize = 500;
+        if lock.len() > MAX_MESSAGES {
+            let drop = lock.len() - MAX_MESSAGES;
+            lock.drain(0..drop);
+        }
         drop(lock);
         self.is_dirty.store(true, Ordering::SeqCst);
     }
@@ -402,6 +439,12 @@ impl MemoryStore {
                 tool_call_id: None,
                 metadata: Some(json!({ "timestamp": timestamp })),
             });
+            // Cap at 500 messages
+            const MAX_MESSAGES: usize = 500;
+            if lock.len() > MAX_MESSAGES {
+                let drop = lock.len() - MAX_MESSAGES;
+                lock.drain(0..drop);
+            }
         }
         
         drop(lock);
@@ -470,27 +513,46 @@ impl MemoryStore {
     }
 
     pub async fn add_relationship(&self, tag: &str, id: &str) {
+        const MAX_ENTITIES: usize = 2000;
         let mut lock = self.entities.write().await;
         lock.entry(tag.to_string())
             .or_default()
             .push(id.to_string());
+        // Evict oldest entries if over cap
+        if lock.len() > MAX_ENTITIES {
+            let keys_to_remove: Vec<_> = lock.keys().take(lock.len() - MAX_ENTITIES).cloned().collect();
+            for key in keys_to_remove {
+                lock.remove(&key);
+            }
+        }
         drop(lock);
         self.is_dirty.store(true, Ordering::SeqCst);
     }
 
     pub async fn store_symbol(&self, symbol: SymbolDefinition) {
+        const MAX_SYMBOLS: usize = 5000;
         let mut lock = self.symbol_graph.write().await;
         lock.definitions.retain(|d| !(d.name == symbol.name && d.path == symbol.path));
         lock.definitions.push(symbol);
+        // Evict oldest if over cap
+        if lock.definitions.len() > MAX_SYMBOLS {
+            let excess = lock.definitions.len() - MAX_SYMBOLS;
+            lock.definitions.drain(0..excess);
+        }
         drop(lock);
         self.is_dirty.store(true, Ordering::SeqCst);
     }
 
     /// Synchronous version for high-performance bulk operations (e.g. indexing)
     pub fn store_symbol_sync(&self, symbol: SymbolDefinition) {
+        const MAX_SYMBOLS: usize = 5000;
         if let Ok(mut lock) = self.symbol_graph.try_write() {
             lock.definitions.retain(|d| !(d.name == symbol.name && d.path == symbol.path));
             lock.definitions.push(symbol);
+            if lock.definitions.len() > MAX_SYMBOLS {
+                let excess = lock.definitions.len() - MAX_SYMBOLS;
+                lock.definitions.drain(0..excess);
+            }
             self.is_dirty.store(true, Ordering::SeqCst);
         }
     }
@@ -600,7 +662,12 @@ impl MemoryStore {
         let query_lower = query.to_lowercase();
         let keywords: Vec<&str> = query_lower.split_whitespace().collect();
 
-        let mut relevant: Vec<(&SemanticSlot, f32)> = slots
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let mut relevant: Vec<(&SemanticSlot, f32, f32)> = slots
             .iter()
             .map(|s| {
                 let content_lower = s.content.to_lowercase();
@@ -613,21 +680,46 @@ impl MemoryStore {
                             || s.category.to_lowercase().contains(*kw)
                     })
                     .count();
-                
-                // Confidence score based on keyword density vs total keywords
+
+                // Confidence: keyword density vs total keywords. Kept raw because
+                // the page-fault path below thresholds on it (< 0.95).
                 let confidence = if keywords.is_empty() { 0.0 } else { matching_keywords as f32 / keywords.len() as f32 };
-                (s, confidence)
+
+                // Composite rank so memory *compounds* across sessions rather than
+                // being flat keyword recall (Cursor forgets between sessions):
+                //   score = confidence × category_weight × recency_decay
+                // Durable knowledge (fix lessons, decisions, agent memory) is worth
+                // surfacing even when slightly less keyword-dense; stale entries
+                // decay toward — but never below — half weight, so old lessons still
+                // count.
+                let cat = s.category.to_lowercase();
+                let category_weight = if cat.contains("lesson") || cat.contains("knowledge")
+                    || cat.contains("decision") || cat.contains("memory") || cat.contains("brief") {
+                    1.5
+                } else if cat.contains("file_map") {
+                    0.9
+                } else {
+                    1.0
+                };
+                // Half-life ~14 days. recency ∈ [0.5, 1.0].
+                const HALF_LIFE_SECS: f32 = 14.0 * 24.0 * 3600.0;
+                let age = now_secs.saturating_sub(s.timestamp) as f32;
+                let recency = 0.5 + 0.5 * (2.0f32).powf(-age / HALF_LIFE_SECS);
+
+                let score = confidence * category_weight * recency;
+                (s, confidence, score)
             })
-            .filter(|(_, confidence)| *confidence > 0.0)
+            .filter(|(_, confidence, _)| *confidence > 0.0)
             .collect();
 
-        relevant.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        // Rank by composite score; keep raw confidence for the page-fault decision.
+        relevant.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
         let top: Vec<_> = relevant.iter().take(5).collect();
 
         // Check for Page-Fault (Confidence < 0.95)
         let mut final_context = String::new();
         let vfs_lock = self.vfs_bridge.read().await;
-        for (slot, confidence) in top {
+        for (slot, confidence, _score) in top {
             let mut content = slot.content.clone();
             let metadata = slot.metadata.as_ref().cloned().unwrap_or(json!({}));
 
@@ -666,7 +758,7 @@ impl MemoryStore {
         }
 
         // Emit telemetry for real-time visualization of context retrieval
-        let active_ids: Vec<String> = relevant.iter().take(5).map(|(s, _)| s.id.clone()).collect();
+        let active_ids: Vec<String> = relevant.iter().take(5).map(|(s, _, _)| s.id.clone()).collect();
         if !active_ids.is_empty() {
             self.emit_event("context-active", json!({
                 "ids": active_ids,

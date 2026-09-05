@@ -392,6 +392,7 @@ pub fn skill_store_roots() -> Vec<PathBuf> {
     }
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn skill_store_status() -> Result<Value, String> {
     let installed = list_installed();
@@ -405,11 +406,13 @@ pub fn skill_store_status() -> Result<Value, String> {
     }))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn skill_store_list() -> Result<Value, String> {
     Ok(json!({ "skills": list_installed() }))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn skill_store_audit(id: String) -> Result<Value, String> {
     let id = slugify_id(&id);
@@ -421,6 +424,7 @@ pub fn skill_store_audit(id: String) -> Result<Value, String> {
     Ok(audit_report_to_json(&report))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn skill_store_install(source: String, id: Option<String>, force: Option<bool>) -> Result<Value, String> {
     let force = force.unwrap_or(false);
@@ -442,12 +446,14 @@ pub fn skill_store_install(source: String, id: Option<String>, force: Option<boo
     }))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn skill_store_uninstall(id: String) -> Result<Value, String> {
     uninstall_skill(&id)?;
     Ok(json!({ "ok": true, "id": slugify_id(&id) }))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn skill_store_refresh() -> Result<Value, String> {
     crate::hermes_skills::invalidate_skill_cache();

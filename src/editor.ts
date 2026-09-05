@@ -16,7 +16,10 @@ export async function loadFileContent(path: string) {
     if (welcomeView) welcomeView.classList.add("hidden");
     if (editorView) editorView.classList.remove("hidden");
 
-    const content = await invoke<string>("open_file", { path });
+    const result = await invoke<any>("open_file", { path });
+    const content = typeof result === 'object' && result !== null
+        ? (result.large ? (result.preview || '') : (result.content || ''))
+        : result;
     if ((window as any).monacoEditor) (window as any).monacoEditor.setValue(content);
 
     const breadcrumbs = document.getElementById("breadcrumbs");

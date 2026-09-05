@@ -29,10 +29,10 @@ export class AutonomousAgent {
   private competenceLevel = 50;
   private completedTasks = 0;
   private failedTasks = 0;
+  private cycleInterval: ReturnType<typeof setInterval> | null = null;
+  private learningInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
-    
-    
   }
 
   /**
@@ -40,17 +40,22 @@ export class AutonomousAgent {
    */
   public async startAutonomousLoop(): Promise<void> {
     if (this.isRunning) return;
-
-    
     this.isRunning = true;
 
-    // Main loop - scan and act every 10 seconds
-    setInterval(() => this.autonomousCycle(), 10000);
+    // Main loop - scan and act every 30 seconds
+    this.cycleInterval = setInterval(() => this.autonomousCycle(), 30000);
 
     // Learning loop - improve every minute
-    setInterval(() => this.backgroundLearning(), 60000);
+    this.learningInterval = setInterval(() => this.backgroundLearning(), 60000);
+  }
 
-    
+  /**
+   * Stop autonomous operation loop — clears all intervals to prevent OOM.
+   */
+  public stopAutonomousLoop(): void {
+    this.isRunning = false;
+    if (this.cycleInterval) { clearInterval(this.cycleInterval); this.cycleInterval = null; }
+    if (this.learningInterval) { clearInterval(this.learningInterval); this.learningInterval = null; }
   }
 
   /**
@@ -288,7 +293,7 @@ export class AutonomousAgent {
       this.failedTasks++;
       this.competenceLevel = Math.max(0, this.competenceLevel - 1);
       
-      console.error('[AutonomousAgent] ❌ Task failed:', task.description, e);
+ console.error('[AutonomousAgent] Task failed:', task.description, e);
       task.result = `Failed: ${e.message}`;
     }
 
@@ -383,7 +388,19 @@ export class AutonomousAgent {
       };
 
       localStorage.setItem(`airi_research_${Date.now()}`, JSON.stringify(findings));
-      
+
+      // Clean up old research entries older than 7 days to prevent localStorage bloat
+      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key?.startsWith('airi_research_')) {
+          const timestamp = parseInt(key.split('_')[2] || '0');
+          if (timestamp < sevenDaysAgo) {
+            localStorage.removeItem(key);
+          }
+        }
+      }
+
       task.progress = 100;
       task.result = 'Research completed and saved';
 
@@ -703,10 +720,13 @@ describe('${fileName}', () => {
 // Export singleton
 export const autonomousAgent = new AutonomousAgent();
 
-// Auto-start
+// Auto-start only if explicitly enabled via localStorage
 if (typeof window !== 'undefined') {
-  
-  setTimeout(() => {
-    autonomousAgent.startAutonomousLoop();
-  }, 5000);
+  try {
+    if (localStorage.getItem('autonomous-agent') === '1') {
+      setTimeout(() => {
+        autonomousAgent.startAutonomousLoop();
+      }, 5000);
+    }
+  } catch { /* no localStorage */ }
 }

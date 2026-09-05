@@ -1,4 +1,3 @@
-use crate::EditorState;
 use tauri::{AppHandle, Emitter, State};
 use serde_json::{json, Value};
 
@@ -12,7 +11,7 @@ fn root_uri(root: &str) -> String {
 
 #[tauri::command]
 pub async fn lsp_start(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     app: AppHandle,
     command: String,
     args: Option<Vec<String>>,
@@ -36,7 +35,7 @@ pub async fn lsp_start(
 
 #[tauri::command]
 pub async fn lsp_auto_start(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     app: AppHandle,
     root: String,
 ) -> Result<Value, String> {
@@ -75,7 +74,7 @@ pub async fn lsp_auto_start(
 
 #[tauri::command]
 pub async fn lsp_ensure_for_file(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     app: AppHandle,
     root: String,
     path: String,
@@ -101,7 +100,7 @@ pub async fn lsp_ensure_for_file(
 
 #[tauri::command]
 pub async fn lsp_detect_workspace(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     root: String,
 ) -> Result<Value, String> {
     let root_path = std::path::PathBuf::from(&root);
@@ -113,7 +112,7 @@ pub async fn lsp_detect_workspace(
 
 #[tauri::command]
 pub async fn lsp_start_server(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     app: AppHandle,
     root: String,
     server_id: String,
@@ -151,7 +150,7 @@ pub async fn lsp_start_server(
 }
 
 #[tauri::command]
-pub async fn lsp_bundle_status(state: State<'_, EditorState>) -> Result<Value, String> {
+pub async fn lsp_bundle_status(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Value, String> {
     let mut status = crate::lsp_bundle::bundle_status(&state.config_dir);
     let router = state.editor.lsp_router.lock().await;
     if let Some(obj) = status.as_object_mut() {
@@ -170,7 +169,7 @@ pub async fn lsp_bundle_status(state: State<'_, EditorState>) -> Result<Value, S
 
 #[tauri::command]
 pub async fn lsp_ensure_bundle(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     root: String,
 ) -> Result<Value, String> {
     let root_path = std::path::PathBuf::from(&root);
@@ -185,7 +184,7 @@ pub async fn lsp_ensure_bundle(
 
 #[tauri::command]
 pub async fn lsp_send_request(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     id: i32,
     method: String,
     params: Value,
@@ -208,19 +207,19 @@ pub async fn lsp_send_request(
 }
 
 #[tauri::command]
-pub async fn lsp_stop(state: State<'_, EditorState>) -> Result<(), String> {
+pub async fn lsp_stop(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<(), String> {
     state.editor.lsp_router.lock().await.stop_all().await;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn lsp_initialized(_state: State<'_, EditorState>) -> Result<(), String> {
+pub async fn lsp_initialized(_state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<(), String> {
     Ok(())
 }
 
 #[tauri::command]
 pub async fn lsp_did_open(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     uri: String,
     language_id: String,
     version: i32,
@@ -236,7 +235,7 @@ pub async fn lsp_did_open(
 
 #[tauri::command]
 pub async fn lsp_did_change(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     uri: String,
     version: i32,
     text: String,
@@ -250,13 +249,13 @@ pub async fn lsp_did_change(
 }
 
 #[tauri::command]
-pub async fn lsp_did_save(state: State<'_, EditorState>, uri: String) -> Result<(), String> {
+pub async fn lsp_did_save(state: State<'_, std::sync::Arc<crate::EditorState>>, uri: String) -> Result<(), String> {
     state.editor.lsp_router.lock().await.did_save(&uri).await
 }
 
 #[tauri::command]
 pub async fn lsp_set_workspace(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     root_uri: String,
 ) -> Result<(), String> {
     state
@@ -269,7 +268,7 @@ pub async fn lsp_set_workspace(
 
 #[tauri::command]
 pub async fn lsp_change_workspace_folders(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     folders: Vec<Value>,
 ) -> Result<(), String> {
     let pairs: Vec<(String, String)> = folders
@@ -294,7 +293,7 @@ pub async fn lsp_change_workspace_folders(
 
 #[tauri::command]
 pub async fn lsp_get_diagnostics(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     path: Option<String>,
 ) -> Result<Value, String> {
     let diags = state.editor.lsp_diagnostics.read().await;
@@ -307,13 +306,13 @@ pub async fn lsp_get_diagnostics(
 }
 
 #[tauri::command]
-pub async fn lsp_is_running(state: State<'_, EditorState>) -> Result<bool, String> {
+pub async fn lsp_is_running(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<bool, String> {
     Ok(state.editor.lsp_router.lock().await.is_any_running().await)
 }
 
 #[tauri::command]
 pub async fn lsp_completion(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     uri: String,
     line: u32,
     character: u32,
@@ -342,7 +341,7 @@ pub async fn lsp_completion(
 
 #[tauri::command]
 pub async fn lsp_hover(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     uri: String,
     line: u32,
     character: u32,
@@ -364,7 +363,7 @@ pub async fn lsp_hover(
 
 #[tauri::command]
 pub async fn lsp_goto_definition(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     uri: String,
     line: u32,
     character: u32,
@@ -386,7 +385,7 @@ pub async fn lsp_goto_definition(
 
 #[tauri::command]
 pub async fn lsp_find_references(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     uri: String,
     line: u32,
     character: u32,
@@ -409,7 +408,7 @@ pub async fn lsp_find_references(
 
 #[tauri::command]
 pub async fn lsp_rename_symbol(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     uri: String,
     line: u32,
     character: u32,
@@ -433,7 +432,7 @@ pub async fn lsp_rename_symbol(
 
 #[tauri::command]
 pub async fn lsp_format_document(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     uri: String,
 ) -> Result<Value, String> {
     let mut router = state.editor.lsp_router.lock().await;
@@ -453,7 +452,7 @@ pub async fn lsp_format_document(
 
 #[tauri::command]
 pub async fn lsp_workspace_symbols(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     query: String,
 ) -> Result<Value, String> {
     let uri = "file:///workspace";
@@ -471,7 +470,7 @@ pub async fn lsp_workspace_symbols(
 
 #[tauri::command]
 pub async fn lsp_code_lens(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     uri: String,
 ) -> Result<Value, String> {
     let mut router = state.editor.lsp_router.lock().await;
@@ -488,7 +487,7 @@ pub async fn lsp_code_lens(
 
 #[tauri::command]
 pub async fn lsp_document_symbols(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     uri: String,
 ) -> Result<Value, String> {
     let mut router = state.editor.lsp_router.lock().await;

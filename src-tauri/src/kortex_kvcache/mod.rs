@@ -13,18 +13,20 @@
 //!      forwards to the llama-server `upstream_url`.
 //!   3. IDE clients point at the proxy URL instead of the raw upstream.
 
+pub mod capability;
 pub mod llamacpp;
 pub mod proxy;
 pub mod store;
 pub mod types;
 
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "tauri")]
 use tauri::command;
 
 pub use llamacpp::{LlamaCppClient, ServerProps};
-pub use store::{align_save_count, sha256_tokens_hex, slotbin_path, CacheStore};
+pub use store::{align_save_count, plan_save_count, sha256_tokens_hex, slotbin_path, CacheStore};
 pub use types::{
-    KvCacheEntry, KvCacheOptions, KvCacheStats, ModelIdentity, ModelMatchPolicy,
+    CacheTier, KvCacheEntry, KvCacheOptions, KvCacheStats, ModelIdentity, ModelMatchPolicy,
     PrefixMatch, RoutingTrace, SaveReason,
 };
 
@@ -75,7 +77,20 @@ pub async fn kortex_kvcache_start(mut opts: KvCacheOptions) -> Result<u16, Strin
     }
     let store = CacheStore::open(opts.clone()).map_err(|e| e.to_string())?;
     let port = opts.proxy_port;
-    let state = Arc::new(proxy::ProxyState::new(opts, store));
+
+    // Probe the upstream and resolve the caching tier before we start serving.
+    // `Auto` (the default) picks Kv when llama.cpp slot save/restore is present,
+    // otherwise Response (safe passthrough until Tier 2 lands). Store dirs are
+    // already created by CacheStore::open, so the non-destructive slot probe can
+    // write + delete its scratch file.
+    let probe_client = LlamaCppClient::new(opts.upstream_url.clone(), opts.slot_id);
+    let resolved_tier = capability::resolve_tier(opts.tier, &probe_client, &opts.slot_dir).await;
+    eprintln!(
+        "[kortex_kvcache] resolved tier = {:?} (requested {:?})",
+        resolved_tier, opts.tier
+    );
+
+    let state = Arc::new(proxy::ProxyState::new(opts, store, resolved_tier));
 
     // Smoke-check the upstream once before binding the listener; we want
     // launch errors to surface here, not as a 502 on first request.
@@ -147,6 +162,7 @@ pub async fn kortex_kvcache_status() -> Result<Option<RunningCacheInfo>, String>
         model_id: state.opts.model.model_id.clone(),
         quant_signature: state.opts.model.quant_signature.clone(),
         tokenizer_hash: state.opts.model.tokenizer_hash.clone(),
+        tier: state.resolved_tier,
     }))
 }
 
@@ -183,4 +199,6 @@ pub struct RunningCacheInfo {
     pub model_id: String,
     pub quant_signature: String,
     pub tokenizer_hash: String,
+    /// Concrete tier the proxy resolved to at startup (Kv / Response / Off).
+    pub tier: CacheTier,
 }

@@ -1,6 +1,7 @@
 @import './styles/tokens.css';
 @import './styles/components.css';
 @import './styles/readability.css';
+@import './styles/professional.css';
 
 @font-face {
   font-family: "codicon";
@@ -134,49 +135,54 @@
 }
 
 :root {
-  /* Authentic VS Code Dark+ Palette */
-  --vscode-editor-background: #1e1e1e;
-  --vscode-editor-foreground: #d4d4d4;
-  --vscode-foreground: #d4d4d4;
-  --vscode-descriptionForeground: #b4b4b4;
-  --vscode-sideBar-background: #252526;
-  --vscode-sideBar-foreground: #cccccc;
-  --vscode-activityBar-background: #333333;
-  --vscode-activityBar-foreground: #d7d7d7;
-  --vscode-activityBar-inactiveForeground: rgba(215, 215, 215, 0.4);
-  --vscode-statusBar-background: #007acc;
-  --vscode-statusBar-foreground: #ffffff;
-  --vscode-titleBar-activeBackground: #1e1e1e;
-  --vscode-titleBar-activeForeground: #ffffff;
-  --vscode-panel-background: #1e1e1e;
-  --vscode-panel-border: #2b2b2b;
+  /* Cursor-style flat neutral-dark palette: panels sit close in tone (low
+     contrast between editor/sidebar/tabs), neutral grays, blue accent, dark
+     status bar (not VS Code's blue). Gives the IDE the Cursor "feel". */
+  --vscode-editor-background: #1a1a1a;
+  --vscode-editor-foreground: #d4d4d6;
+  --vscode-foreground: #d4d4d6;
+  --vscode-descriptionForeground: #9a9a9e;
+  --vscode-sideBar-background: #181818;
+  --vscode-sideBar-foreground: #c8c8cc;
+  --vscode-activityBar-background: #181818;
+  --vscode-activityBar-foreground: #d0d0d4;
+  --vscode-activityBar-inactiveForeground: rgba(208, 208, 212, 0.42);
+  --vscode-statusBar-background: #181818;
+  --vscode-statusBar-foreground: #c8c8cc;
+  --vscode-titleBar-activeBackground: #1a1a1a;
+  --vscode-titleBar-activeForeground: #e4e4e6;
+  --vscode-panel-background: #1a1a1a;
+  --vscode-panel-border: #232323;
+  /* One seamless terminal black (host + sidebar + xterm all match). */
+  --vscode-terminal-background: #1a1a1a;
+  --vscode-terminal-foreground: #d4d4d6;
 
-  /* Extended VS Code Token Palette (Theme-aware) */
-  --vscode-list-hoverBackground: #2a2d2e;
-  --vscode-list-activeSelectionBackground: #094771;
+  /* Extended palette — neutral selection (no bright blue), blue accent. */
+  --vscode-list-hoverBackground: #232323;
+  --vscode-list-activeSelectionBackground: #2d2e30;
   --vscode-list-activeSelectionForeground: #ffffff;
-  --vscode-list-inactiveSelectionBackground: #37373d;
-  --vscode-input-background: #3c3c3c;
-  --vscode-input-foreground: #cccccc;
-  --vscode-input-placeholderForeground: #b0b0b0;
-  --vscode-focusBorder: #007acc;
-  --vscode-menu-background: #252526;
-  --vscode-menu-foreground: #cccccc;
-  --vscode-menu-border: #454545;
-  --vscode-menu-selectionBackground: #094771;
+  --vscode-list-inactiveSelectionBackground: #262627;
+  --vscode-input-background: #202021;
+  --vscode-input-foreground: #d4d4d6;
+  --vscode-input-placeholderForeground: #6b6b70;
+  --vscode-focusBorder: #3b82f6;
+  --vscode-menu-background: #1d1d1e;
+  --vscode-menu-foreground: #d4d4d6;
+  --vscode-menu-border: #2e2e30;
+  --vscode-menu-selectionBackground: #2d2e30;
   --vscode-menu-selectionForeground: #ffffff;
-  --vscode-toolbar-hoverBackground: #37373d;
-  --vscode-editorGroupHeader-tabsBackground: #252526;
-  --vscode-tab-activeBackground: #1e1e1e;
-  --vscode-tab-activeForeground: #ffffff;
-  --vscode-tab-inactiveBackground: #2d2d2d;
-  --vscode-tab-inactiveForeground: rgba(255, 255, 255, 0.62);
-  --vscode-tab-border: #252526;
-  --vscode-button-background: #0e639c;
+  --vscode-toolbar-hoverBackground: #2a2a2c;
+  --vscode-editorGroupHeader-tabsBackground: #181818;
+  --vscode-tab-activeBackground: #1a1a1a;
+  --vscode-tab-activeForeground: #e8e8ea;
+  --vscode-tab-inactiveBackground: #181818;
+  --vscode-tab-inactiveForeground: rgba(232, 232, 234, 0.5);
+  --vscode-tab-border: #232323;
+  --vscode-button-background: #3b82f6;
   --vscode-button-foreground: #ffffff;
-  --vscode-button-hoverBackground: #1177bb;
-  --vscode-debugToolBar-background: #252526;
-  --vscode-debugToolBar-border: #454545;
+  --vscode-button-hoverBackground: #4c8ef7;
+  --vscode-debugToolBar-background: #1d1d1e;
+  --vscode-debugToolBar-border: #2e2e30;
   --vscode-notebook-cellEditorBackground: #2b2b2b;
   --vscode-notebook-cellPromptColor: #569cd6;
   --vscode-notebook-stderrBackground: #3b1d1d;
@@ -192,6 +198,28 @@
   --airi-success: #89d185;
   --airi-warning: #cca700;
   --airi-error: #f48771;
+
+  /* Semantic Color Tokens (replace raw hex in components) */
+  --color-success: #10b981;
+  --color-success-muted: rgba(16, 185, 129, 0.15);
+  --color-error: #ef4444;
+  --color-error-muted: rgba(239, 68, 68, 0.15);
+  --color-warning: #f59e0b;
+  --color-warning-muted: rgba(245, 158, 11, 0.15);
+  --color-info: #3b82f6;
+  --color-info-muted: rgba(59, 130, 246, 0.15);
+  --color-purple: #c084fc;
+  --color-purple-muted: rgba(192, 132, 252, 0.15);
+  --color-cyan: #22d3ee;
+  --color-cyan-muted: rgba(34, 211, 238, 0.15);
+  --color-green: #4ade80;
+  --color-green-muted: rgba(74, 222, 128, 0.15);
+  --color-red: #f87171;
+  --color-red-muted: rgba(248, 113, 113, 0.15);
+  --color-orange: #fb923c;
+  --color-orange-muted: rgba(251, 146, 60, 0.15);
+  --color-pink: #f472b6;
+  --color-pink-muted: rgba(244, 114, 182, 0.15);
 
   /* Layout Metrics (Pixel Perfect VS Code) */
   --activity-bar-width: 48px;
@@ -367,15 +395,17 @@ body.has-airi-wallpaper #title-bar {
 }
 
 .pane-actions {
-  display: flex;
+  /* display:none (not opacity:0) so the hidden action icons don't reserve
+     layout width — otherwise the folder name is squeezed to "EV_..." even
+     though the icons are invisible. Revealed on hover, VS Code/Cursor-style. */
+  display: none;
   gap: 8px;
   align-items: center;
-  opacity: 0;
-  transition: opacity 0.2s;
+  flex-shrink: 0;
 }
 
 .pane-header:hover .pane-actions {
-  opacity: 1;
+  display: flex;
 }
 
 .pane-content {
@@ -466,21 +496,22 @@ body.has-airi-wallpaper .editor-container {
   display: flex;
   align-items: center;
   padding: 0 12px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 12px;
+  /* Cursor-style: normal Title Case, not uppercase. */
+  text-transform: none;
+  letter-spacing: 0;
   cursor: pointer;
-  color: var(--readability-subtle, rgba(255, 255, 255, 0.62));
+  color: var(--ac-fg-muted, rgba(255, 255, 255, 0.5));
   font-weight: 500;
-  transition: color 0.1s;
+  transition: color 0.12s;
 }
 
 .panel-tab:hover {
-  color: var(--vscode-editor-foreground);
+  color: var(--ac-fg, var(--vscode-editor-foreground));
 }
 
 .panel-tab.active {
-  color: var(--vscode-editor-foreground);
+  color: var(--ac-fg, var(--vscode-editor-foreground));
 }
 
 .panel-tab.active::after {
@@ -489,8 +520,8 @@ body.has-airi-wallpaper .editor-container {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 1px;
-  background: var(--vscode-panelTitle-activeBorder, var(--vscode-editor-foreground, #e7e7e7));
+  height: 1.5px;
+  background: var(--ac-accent, #3b82f6);
 }
 
 /* Bottom panel toolbar icons */
@@ -3132,9 +3163,9 @@ body.resizing .resizer-h {
 /* ── Cursor Composer chat widgets ── */
 .composer-thinking {
   margin-bottom: 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--ac-radius-sm, 6px);
+  border: 1px solid var(--ac-border, rgba(255, 255, 255, 0.08));
+  background: var(--ac-surface, rgba(255, 255, 255, 0.02));
   overflow: hidden;
 }
 
@@ -3146,7 +3177,7 @@ body.resizing .resizer-h {
   font-size: 11px;
   cursor: pointer;
   list-style: none;
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--ac-fg-dim, rgba(255, 255, 255, 0.65));
 }
 
 .composer-thinking__summary::-webkit-details-marker {
@@ -3162,7 +3193,7 @@ body.resizing .resizer-h {
 }
 
 .composer-thinking__dot--live {
-  background: #3794ff;
+  background: var(--ac-accent, #3794ff);
   animation: hubPulse 1s infinite;
 }
 
@@ -3256,6 +3287,132 @@ body.resizing .resizer-h {
   opacity: 0.35;
   font-size: 10px;
 }
+
+/* Cursor-style diff line accent: a coloured left gutter + richer fill. */
+.composer-inline-diff__line--add {
+  background: rgba(78, 201, 148, 0.13);
+  box-shadow: inset 2px 0 0 rgba(78, 201, 148, 0.55);
+}
+.composer-inline-diff__line--del {
+  background: rgba(248, 113, 113, 0.13);
+  box-shadow: inset 2px 0 0 rgba(248, 113, 113, 0.55);
+}
+
+/* Cursor-style edit card: filename chip + +N/−N badges in the header. */
+.agent-edit-card__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 60%;
+  overflow: hidden;
+}
+.agent-edit-card__name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.82);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-edit-card__stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  margin-right: 8px;
+}
+.agent-edit-card__add { color: #4ec994; }
+.agent-edit-card__del { color: #f87171; }
+.agent-edit-card:hover {
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+/* Cursor-style composer + pills (mode / model selectors). */
+.vscr-composer:focus-within {
+  border-color: rgba(96, 165, 250, 0.45) !important;
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.18), 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+}
+
+.vscr-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.72);
+  transition: background 0.15s, border-color 0.15s;
+}
+.vscr-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.vscr-pill__caret {
+  font-family: codicon;
+  font-style: normal;
+  font-size: 9px;
+  opacity: 0.5;
+}
+.vscr-pill--model .vscr-pill__label {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+/* Inline per-file Accept/Reject on edit cards (Cursor-style). */
+.agent-edit-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.agent-edit-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+.agent-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+.agent-edit-btn .codicon { font-family: codicon; font-style: normal; font-size: 10px; }
+.agent-edit-btn:disabled { opacity: 0.5; cursor: default; }
+.agent-edit-btn--reject {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+.agent-edit-btn--reject:hover:not(:disabled) { background: rgba(239, 68, 68, 0.2); }
+.agent-edit-btn--accept {
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+.agent-edit-btn--accept:hover:not(:disabled) { background: rgba(16, 185, 129, 0.26); }
+.agent-edit-decided {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.agent-edit-decided .codicon { font-family: codicon; font-style: normal; font-size: 10px; }
+.agent-edit-decided--ok { color: #34d399; }
+.agent-edit-decided--no { color: #f87171; }
 
 .composer-todo {
   padding: 6px 10px 8px;
@@ -4789,3 +4946,242 @@ button, input, textarea, select,
     font-weight: 600;
     color: #9ece6a;
 }
+
+/* Fix Mermaid foreignObject text wrapping in WebView2/Tauri */
+.mmd-flow foreignObject,
+.mmd-flow foreignObject div,
+.mmd-flow foreignObject span,
+.mmd-flow .nodeLabel,
+.mmd-flow .label {
+    white-space: nowrap !important;
+}
+
+/* NOTE: deliberately NO per-node `filter: drop-shadow(...)`. WebView2 composites
+   a separate GPU layer per filtered element, so a per-node drop-shadow on a large
+   diagram spikes memory and crashes the renderer. Depth comes from mermaid's own
+   node borders/fills instead. Only round the subgraph corners (cheap). */
+.mmd-flow svg g.cluster rect {
+    rx: 12px;
+    ry: 12px;
+}
+/* Crisp, readable edges + labels on the dark canvas. */
+.mmd-flow svg .edgePath path,
+.mmd-flow svg .flowchart-link {
+    stroke-width: 1.75px;
+}
+.mmd-flow svg .edgeLabel,
+.mmd-flow svg .edgeLabel p,
+.mmd-flow svg .edgeLabel rect {
+    background: #0f172a !important;
+    color: #e2e8f0 !important;
+    fill: #0f172a !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   AGENTIC CHAT DESIGN SYSTEM — Cursor neutral-dark (Composer 2.5)
+   One token set + reusable .ac-* primitives applied across every agent surface
+   (messages, thinking, tool cards, diffs, completion/plan cards, composer input).
+   ════════════════════════════════════════════════════════════════════════════ */
+:root, .agent-chat {
+    --ac-bg: #0f1011;
+    --ac-surface: #161719;
+    --ac-surface-2: #1b1d20;
+    --ac-surface-hover: #212427;
+    --ac-border: rgba(255, 255, 255, 0.08);
+    --ac-border-strong: rgba(255, 255, 255, 0.14);
+    --ac-fg: #e6e7e9;
+    --ac-fg-dim: #a3a7ad;
+    --ac-fg-muted: #6b7077;
+    --ac-accent: #3b82f6;
+    --ac-accent-fg: #ffffff;
+    --ac-accent-soft: rgba(59, 130, 246, 0.14);
+    --ac-accent-border: rgba(59, 130, 246, 0.45);
+    --ac-green: #3fb950;
+    --ac-red: #f85149;
+    --ac-amber: #d29922;
+    --ac-radius: 8px;
+    --ac-radius-sm: 6px;
+    --ac-radius-lg: 12px;
+    --ac-font: 12px;
+}
+
+/* ── Cards (completion, plan, generic surface) ──────────────────────────── */
+.ac-card {
+    background: var(--ac-surface);
+    border: 1px solid var(--ac-border);
+    border-radius: var(--ac-radius);
+    padding: 10px 12px;
+    margin-top: 8px;
+    animation: ac-fade-in 0.18s ease both;
+}
+.ac-card__title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ac-fg);
+}
+.ac-card__title .codicon { font-size: 14px; }
+.ac-card__steps {
+    margin: 8px 0 0;
+    padding-left: 18px;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--ac-fg-dim);
+}
+.ac-card__steps li { margin: 1px 0; }
+.ac-card__actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.ac-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+    border-radius: var(--ac-radius-sm);
+    border: 1px solid var(--ac-border);
+    background: var(--ac-surface-2);
+    color: var(--ac-fg);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+    white-space: nowrap;
+}
+.ac-btn .codicon { font-size: 13px; }
+.ac-btn:hover { background: var(--ac-surface-hover); border-color: var(--ac-border-strong); }
+.ac-btn:disabled { opacity: 0.45; cursor: default; }
+.ac-btn--primary {
+    background: var(--ac-accent);
+    border-color: var(--ac-accent);
+    color: var(--ac-accent-fg);
+}
+.ac-btn--primary:hover { background: #4c8ef7; border-color: #4c8ef7; }
+.ac-btn--ghost { background: transparent; }
+.ac-btn--ghost:hover { background: var(--ac-surface-hover); }
+.ac-btn--danger { color: var(--ac-red); border-color: rgba(248, 81, 73, 0.3); background: rgba(248, 81, 73, 0.08); }
+.ac-btn--danger:hover { background: rgba(248, 81, 73, 0.15); }
+.ac-btn--ok { color: var(--ac-green); border-color: rgba(63, 185, 80, 0.3); background: rgba(63, 185, 80, 0.08); }
+.ac-btn--ok:hover { background: rgba(63, 185, 80, 0.15); }
+
+/* ── Icon button (hover-reveal actions) ─────────────────────────────────── */
+.ac-icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: var(--ac-radius-sm);
+    color: var(--ac-fg-muted); background: transparent; border: none; cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+.ac-icon-btn:hover { background: var(--ac-surface-hover); color: var(--ac-fg); }
+.ac-icon-btn .codicon { font-size: 12px; }
+
+/* ── Chips ──────────────────────────────────────────────────────────────── */
+.ac-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 500;
+    background: var(--ac-surface-2); border: 1px solid var(--ac-border); color: var(--ac-fg-dim);
+}
+.ac-chip .codicon { font-size: 11px; }
+.ac-chip--ok { background: rgba(63, 185, 80, 0.1); border-color: rgba(63, 185, 80, 0.3); color: var(--ac-green); }
+.ac-chip--accent { background: var(--ac-accent-soft); border-color: var(--ac-accent-border); color: #8ab4f8; }
+
+/* ── Tool-call card shell (running / done / error) ──────────────────────── */
+.ac-tool {
+    border: 1px solid var(--ac-border);
+    border-radius: var(--ac-radius);
+    background: var(--ac-surface);
+    margin: 6px 0;
+    overflow: hidden;
+    animation: ac-fade-in 0.18s ease both;
+}
+.ac-tool__head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; font-size: 12px; color: var(--ac-fg);
+    cursor: default;
+}
+.ac-tool__name { font-weight: 600; }
+.ac-tool__detail { color: var(--ac-fg-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-tool__spacer { flex: 1; }
+.ac-tool--running { border-color: var(--ac-accent-border); }
+.ac-tool--running .ac-tool__head { position: relative; }
+.ac-tool--running .ac-tool__head::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--ac-accent), transparent);
+    background-size: 200% 100%; animation: ac-shimmer 1.1s linear infinite;
+}
+.ac-status-icon--running { color: var(--ac-accent); animation: ac-spin 0.9s linear infinite; }
+.ac-status-icon--done { color: var(--ac-green); }
+.ac-status-icon--error { color: var(--ac-red); }
+
+/* ── Message rows ───────────────────────────────────────────────────────── */
+.ac-msg { padding: 6px 12px; position: relative; }
+.ac-msg__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; min-height: 18px; }
+.ac-msg__role { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ac-fg-muted); }
+.ac-msg__actions { display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s; }
+.ac-msg:hover .ac-msg__actions { opacity: 1; }
+.ac-user-bubble {
+    background: var(--ac-surface);
+    border: 1px solid var(--ac-border);
+    border-radius: var(--ac-radius);
+    padding: 9px 12px;
+}
+.ac-msg__body { animation: ac-fade-in 0.16s ease both; }
+.ac-context-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 7px; border-radius: var(--ac-radius-sm); font-size: 10px;
+    background: var(--ac-surface-2); border: 1px solid var(--ac-border); color: var(--ac-fg-dim);
+}
+
+/* ── Terminal: clean Cursor-style breathing room ────────────────────────── */
+.terminal-instance-element { padding: 6px 0 2px 10px; }
+.terminal-instance-element .xterm-viewport::-webkit-scrollbar { width: 10px; }
+.terminal-instance-element .xterm-viewport::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12); border-radius: 6px; border: 2px solid transparent; background-clip: content-box;
+}
+.terminal-instance-element .xterm-viewport::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); background-clip: content-box; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   POTATO / LOW-END MODE — flipped on by main.tsx (body.low-end).
+   Kills GPU-heavy effects that balloon renderer/GPU memory and stutter on old
+   integrated GPUs: backdrop blur (separate compositing layers), animations, and
+   shadows. Trades polish for "runs on a 10-year-old laptop".
+   ════════════════════════════════════════════════════════════════════════ */
+body.low-end *,
+body.low-end *::before,
+body.low-end *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    animation: none !important;
+    transition: none !important;
+    filter: none !important;
+}
+/* Flatten the most expensive glass/gradient surfaces to a solid color. */
+body.low-end .body-backdrop,
+body.low-end [style*="backdrop-filter"] { background-image: none !important; }
+
+/* ── Quick-mission cards (empty state) ──────────────────────────────────── */
+.ac-mission {
+    display: flex; align-items: center; gap: 7px;
+    padding: 9px 11px; border-radius: var(--ac-radius);
+    background: var(--ac-surface); border: 1px solid var(--ac-border);
+    color: var(--ac-fg-dim); font-size: 11.5px; text-align: left;
+    cursor: pointer; transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.ac-mission:hover:not(:disabled) {
+    background: var(--ac-surface-hover); border-color: var(--ac-accent-border); color: var(--ac-fg);
+}
+.ac-mission:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Streaming caret + animations ───────────────────────────────────────── */
+.ac-caret::after {
+    content: "▋"; display: inline-block; margin-left: 1px;
+    color: var(--ac-accent); animation: ac-caret-blink 1s step-end infinite;
+}
+@keyframes ac-caret-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes ac-fade-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+@keyframes ac-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes ac-spin { to { transform: rotate(360deg); } }

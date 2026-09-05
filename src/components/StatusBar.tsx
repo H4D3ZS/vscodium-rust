@@ -45,7 +45,7 @@ const StatusItem: React.FC<StatusItemProps> = ({ onClick, title, children, accen
             alignItems: 'center',
             padding: '0 8px',
             gap: '4px',
-            color: danger ? '#f87171' : accent ? '#4ade80' : 'inherit',
+            color: danger ? 'var(--color-red)' : accent ? 'var(--color-green)' : 'inherit',
             background: accent ? 'rgba(74, 222, 128, 0.08)' : undefined,
         }}
     >
@@ -101,6 +101,9 @@ const StatusBar: React.FC = () => {
     const availableModels = useStore(state => state.availableModels);
     const refreshAvailableModels = useStore(state => state.refreshAvailableModels);
     const ollamaStatus = useStore(state => state.ollamaStatus);
+    const lemonadeStatus = useStore(state => state.lemonadeStatus);
+    const llamaCppStatus = useStore(state => state.llamaCppStatus);
+    const inferenceBackend = useStore(state => state.inferenceBackend);
     const toggleRightSidebar = useStore(state => state.toggleRightSidebar);
     const openEmulatorPanel = useStore(state => state.openEmulatorPanel);
     const openAiriPanel = useStore(state => state.openAiriPanel);
@@ -156,9 +159,28 @@ const StatusBar: React.FC = () => {
     const toggleOutlinePanel = useStore(state => (state as any).toggleOutlinePanel);
 
     // ── Token budget ─────────────────────────────────────────────────────────
-    const agentMessages = useStore(state => (state as any).agentMessages ?? []);
+    // Use message count (not full array) to avoid re-rendering on every streaming token
+    const agentMsgCount = useStore(state => (state as any).agentMessages?.length ?? 0);
+
+    // Real served context window, from the backend. The name-based guess below is
+    // only a fallback for cloud models: it read "35B" out of the model id and
+    // concluded 32768, so this meter showed "11/33k" while Lemonade was actually
+    // serving 98304. Under-reporting makes the bar look nearly full when there is
+    // room; over-reporting hides an impending overflow — and overflow on this
+    // stack returns an empty HTTP 200 that presents as the agent hanging.
+    const agentModelName = useStore(state => (state as any).agentModel ?? '');
+    const [servedCtx, setServedCtx] = React.useState<number | null>(null);
+    React.useEffect(() => {
+        let cancelled = false;
+        invoke<number>('lemonade_context_window')
+            .then(n => { if (!cancelled && n > 0) setServedCtx(n); })
+            .catch(() => { if (!cancelled) setServedCtx(null); });
+        return () => { cancelled = true; };
+    }, [agentModelName, agentMsgCount === 0]);
+
     const tokenBudget = React.useMemo(() => {
-        const used = agentMessages.reduce((sum: number, m: any) => {
+        const msgs = (useStore.getState() as any).agentMessages ?? [];
+        const used = msgs.reduce((sum: number, m: any) => {
             const txt = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
             return sum + Math.ceil(txt.length / 4);
         }, 0);
@@ -166,17 +188,21 @@ const StatusBar: React.FC = () => {
         const ml = model.toLowerCase();
         const paramMatch = ml.match(/(?:^|[/:\-_])(\d+)b(?:[^a-z]|$)/);
         const paramB = paramMatch ? parseInt(paramMatch[1], 10) : 0;
-        const max = ml.includes('gemini-2.5') ? 1048576
+        // Served value wins. Guessing from the model id is a last resort for
+        // cloud models, where there is no local server to ask.
+        const max = servedCtx ?? (
+            ml.includes('gemini-2.5') ? 1048576
             : ml.includes('gemini') ? 131072
             : ml.includes('claude') ? 200000
             : ml.includes('gpt-4') ? 128000
             : paramB >= 30 ? 32768
             : paramB >= 14 ? 24576
             : paramB >= 8 ? 16384
-            : ml.includes('ollama') || ml.includes('/') || ml.includes(':') ? 8192
-            : 128000;
+            : ml.includes('lemonade') || ml.includes('/') || ml.includes(':') ? 8192
+            : 128000
+        );
         return { used, max, pct: Math.min(100, Math.round((used / max) * 100)) };
-    }, [agentMessages]);
+    }, [agentMsgCount, servedCtx]);
 
     // ── Git blame ─────────────────────────────────────────────────────────────
     const isGitBlameVisible = useStore(state => (state as any).isGitBlameVisible ?? false);
@@ -209,6 +235,7 @@ const StatusBar: React.FC = () => {
 
     // ── Model picker ─────────────────────────────────────────────────────────
     const [modelPickerOpen, setModelPickerOpen] = useState(false);
+    const [healthDashboardOpen, setHealthDashboardOpen] = useState(false);
     const [pickerPos, setPickerPos] = useState<{ left: number; bottom: number } | null>(null);
     const modelPickerRef = useRef<HTMLDivElement>(null);
 
@@ -315,6 +342,33 @@ const StatusBar: React.FC = () => {
         };
     }, []);
 
+    // ── Account / usage chip (SaaS) ───────────────────────────────────────────
+    const openSettings = useStore(state => (state as any).openSettings);
+    const [acct, setAcct] = useState<{ signedIn: boolean; tier: string; usedMonth: number; limitMonth: number; usedDay: number; limitDay: number } | null>(null);
+    useEffect(() => {
+        let alive = true;
+        const load = async () => {
+            try {
+                const [a, u] = await Promise.all([
+                    invoke<any>('account_get'),
+                    invoke<any>('account_usage'),
+                ]);
+                if (!alive) return;
+                setAcct({
+                    signedIn: !!a.signed_in,
+                    tier: u.tier || a.tier_label || 'Community',
+                    usedMonth: u.used_month ?? 0, limitMonth: u.limit_month ?? 0,
+                    usedDay: u.used_day ?? 0, limitDay: u.limit_day ?? 0,
+                });
+            } catch { /* backend not ready */ }
+        };
+        load();
+        const t = setInterval(load, ACCOUNT_POLL_MS);
+        const h = () => load();
+        window.addEventListener('account:changed', h);
+        return () => { alive = false; clearInterval(t); window.removeEventListener('account:changed', h); };
+    }, []);
+
     // ── Open Problems panel ───────────────────────────────────────────────────
     const openProblems = useCallback(() => {
         if (!useStore.getState().isBottomPanelOpen) toggleBottomPanel();
@@ -339,8 +393,8 @@ const StatusBar: React.FC = () => {
 
     return (
         <footer className="status-bar" style={{
-            backgroundColor: 'var(--vscode-statusBar-background, #007acc)',
-            color: 'var(--vscode-statusBar-foreground, #ffffff)',
+            backgroundColor: 'var(--vscode-statusBar-background, #181818)',
+            color: 'var(--vscode-statusBar-foreground, #c8c8cc)',
             height: '22px',
             display: 'flex',
             justifyContent: 'space-between',
@@ -402,10 +456,10 @@ const StatusBar: React.FC = () => {
                     title={`${errorCount} errors, ${warnCount} warnings`}
                     danger={errorCount > 0}
                 >
-                    <i className="codicon codicon-error" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: errorCount > 0 ? '#f87171' : 'inherit' }} />
-                    <span style={{ color: errorCount > 0 ? '#f87171' : 'inherit' }}>{errorCount}</span>
-                    <i className="codicon codicon-warning" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', marginLeft: '4px', color: warnCount > 0 ? '#fbbf24' : 'inherit' }} />
-                    <span style={{ color: warnCount > 0 ? '#fbbf24' : 'inherit' }}>{warnCount}</span>
+                    <i className="codicon codicon-error" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: errorCount > 0 ? 'var(--vscode-editorError-foreground)' : 'inherit' }} />
+                    <span style={{ color: errorCount > 0 ? 'var(--vscode-editorError-foreground)' : 'inherit' }}>{errorCount}</span>
+                    <i className="codicon codicon-warning" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', marginLeft: '4px', color: warnCount > 0 ? 'var(--vscode-editorWarning-foreground)' : 'inherit' }} />
+                    <span style={{ color: warnCount > 0 ? 'var(--vscode-editorWarning-foreground)' : 'inherit' }}>{warnCount}</span>
                 </StatusItem>
 
                 {/* LSP language server */}
@@ -443,6 +497,29 @@ const StatusBar: React.FC = () => {
                                     ? `Sec ${securityReviewReport.totalFindings}`
                                     : 'Security'}
                         </span>
+                    </StatusItem>
+                )}
+
+                {/* BugBot — AI code review of current file/diff */}
+                {activeRoot && (
+                    <StatusItem
+                        onClick={() => {
+                            // Trigger BugBot review of current file
+                            const activeTab = tabs.find((t: any) => t.id === activeTabId);
+                            if (activeTab?.path) {
+                                window.dispatchEvent(new CustomEvent('agent:send', {
+                                    detail: { prompt: `/review ${activeTab.path}` }
+                                }));
+                            } else {
+                                window.dispatchEvent(new CustomEvent('agent:send', {
+                                    detail: { prompt: '/review the current changes' }
+                                }));
+                            }
+                        }}
+                        title="BugBot — AI code review"
+                    >
+                        <i className="codicon codicon-bug" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
+                        <span style={{ fontSize: '11px' }}>BugBot</span>
                     </StatusItem>
                 )}
 
@@ -615,16 +692,29 @@ const StatusBar: React.FC = () => {
                             {agentModel.split('|').pop()?.split(':')[0].toUpperCase() || 'AGENT'}
                         </span>
                         <i className="codicon codicon-chevron-up" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '9px', opacity: 0.5 }} />
-                        {agentModel.toLowerCase().includes('ollama') && (
-                            <div
-                                title={ollamaStatus === 'running' ? 'Ollama: Connected' : 'Ollama: Not Connected'}
-                                style={{
-                                    width: '6px', height: '6px', borderRadius: '50%',
-                                    background: ollamaStatus === 'running' ? '#10b981' : '#f43f5e',
-                                    boxShadow: ollamaStatus === 'running' ? '0 0 4px #10b981' : 'none',
-                                }}
-                            />
-                        )}
+                        {(() => {
+                            // Show status dot for the active inference backend
+                            const backend = inferenceBackend || 'lemonade';
+                            const status = backend === 'lemonade' ? lemonadeStatus
+                                : backend === 'llama-cpp' ? llamaCppStatus
+                                : lemonadeStatus;
+                            const label = backend === 'lemonade' ? 'Lemonade'
+                                : backend === 'llama-cpp' ? 'llama.cpp'
+                                : backend;
+                            const isConnected = status === 'running';
+                            return (
+                                <div
+                                    title={`${label}: ${isConnected ? 'Connected' : 'Not Connected'} — click for health`}
+                                    onClick={(e) => { e.stopPropagation(); setHealthDashboardOpen(v => !v); }}
+                                    style={{
+                                        width: '6px', height: '6px', borderRadius: '50%',
+                                        background: isConnected ? '#10b981' : '#f43f5e',
+                                        boxShadow: isConnected ? '0 0 4px #10b981' : 'none',
+                                        cursor: 'pointer',
+                                    }}
+                                />
+                            );
+                        })()}
                     </div>
 
                     {modelPickerOpen && pickerPos && (
@@ -690,8 +780,30 @@ const StatusBar: React.FC = () => {
             {/* ── RIGHT ────────────────────────────────────────────────────── */}
             <div className="status-right" style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
 
+                {/* Account / plan + usage (click → Account settings) */}
+                <StatusItem
+                    onClick={() => openSettings?.('agent')}
+                    title={acct?.signedIn ? `Signed in · ${acct.tier} plan — click for Account & Subscription` : 'Not signed in — click to sign in / subscribe'}
+                    accent={!!acct?.signedIn}
+                >
+                    <i className="codicon codicon-account" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
+                    {acct && (acct.signedIn ? (
+                        <span style={{ fontSize: '11px' }}>
+                            {acct.tier}
+                            {(() => {
+                                const useDay = acct.limitDay > 0; // Community is day-capped; paid tiers month-capped
+                                const used = useDay ? acct.usedDay : acct.usedMonth;
+                                const lim = useDay ? acct.limitDay : acct.limitMonth;
+                                if (lim <= 0) return null; // unlimited
+                                const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k` : `${n}`);
+                                return <span style={{ opacity: 0.6 }}> · {fmt(used)}/{fmt(lim)}</span>;
+                            })()}
+                        </span>
+                    ) : <span style={{ fontSize: '11px' }}>Sign in</span>)}
+                </StatusItem>
+
                 {/* Token budget */}
-                {agentMessages.length > 0 && (
+                {agentMsgCount > 0 && (
                     <StatusItem
                         title={`Context: ~${tokenBudget.used.toLocaleString()} / ${tokenBudget.max.toLocaleString()} tokens (${tokenBudget.pct}%)`}
                         danger={tokenBudget.pct > 85}
@@ -855,14 +967,19 @@ const StatusBar: React.FC = () => {
                     <span style={{ fontSize: '11px' }}>Devices</span>
                 </StatusItem>
 
-                {/* Memory — subtle RAM readout; click to optimize */}
-                {processStats && (
-                    <MemoryStatusItem
-                        processStats={processStats}
-                        onOptimize={handleOptimize}
-                    />
-                )}
+                {/* Memory readout + governor warning intentionally hidden from
+                    consumers — the governor still trims silently in the
+                    background; we just don't surface scary RAM numbers. */}
             </div>
+
+            {/* Lemonade/Ollama Health Dashboard popup */}
+            {healthDashboardOpen && (
+                <React.Suspense fallback={null}>
+                    {React.createElement(React.lazy(() => import('./LemonadeHealthDashboard')), {
+                        onClose: () => setHealthDashboardOpen(false),
+                    })}
+                </React.Suspense>
+            )}
         </footer>
     );
 };

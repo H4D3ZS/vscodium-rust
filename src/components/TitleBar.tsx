@@ -12,10 +12,8 @@ import { useStore } from '../store';
 // version drift on a frameless window) — and does not depend on core:window
 // capability grants. A JS fallback to getCurrentWindow() is kept for safety.
 async function winMinimize() {
-    console.log('[TitleBar] minimize clicked');
     try {
         await invoke('win_minimize');
-        console.log('[TitleBar] minimize OK (native)');
     } catch (e) {
         console.error('[TitleBar] win_minimize failed, trying JS API:', e);
         try { await getCurrentWindow().minimize(); } catch (e2) { console.error('[TitleBar] JS minimize failed:', e2); }
@@ -23,10 +21,8 @@ async function winMinimize() {
 }
 
 async function winMaximize() {
-    console.log('[TitleBar] maximize clicked');
     try {
         const nowMax = await invoke<boolean>('win_toggle_maximize');
-        console.log('[TitleBar] maximize toggled (native), maximized=', nowMax);
     } catch (e) {
         console.error('[TitleBar] win_toggle_maximize failed, trying JS API:', e);
         try { await getCurrentWindow().toggleMaximize(); } catch (e2) { console.error('[TitleBar] JS maximize failed:', e2); }
@@ -34,10 +30,8 @@ async function winMaximize() {
 }
 
 async function winClose() {
-    console.log('[TitleBar] close clicked');
     try {
         await invoke('win_close');
-        console.log('[TitleBar] close OK (native)');
     } catch (e) {
         console.error('[TitleBar] win_close failed, trying JS API:', e);
         try { await getCurrentWindow().close(); } catch (e2) { console.error('[TitleBar] JS close failed:', e2); }
@@ -450,11 +444,10 @@ function executeMenuAction(item: string) {
             exec?.('workbench.action.showWelcome');
             break;
         case 'About':
-            alert('VSCodium-Rust\nVS Code–native shell · Agentic chat · Android & iPhone emulators\n\nCommunity AI Cloud · Neural VFS · Local Ollama BYOB');
+            alert('VSCodium-Rust\nVS Code–native shell · Agentic chat · Android & iPhone emulators\n\nCyber-Ifrit Cloud · Neural VFS · Local Ollama BYOB');
             break;
 
         default:
-            console.log(`[TitleBar] Unhandled menu action: ${item}`);
     }
 }
 
@@ -649,8 +642,8 @@ const TitleBar: React.FC = () => {
                     style={{
                         display: 'flex',
                         alignItems: 'center',
-                        background: 'rgba(255,255,255,0.03)',
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.08))',
+                        border: '1px solid var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.12))',
                         borderRadius: '8px',
                         padding: '4px 16px',
                         minWidth: '280px',
@@ -658,7 +651,7 @@ const TitleBar: React.FC = () => {
                         cursor: 'text',
                         transition: 'all 0.2s',
                         fontSize: '11px',
-                        color: 'rgba(255,255,255,0.6)',
+                        color: 'var(--vscode-input-foreground, rgba(255,255,255,0.6))',
                         WebkitAppRegion: 'no-drag',
                     } as React.CSSProperties}
                 >
@@ -686,7 +679,7 @@ const TitleBar: React.FC = () => {
                         } as React.CSSProperties}>
                             {gearItems.map((it) => (
                                 <React.Fragment key={it.label}>
-                                    {it.separatorBefore && <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />}
+                                    {it.separatorBefore && <div style={{ height: 1, background: 'var(--vscode-menu-border, rgba(255,255,255,0.08))', margin: '4px 0' }} />}
                                     <div
                                         onClick={() => { it.run(); setGearOpen(false); }}
                                         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24, padding: '6px 14px', cursor: 'pointer', fontSize: 12, color: 'var(--vscode-menu-foreground, #ccc)' }}

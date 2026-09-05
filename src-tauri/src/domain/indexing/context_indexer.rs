@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::time::{sleep, Duration};
 use walkdir::WalkDir;
-use tree_sitter::{Parser, Query, QueryCursor};
+use tree_sitter::{Query, QueryCursor};
 use streaming_iterator::StreamingIterator;
 use notify::{Watcher, RecursiveMode, RecommendedWatcher, Event, EventKind};
 use tokio::sync::mpsc;
@@ -40,6 +40,7 @@ pub struct ContextIndexer {
     root_path: PathBuf,
     hashes: Arc<RwLock<HashMap<PathBuf, String>>>,
     ignore_set: Arc<RwLock<IgnoreSet>>,
+    indexing_active: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ContextIndexer {
@@ -50,6 +51,7 @@ impl ContextIndexer {
             root_path,
             hashes: Arc::new(RwLock::new(HashMap::new())),
             ignore_set: Arc::new(RwLock::new(ignore_set)),
+            indexing_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -74,39 +76,77 @@ impl ContextIndexer {
             if let Ok(event) = res {
                 let _ = tx.blocking_send(event);
             }
-        }, notify::Config::default());
+        }, notify::Config::default().with_poll_interval(std::time::Duration::from_secs(2)));
 
         if let Ok(mut watcher) = watcher_res {
             if let Err(e) = watcher.watch(&root, RecursiveMode::Recursive) {
                 eprintln!("[CONTEXT] ❌ Failed to start watcher: {:?}", e);
             } else {
-                tauri::async_runtime::spawn(async move {
+                tokio::spawn(async move {
                     println!("[CONTEXT] Starting incremental indexing loop for: {:?}", root);
                     // Keep watcher alive in this thread
                     let _watcher = watcher;
                     
-                    while let Some(event) = rx.recv().await {
-                        match event.kind {
-                            EventKind::Modify(_) | EventKind::Create(_) => {
-                                // If the user edited `.cursorignore`, refresh
-                                // the cached matcher so subsequent events
-                                // honor the new rules immediately.
-                                if event.paths.iter().any(|p| p.file_name().map(|n| n == ".hadesignore" || n == ".cursorignore" || n == ".cursorindexignore" || n == ".gitignore").unwrap_or(false)) {
-                                    let fresh = IgnoreSet::load(&root);
-                                    if let Ok(mut w) = ignore_set.write() {
-                                        *w = fresh;
-                                    }
-                                }
-                                let snapshot = ignore_set.read().ok().map(|g| g.clone());
-                                for path in event.paths {
-                                    if Self::is_indexable_with(&path, snapshot.as_ref()) {
-                                        if let Err(e) = Self::index_single_file(&ms, &root, &path).await {
-                                            eprintln!("[CONTEXT] Error indexing file {:?}: {:?}", path, e);
+                    // Debounce: batch rapid-fire events (e.g. during builds)
+                    let mut pending_paths: Vec<std::path::PathBuf> = Vec::new();
+                    let mut debounce_deadline = None;
+                    
+                    loop {
+                        // If we have pending events and the debounce window expired, process them
+                        if !pending_paths.is_empty() {
+                            if let Some(deadline) = debounce_deadline {
+                                if tokio::time::Instant::now() >= deadline {
+                                    let paths: Vec<_> = pending_paths.drain(..).collect();
+                                    debounce_deadline = None;
+                                    let snapshot = ignore_set.read().ok().map(|g| g.clone());
+                                    for path in paths {
+                                        if Self::is_indexable_with(&path, snapshot.as_ref()) {
+                                            if let Err(e) = Self::index_single_file(&ms, &root, &path).await {
+                                                eprintln!("[CONTEXT] Error indexing file {:?}: {:?}", path, e);
+                                            }
                                         }
                                     }
+                                    continue;
                                 }
                             }
-                            _ => {}
+                        }
+                        
+                        // Wait for next event or timeout
+                        let timeout = debounce_deadline.map(|d| {
+                            let remaining = d.saturating_duration_since(tokio::time::Instant::now());
+                            remaining.min(std::time::Duration::from_millis(500))
+                        }).unwrap_or(std::time::Duration::from_millis(500));
+                        
+                        match tokio::time::timeout(timeout, rx.recv()).await {
+                            Ok(Some(event)) => {
+                                match event.kind {
+                                    EventKind::Modify(_) | EventKind::Create(_) => {
+                                        // Refresh ignore files
+                                        if event.paths.iter().any(|p| p.file_name().map(|n| n == ".hadesignore" || n == ".cursorignore" || n == ".cursorindexignore" || n == ".gitignore").unwrap_or(false)) {
+                                            let fresh = IgnoreSet::load(&root);
+                                            if let Ok(mut w) = ignore_set.write() {
+                                                *w = fresh;
+                                            }
+                                        }
+                                        // Collect paths for debounced processing
+                                        for path in event.paths {
+                                            if path.is_file() {
+                                                pending_paths.push(path);
+                                            }
+                                        }
+                                        // Set/reset debounce deadline (300ms window)
+                                        debounce_deadline = Some(tokio::time::Instant::now() + std::time::Duration::from_millis(300));
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            Ok(None) => break, // Channel closed
+                            Err(_) => {
+                                // Timeout — process any pending events
+                                if !pending_paths.is_empty() {
+                                    debounce_deadline = Some(tokio::time::Instant::now());
+                                }
+                            }
                         }
                     }
                 });
@@ -120,7 +160,7 @@ impl ContextIndexer {
         let root_full = self.root_path.clone();
         let hashes_full = self.hashes.clone();
         let ig_full = self.ignore_set.clone();
-        tauri::async_runtime::spawn(async move {
+        tokio::spawn(async move {
             // Never run the full repo walk on the boot path. The incremental
             // watcher above covers edits immediately; the full cycle is only a
             // consistency sweep. Lite (potato) machines wait 5 minutes, others
@@ -144,10 +184,30 @@ impl ContextIndexer {
         });
     }
 
+    /// Run one index cycle, unless one is already in flight.
+    ///
+    /// `reindex_if_needed` has always checked `indexing_active`, but this entry
+    /// point did not — so several callers at boot could each start a full cycle
+    /// over the same tree concurrently (observed: 4 cycles over ~2800 files),
+    /// saturating the Rayon pool and stalling the UI. The flag is cleared on
+    /// every exit path, including the error one.
     pub async fn trigger_index_cycle(&self) -> anyhow::Result<()> {
+        use std::sync::atomic::Ordering;
+        if self
+            .indexing_active
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            println!("[CONTEXT] Index cycle already running — skipping trigger");
+            return Ok(());
+        }
         self.refresh_ignores();
         let snapshot = self.ignore_set.read().ok().map(|g| g.clone());
-        Self::run_index_cycle(&self.memory_store, &self.root_path, self.hashes.clone(), snapshot).await
+        let result =
+            Self::run_index_cycle(&self.memory_store, &self.root_path, self.hashes.clone(), snapshot)
+                .await;
+        self.indexing_active.store(false, Ordering::Release);
+        result
     }
 
     async fn run_index_cycle(ms: &MemoryStore, root: &Path, hashes: Arc<RwLock<HashMap<PathBuf, String>>>, ignore_set: Option<IgnoreSet>) -> anyhow::Result<()> {
@@ -163,6 +223,11 @@ impl ContextIndexer {
 
         println!("[CONTEXT] Starting parallel index cycle for: {:?}", root);
 
+        // Clear hashes at start of each cycle to prevent unbounded growth
+        if let Ok(mut h) = hashes.write() {
+            h.clear();
+        }
+
         // 1. Collect all indexable paths first
         let ig_ref = ignore_set.as_ref();
         let paths: Vec<PathBuf> = WalkDir::new(root)
@@ -170,6 +235,10 @@ impl ContextIndexer {
             .filter_entry(|e| {
                 // Prune ignored directories so we don't even walk into them.
                 if e.file_type().is_dir() {
+                    let name = e.file_name().to_string_lossy();
+                    if name == ".aim" || name == ".kortex" {
+                        return false;
+                    }
                     if let Some(g) = ig_ref { if g.is_ignored(e.path()) { return false; } }
                 }
                 true
@@ -237,10 +306,16 @@ impl ContextIndexer {
                 // 2.2 Security Analysis (Distillation)
                 let security_meta = crate::security_distiller::SecurityDistiller::get_security_metadata(&content);
 
-                // Build a meaningful content gist: file path + first 400 chars of content
+                // Build a meaningful content gist: file path + a prefix of content.
                 // This makes keyword search in retrieve_context() actually useful.
-                let content_gist = if content.len() > 400 {
-                    let truncated: String = content.chars().take(400).collect();
+                // Markdown is the domain-knowledge corpus (docs, knowledge briefs,
+                // skills), so it gets a larger window — the always-on keyword
+                // injection then carries real content, not a truncated stub. Code
+                // keeps the compact 400-char gist (its full text is served by the
+                // semantic path and page-fault).
+                let gist_budget = if extension == "md" || extension == "mdx" || extension == "markdown" { 1200 } else { 400 };
+                let content_gist = if content.len() > gist_budget {
+                    let truncated: String = content.chars().take(gist_budget).collect();
                     format!("{}: {}", relative_path, truncated.replace('\n', " "))
                 } else {
                     format!("{}: {}", relative_path, content.replace('\n', " "))
@@ -313,7 +388,9 @@ impl ContextIndexer {
             // Monorepo bulk — skip indexing multi-GB vendored trees by default.
             "/kortex/", "\\kortex\\", "/airi/", "\\airi\\",
             "/llama.cpp/", "\\llama.cpp\\", "/.agent/", "\\.agent\\",
-            "/Community AI-Portfolio/", "\\Community AI-Portfolio\\",
+            "/Cyber-Ifrit-Portfolio/", "\\Cyber-Ifrit-Portfolio\\",
+            "/.aim/", "\\.aim\\", "/aim/", "\\aim\\",
+            "/.kortex/", "\\.kortex\\",
         ];
         for seg in &pruned_segments {
             if s.contains(seg) { return false; }
@@ -422,41 +499,49 @@ impl ContextIndexer {
 
     fn extract_symbols_detailed(content: &str, ext: &str, path: &str) -> Vec<crate::memory_store::SymbolDefinition> {
         let mut symbols = Vec::new();
-        let mut parser = Parser::new();
 
-        let language = match ext {
-            "rs" => tree_sitter_rust::LANGUAGE,
-            "ts" | "tsx" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
-            "js" | "jsx" => tree_sitter_typescript::LANGUAGE_TSX,
-            "py" => tree_sitter_python::LANGUAGE,
+        let (language, query_str) = match ext {
+            "rs" => (tree_sitter_rust::LANGUAGE.into(),
+                "(function_item name: (identifier) @name) @kind_func
+                 (struct_item name: (type_identifier) @name) @kind_struct
+                 (enum_item name: (type_identifier) @name) @kind_enum
+                 (trait_item name: (type_identifier) @name) @kind_trait
+                 (impl_item type: (type_identifier) @name) @kind_impl"),
+            "ts" | "tsx" | "js" | "jsx" => (tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+                "(function_declaration name: (identifier) @name) @kind_func
+                 (variable_declarator name: (identifier) @name value: (arrow_function)) @kind_func
+                 (method_definition name: (property_identifier) @name) @kind_func
+                 (class_declaration name: (type_identifier) @name) @kind_class
+                 (interface_declaration name: (type_identifier) @name) @kind_interface
+                 (type_alias_declaration name: (type_identifier) @name) @kind_type"),
+            "py" => (tree_sitter_python::LANGUAGE.into(),
+                "(function_definition name: (identifier) @name) @kind_func
+                 (class_definition name: (identifier) @name) @kind_class"),
             _ => return Vec::new(),
         };
 
-        parser.set_language(&language.into()).expect("Error loading language");
-        let tree = parser.parse(content, None).expect("Error parsing code");
-
-        let query_str = match ext {
-            "rs" => "(function_item name: (identifier) @name) @kind_func
-                     (struct_item name: (type_identifier) @name) @kind_struct
-                     (enum_item name: (type_identifier) @name) @kind_enum
-                     (trait_item name: (type_identifier) @name) @kind_trait
-                     (impl_item type: (type_identifier) @name) @kind_impl",
-            "ts" | "tsx" | "js" | "jsx" => "(function_declaration name: (identifier) @name) @kind_func
-                                             (variable_declarator name: (identifier) @name value: (arrow_function)) @kind_func
-                                             (method_definition name: (property_identifier) @name) @kind_func
-                                             (class_declaration name: (type_identifier) @name) @kind_class
-                                             (interface_declaration name: (type_identifier) @name) @kind_interface
-                                             (type_alias_declaration name: (type_identifier) @name) @kind_type",
-            "py" => "(function_definition name: (identifier) @name) @kind_func
-                     (class_definition name: (identifier) @name) @kind_class",
-            _ => "",
+        // SHARED parser cache (single instance, not per-thread) to avoid 100MB+ memory
+        // from thread_local caches across Rayon worker threads.
+        static PARSER_CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, tree_sitter::Parser>>> = std::sync::OnceLock::new();
+        let cache = PARSER_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+        
+        let tree = {
+            let mut guard = cache.lock().unwrap();
+            let parser = guard.entry(ext.to_string()).or_insert_with(|| {
+                let mut p = tree_sitter::Parser::new();
+                p.set_language(&language).expect("Error loading language");
+                p
+            });
+            match parser.parse(content, None) {
+                Some(t) => t,
+                None => return Vec::new(),
+            }
         };
 
-        if query_str.is_empty() {
-            return Vec::new();
-        }
-
-        let query = Query::new(&language.into(), query_str).expect("Error creating query");
+        let query = match Query::new(&language, query_str) {
+            Ok(q) => q,
+            Err(_) => return Vec::new(),
+        };
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&query, tree.root_node(), content.as_bytes());
         while let Some(m) = StreamingIterator::next(&mut matches) {
@@ -497,17 +582,42 @@ impl ContextIndexer {
     pub fn reindex_if_needed(&self, root: &Path) -> Result<(), anyhow::Error> {
         let _meta = std::fs::metadata(root)?;
         
-        // Use a simple mtime check to see if we should trigger a full scan
-        // In a real Antigravity implementation, this would be more granular.
+        // Guard: skip if an index cycle is already running to prevent OOM
+        if self.indexing_active.load(std::sync::atomic::Ordering::Relaxed) {
+            println!("[CONTEXT] Index cycle already running — skipping re-index for: {:?}", root);
+            return Ok(());
+        }
+
+        // Check if .aim already has indexed data — skip if fresh
+        let aim_dir = root.join(".aim");
+        let aim_file = aim_dir.join("memory.aim");
+        if aim_file.exists() {
+            if let Ok(meta) = std::fs::metadata(&aim_file) {
+                if let Ok(modified) = meta.modified() {
+                    let age = modified.elapsed().unwrap_or_default();
+                    // If .aim was modified less than 5 minutes ago, skip re-index
+                    if age.as_secs() < 300 {
+                        println!("[CONTEXT] .aim cache is fresh ({}s old) — skipping re-index for: {:?}",
+                            age.as_secs(), root);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        self.indexing_active.store(true, std::sync::atomic::Ordering::Relaxed);
+
         println!("[CONTEXT] Proactive re-index check triggered for: {:?}", root);
         let ms = self.memory_store.clone();
         let rt = tokio::runtime::Handle::current();
         let hashes = self.hashes.clone();
         let root_buf = root.to_path_buf();
         let snapshot = self.ignore_set.read().ok().map(|g| g.clone());
+        let active_flag = self.indexing_active.clone();
 
         rt.spawn(async move {
             let _ = Self::run_index_cycle(&ms, &root_buf, hashes, snapshot).await;
+            active_flag.store(false, std::sync::atomic::Ordering::Relaxed);
         });
 
         Ok(())

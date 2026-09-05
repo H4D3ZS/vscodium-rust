@@ -2,14 +2,13 @@ use crate::cursor_compat::{
     append_debug_log, create_worktree, ensure_scaffold, list_worktrees, scan_project,
     CursorWorktreeInfo,
 };
-use crate::EditorState;
 use serde_json::Value;
 use std::path::PathBuf;
 use tauri::State;
 
 #[tauri::command]
 pub async fn cursor_scan_project(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     root: Option<String>,
 ) -> Result<Value, String> {
     let root_path = resolve_root(&state, root).await?;
@@ -20,7 +19,7 @@ pub async fn cursor_scan_project(
 
 #[tauri::command]
 pub async fn cursor_init_project(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     root: Option<String>,
 ) -> Result<Value, String> {
     let root_path = resolve_root(&state, root).await?;
@@ -29,7 +28,7 @@ pub async fn cursor_init_project(
 
 #[tauri::command]
 pub async fn cursor_append_debug_log(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     event: Value,
     root: Option<String>,
 ) -> Result<(), String> {
@@ -39,7 +38,7 @@ pub async fn cursor_append_debug_log(
 
 #[tauri::command]
 pub async fn cursor_list_worktrees(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     root: Option<String>,
 ) -> Result<Vec<CursorWorktreeInfo>, String> {
     let root_path = resolve_root(&state, root).await?;
@@ -48,7 +47,7 @@ pub async fn cursor_list_worktrees(
 
 #[tauri::command]
 pub async fn cursor_create_worktree(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     branch: String,
     name: Option<String>,
     root: Option<String>,
@@ -59,7 +58,7 @@ pub async fn cursor_create_worktree(
 
 #[tauri::command]
 pub async fn cursor_reload_workspace(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     root: Option<String>,
 ) -> Result<Value, String> {
     let root_path = resolve_root(&state, root).await?;
@@ -70,7 +69,7 @@ pub async fn cursor_reload_workspace(
         .map_err(|e| e.to_string())
 }
 
-async fn resolve_root(state: &State<'_, EditorState>, root: Option<String>) -> Result<PathBuf, String> {
+async fn resolve_root(state: &State<'_, std::sync::Arc<crate::EditorState>>, root: Option<String>) -> Result<PathBuf, String> {
     if let Some(r) = root.filter(|s| !s.trim().is_empty()) {
         return Ok(PathBuf::from(r));
     }

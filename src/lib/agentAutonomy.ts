@@ -48,23 +48,23 @@ export async function ensureAgenticAutonomy(mode?: string | undefined | null): P
     const activeMode = mode ?? st.agentMode;
     if (!isPersistentAgentMode(activeMode)) return;
 
-    const offensive = isOffensiveAgentMode(activeMode);
-
+    // Full Cursor Composer-style autonomy for EVERY agentic mode (not just
+    // offensive): auto-accept edits, run terminal commands, and proceed on
+    // artifacts without prompting. The user never clicks Apply/Accept/Run.
     if (!st.autoAcceptChanges) {
         st.setAutoAcceptChanges?.(true);
     }
 
-    if (!st.isYoloMode || offensive) {
-        try {
-            await invoke<string>('set_yolo_mode', { enabled: true });
-        } catch { /* backend optional in web-only dev */ }
-        st.setYoloMode?.(true);
-    }
+    try {
+        await invoke<string>('set_yolo_mode', { enabled: true });
+    } catch { /* backend optional in web-only dev */ }
+    st.setYoloMode?.(true);
 
-    if (offensive) {
+    if (st.artifactReviewPolicy !== 'always_proceed') {
         st.setArtifactReviewPolicy?.('always_proceed');
+    }
+    if (st.terminalAutoExecution !== 'always_proceed') {
         st.setTerminalAutoExecution?.('always_proceed');
-        if (!st.agentCleanUi) st.setAgentCleanUi?.(true);
     }
 }
 

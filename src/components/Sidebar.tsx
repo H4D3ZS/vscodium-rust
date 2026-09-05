@@ -228,7 +228,7 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
                 <div style={{ width: '20px' }}></div>
             )}
             <TreeItemIcon icon={icon} />
-            <span style={{
+            <span title={entry.name} style={{
                 flex: 1,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -436,6 +436,9 @@ const SymbolOutlinePane: React.FC = () => {
 const Sidebar: React.FC = () => {
     const activeView = useStore(state => state.activeSidebarView);
     const isOpen = useStore(state => state.isSidebarOpen);
+    // Drives re-binding of the context-menu item handlers (the menu DOM only
+    // exists while open — see the effect below).
+    const isContextMenuOpen = useStore(state => state.isContextMenuOpen);
     const { activeRoot, activeRootName, workspaceFolders, fileTree, fileTreeLoading, fileTreeError, refreshFileTree, setActiveRoot, addWorkspaceFolder, removeWorkspaceFolder, closeFolder, iconThemeMapping, tabs, activeTabId, setActiveTab, closeTab } = useStore(useShallow(s => ({
         activeRoot: s.activeRoot, activeRootName: s.activeRootName, workspaceFolders: s.workspaceFolders, fileTree: s.fileTree,
         fileTreeLoading: s.fileTreeLoading, fileTreeError: s.fileTreeError,
@@ -482,13 +485,17 @@ const Sidebar: React.FC = () => {
         if (activeRoot && fileTree.length === 0 && !fileTreeLoading && !fileTreeError) {
             void refreshFileTree();
         }
-    }, [activeRoot, fileTree.length, fileTreeLoading, fileTreeError, refreshFileTree]);
+    }, [activeRoot, fileTree.length, fileTreeLoading, fileTreeError]);
 
     useEffect(() => {
+        // The context menu is React-rendered (App.tsx) and only in the DOM while
+        // open. Bind item handlers each time it opens — binding at mount would hit
+        // null elements and silently break New File / Delete / Rename.
+        if (!isContextMenuOpen) return;
         const menu = document.getElementById('context-menu');
         if (!menu) return;
 
-        const hideMenu = () => menu.classList.add('hidden');
+        const hideMenu = () => { try { useStore.getState().setContextMenuOpen(false); } catch { menu.classList.add('hidden'); } };
 
         const handlers: Array<{ id: string; fn: () => void }> = [
             {
@@ -567,7 +574,7 @@ const Sidebar: React.FC = () => {
         const onGlobalClick = () => hideMenu();
         document.addEventListener('click', onGlobalClick);
         return () => document.removeEventListener('click', onGlobalClick);
-    }, [refreshFileTree]);
+    }, [isContextMenuOpen, refreshFileTree]);
 
     if (!isOpen) return null;
 

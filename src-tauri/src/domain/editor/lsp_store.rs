@@ -418,7 +418,7 @@ pub fn lsp_store_scan_path() -> Result<Value, String> {
 #[tauri::command]
 pub fn lsp_store_install_preset(
     preset_id: String,
-    state: tauri::State<'_, crate::EditorState>,
+    state: tauri::State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Value, String> {
     let record = install_from_preset(&preset_id, &state.config_dir)?;
     Ok(json!({ "ok": true, "server": record }))
@@ -454,7 +454,7 @@ pub fn lsp_store_install_npm(
     file_extensions: Option<Vec<String>>,
     args: Option<Vec<String>>,
     id: Option<String>,
-    state: tauri::State<'_, crate::EditorState>,
+    state: tauri::State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Value, String> {
     let display = name.unwrap_or_else(|| package.clone());
     let langs = languages.unwrap_or_else(|| vec!["unknown".into()]);

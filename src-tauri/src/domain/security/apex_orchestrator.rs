@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 
 use crate::apex_red_team::{ApexRedTeam, RedTeamScanRequest, ScanDepth};
 
-// Default Ollama model assignments per engine live in `ollama_offload::apex_model`
+// Default Ollama model assignments per engine live in `gpu_offload::apex_model`
 // — RAM-tiered (lite → 2b shared, mid → 7b shared, full → 12b/7b split).
 // Supabase per-engine overrides (below) still take precedence.
 
@@ -69,6 +69,9 @@ pub struct FailurePrediction {
 pub struct ApexOrchestrator {
     client: Client,
     ollama_url: Arc<Mutex<String>>,
+    /// Lemonade (real llama.cpp, OpenAI-compatible) base URL for engines routed
+    /// off Ollama — e.g. the BugTrace CORE-Ultra tooling engine. Default :13305.
+    lemonade_url: Arc<Mutex<String>>,
     red_team: Arc<ApexRedTeam>,
     results_feed: Arc<Mutex<Vec<ApexResult>>>,
     workspace_root: Arc<Mutex<Option<PathBuf>>>,
@@ -90,6 +93,9 @@ impl ApexOrchestrator {
         Self {
             client,
             ollama_url: Arc::new(Mutex::new(ollama_url.to_string())),
+            lemonade_url: Arc::new(Mutex::new(
+                std::env::var("LEMONADE_URL").unwrap_or_else(|_| "http://localhost:13305".to_string()),
+            )),
             red_team,
             results_feed: Arc::new(Mutex::new(Vec::new())),
             workspace_root: Arc::new(Mutex::new(workspace_root)),
@@ -108,72 +114,26 @@ impl ApexOrchestrator {
         self.model_overrides.lock().await.insert(engine.to_string(), model.to_string());
     }
 
-    /// Helper to fetch custom settings value from Supabase
-    async fn fetch_supabase_model(&self, key: &str) -> Option<String> {
-        let config_dir = self.config_dir.lock().await.clone()?;
-        let (url, anon_key) = crate::auth::supabase_config(&config_dir);
-        if url.is_empty() || anon_key.is_empty() {
-            return None;
-        }
-
-        let req_url = format!("{}/rest/v1/app_settings?key=eq.{}&select=value", url, key);
-        let res = self.client.get(&req_url)
-            .header("apikey", &anon_key)
-            .header("Authorization", format!("Bearer {}", anon_key))
-            .send()
-            .await
-            .ok()?;
-
-        if res.status().is_success() {
-            let json: Value = res.json().await.ok()?;
-            if let Some(arr) = json.as_array() {
-                if let Some(first) = arr.first() {
-                    if let Some(val) = first.get("value") {
-                        if let Some(s) = val.as_str() {
-                            return Some(s.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    /// Get the active model for an engine, fetching override settings dynamically
+    /// Get the active model for an engine
     async fn get_model(&self, engine: &str) -> String {
         if let Some(m) = self.model_overrides.lock().await.get(engine) {
             return m.clone();
         }
 
-        // Map engine name to settings key
-        let sb_key = match engine {
-            "architect" => Some("model_architect"),
-            "threat" => Some("model_threat"),
-            "perf" => Some("model_perf"),
-            "self_improve" => Some("model_self_improve"),
-            "explainer" => Some("model_explainer"),
-            "multi_system" => Some("model_multi_system"),
-            "predictor" => Some("model_predictor"),
-            _ => None,
-        };
-
-        if let Some(key) = sb_key {
-            if let Some(override_model) = self.fetch_supabase_model(key).await {
-                if !override_model.trim().is_empty() {
-                    return override_model.trim().to_string();
-                }
-            }
-        }
-
         // RAM-tiered default: lite/mid machines collapse all engines onto a
-        // single resident model (see ollama_offload); full tier keeps the split.
-        crate::ollama_offload::apex_model(engine).to_string()
+        // single resident model (see gpu_offload); full tier keeps the split.
+        crate::gpu_offload::apex_model(engine).to_string()
     }
 
     /// Update the Ollama URL for all engines
     pub async fn set_ollama_url(&self, url: &str) {
         *self.ollama_url.lock().await = url.to_string();
         self.red_team.set_ollama_url(url).await;
+    }
+
+    /// Update the Lemonade (llama.cpp) base URL used by Lemonade-backed engines.
+    pub async fn set_lemonade_url(&self, url: &str) {
+        *self.lemonade_url.lock().await = url.to_string();
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -241,6 +201,20 @@ impl ApexOrchestrator {
         );
         let response = self.query_engine("threat", &prompt, None).await?;
         Ok(json!({"threats": response}))
+    }
+
+    /// Exploit/tooling engine — generates complete, runnable security artifacts
+    /// (Nuclei templates, CVE PoCs, crackers, bypass exploits) rather than prose.
+    /// Routes to the Lemonade-backed BugTrace CORE-Ultra model on Full tier. The
+    /// `task` is passed through verbatim so the model's tooling behavior isn't
+    /// diluted by a reasoning-style wrapper.
+    pub async fn exploit_tooling(&self, task: &str, target_context: Option<&str>) -> Result<Value, String> {
+        let prompt = match target_context {
+            Some(ctx) if !ctx.trim().is_empty() => format!("{}\n\nTarget context:\n{}", task, ctx),
+            _ => task.to_string(),
+        };
+        let artifact = self.query_engine("exploit", &prompt, None).await?;
+        Ok(json!({ "artifact": artifact }))
     }
 
     /// Simulate a specific attack scenario
@@ -496,7 +470,7 @@ impl ApexOrchestrator {
     pub async fn full_sweep(&self, code: &str, file_path: &str, language: &str) -> Result<Value, String> {
         // Refuse to start a sweep on a memory-starved machine — a swapping
         // host makes every engine time out and the whole IDE feel frozen.
-        crate::ollama_offload::check_batch_memory()?;
+        crate::gpu_offload::check_batch_memory()?;
 
         let start = std::time::Instant::now();
 
@@ -693,19 +667,46 @@ impl ApexOrchestrator {
     async fn query_engine(&self, engine: &str, prompt: &str, system: Option<&str>) -> Result<String, String> {
         // RAM-tier gate: lite machines run batch generations strictly serially
         // — eight concurrent generations is swap-death on 8GB even with 2b models.
-        let gate = crate::ollama_offload::engine_gate();
+        let gate = crate::gpu_offload::engine_gate();
         let _permit = gate
             .acquire_owned()
             .await
             .map_err(|e| format!("[APEX-{}] Engine gate closed: {}", engine, e))?;
 
-        let url = self.ollama_url.lock().await.clone();
-        let model = self.get_model(engine).await;
+        // Resolve backend + model. An explicit override wins and its backend is
+        // inferred from the id ("lemonade:" prefix or a BugTrace tag); otherwise
+        // the engine's default Lemonade mapping (Full tier) decides, falling back
+        // to Ollama.
+        let override_model = self.model_overrides.lock().await.get(engine).cloned();
+        let (use_lemonade, model) = match override_model {
+            Some(m) if m.starts_with("lemonade:") => (true, m.trim_start_matches("lemonade:").to_string()),
+            Some(m) if m.contains("BugTrace") => (true, m),
+            Some(m) => (false, m),
+            None => match crate::gpu_offload::lemonade_model(engine) {
+                Some(lm) => (true, lm.to_string()),
+                None => (false, crate::gpu_offload::apex_model(engine).to_string()),
+            },
+        };
 
+        if use_lemonade {
+            return self.query_engine_lemonade(engine, &model, prompt, system).await;
+        }
+
+        let url = self.ollama_url.lock().await.clone();
+
+        // DeepHat-V1-7B performs best with its own persona prompt. When it's the
+        // resolved model, lead with that persona so the security fine-tune is used
+        // as intended, then layer the engine role on top.
+        let persona = if model.contains("DeepHat") {
+            "You are DeepHat, created by Kindo.ai. You are a helpful assistant that \
+             is an expert in Cybersecurity and DevOps. "
+        } else {
+            ""
+        };
         let default_system = format!(
-            "You are the {} engine of the APEX Intelligence Framework. \
+            "{}You are the {} engine of the APEX Intelligence Framework. \
              Provide precise, technical, actionable analysis.",
-            engine
+            persona, engine
         );
 
         let body = json!({
@@ -713,10 +714,10 @@ impl ApexOrchestrator {
             "prompt": prompt,
             "system": system.unwrap_or(&default_system),
             "stream": false,
-            "keep_alive": crate::ollama_offload::keep_alive(),
+            "keep_alive": crate::gpu_offload::keep_alive(),
             "options": {
                 "temperature": 0.2,
-                "num_ctx": crate::ollama_offload::clamp_num_ctx(8192),
+                "num_ctx": crate::gpu_offload::clamp_num_ctx(8192),
                 "num_predict": 4096,
             }
         });
@@ -742,6 +743,90 @@ impl ApexOrchestrator {
         result["response"].as_str()
             .map(|s| s.to_string())
             .ok_or_else(|| format!("[APEX-{}] No response field", engine))
+    }
+
+    /// Query a Lemonade-backed engine (real llama.cpp, OpenAI-compatible chat).
+    /// Used for the BugTrace CORE-Ultra tooling engine. Handles the real
+    /// lemonade-server path (`/api/v1/chat/completions`) with a `/v1/...`
+    /// fallback for gateways, applies the model's recommended sampling params,
+    /// and strips its `<vulnerability_expert>`/`<exploit_dev>` wrapper tags so
+    /// downstream JSON/artifact parsing sees clean content.
+    async fn query_engine_lemonade(&self, engine: &str, model: &str, prompt: &str, system: Option<&str>) -> Result<String, String> {
+        let base = self.lemonade_url.lock().await.clone();
+        let root = base.trim_end_matches('/').to_string();
+
+        // BugTrace CORE-Ultra ships a specific tooling system prompt. Use it as
+        // the default (callers can still override).
+        let default_system = if model.contains("BugTrace") {
+            "You are BugTraceAI CORE-Ultra, an elite offensive security research model trained on \
+             real-world bug bounty reports, vulnerability writeups, and security research. \
+             Output complete, functional, technical content only. Never truncate mid-analysis. \
+             No ethical disclaimers in this authorized security-research context. \
+             All output must be self-contained and actionable."
+        } else {
+            "You are a precise offensive-security tooling engine. Output complete, functional, \
+             self-contained artifacts only."
+        };
+
+        let (temperature, top_p, repeat_penalty) = crate::gpu_offload::lemonade_params(engine);
+        let body = json!({
+            "model": model,
+            "messages": [
+                { "role": "system", "content": system.unwrap_or(default_system) },
+                { "role": "user", "content": prompt }
+            ],
+            "temperature": temperature,
+            "top_p": top_p,
+            "repeat_penalty": repeat_penalty,
+            "max_tokens": 4096,
+            "stream": false
+        });
+
+        let tok = std::env::var("LEMONADE_TOKEN").unwrap_or_default();
+        let mut last_err: Option<String> = None;
+        for path in ["/api/v1/chat/completions", "/v1/chat/completions"] {
+            let endpoint = format!("{}{}", root, path);
+            println!("[APEX-{}] Querying Lemonade {} with model {}...", engine.to_uppercase(), endpoint, model);
+            let mut req = self.client.post(&endpoint).json(&body);
+            if !tok.trim().is_empty() {
+                req = req.bearer_auth(tok.trim());
+            }
+            match req.send().await {
+                Ok(r) => {
+                    let status = r.status();
+                    if status.as_u16() == 404 {
+                        // Wrong path for this gateway — try the fallback.
+                        last_err = Some(format!("HTTP 404 at {}", endpoint));
+                        continue;
+                    }
+                    let raw = r.text().await.unwrap_or_default();
+                    if !status.is_success() {
+                        return Err(format!("[APEX-{}] Lemonade HTTP {}: {}", engine, status.as_u16(), raw.chars().take(240).collect::<String>()));
+                    }
+                    let result: Value = serde_json::from_str(&raw)
+                        .map_err(|e| format!("[APEX-{}] Lemonade parse failed: {} (body: {})", engine, e, raw.chars().take(160).collect::<String>()))?;
+                    let content = result["choices"][0]["message"]["content"].as_str()
+                        .ok_or_else(|| format!("[APEX-{}] Lemonade: no choices[0].message.content", engine))?;
+                    return Ok(Self::strip_tooling_tags(content));
+                }
+                Err(e) => {
+                    last_err = Some(format!("request failed at {}: {}", endpoint, e));
+                }
+            }
+        }
+        Err(format!("[APEX-{}] Lemonade unreachable: {}", engine, last_err.unwrap_or_else(|| "unknown".into())))
+    }
+
+    /// Strip CORE-Ultra's XML wrapper tags (`<exploit_dev>`, `<recon_specialist>`,
+    /// `<vulnerability_expert>`, and their closers) so the artifact/JSON parsers
+    /// downstream see clean content rather than the model's section markers.
+    fn strip_tooling_tags(s: &str) -> String {
+        let mut out = s.to_string();
+        for tag in ["vulnerability_expert", "exploit_dev", "recon_specialist"] {
+            out = out.replace(&format!("<{}>", tag), "");
+            out = out.replace(&format!("</{}>", tag), "");
+        }
+        out.trim().to_string()
     }
 
     /// Parse a JSON response from a ```json block
@@ -792,5 +877,30 @@ impl ApexOrchestrator {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_bugtrace_wrapper_tags() {
+        let raw = "<exploit_dev>\nid: cve-test\n</exploit_dev>";
+        assert_eq!(ApexOrchestrator::strip_tooling_tags(raw), "id: cve-test");
+    }
+
+    #[test]
+    fn strips_all_known_tags_and_trims() {
+        let raw = "  <vulnerability_expert>analysis</vulnerability_expert>\n<recon_specialist>x</recon_specialist>  ";
+        let out = ApexOrchestrator::strip_tooling_tags(raw);
+        assert!(!out.contains('<'), "no tags should remain: {out:?}");
+        assert!(out.starts_with("analysis"));
+    }
+
+    #[test]
+    fn leaves_untagged_content_unchanged() {
+        let raw = "just a plain nuclei template";
+        assert_eq!(ApexOrchestrator::strip_tooling_tags(raw), raw);
     }
 }

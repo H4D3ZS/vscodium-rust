@@ -46,7 +46,7 @@ const AgentActivityFeed: React.FC<AgentActivityFeedProps> = ({ isAgentThinking, 
                         animation: 'hubPulse 1s infinite',
                         flexShrink: 0,
                     }} />
-                    <span>{currentAction || 'Working…'}</span>
+                    <span>{(typeof currentAction === 'string' ? currentAction : '') || 'Working…'}</span>
                 </div>
             )}
 

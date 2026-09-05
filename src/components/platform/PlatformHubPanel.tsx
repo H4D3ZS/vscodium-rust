@@ -67,7 +67,7 @@ const PlatformHubPanel: React.FC = () => {
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
                 <TabBtn active={tab === 'shipped'} onClick={() => setTab('shipped')}>✓ Shipped ({shippedAgent.length + cursorSummary.done})</TabBtn>
-                <TabBtn active={tab === 'roadmap'} onClick={() => setTab('roadmap')}>📋 Roadmap</TabBtn>
+                <TabBtn active={tab === 'roadmap'} onClick={() => setTab('roadmap')}>Roadmap</TabBtn>
             </div>
 
             {tab === 'shipped' && (

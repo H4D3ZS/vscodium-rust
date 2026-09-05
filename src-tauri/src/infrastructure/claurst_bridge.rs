@@ -17,7 +17,6 @@
 //   We forward each line to the frontend as a `claurst-stream` Tauri event and
 //   return the accumulated assistant text when the process exits.
 
-use crate::state::EditorState;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -128,7 +127,7 @@ pub async fn claurst_status() -> Result<Value, String> {
 #[tauri::command]
 pub async fn claurst_run(
     app: AppHandle,
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     prompt: String,
     session_id: Option<String>,
     cwd: Option<String>,

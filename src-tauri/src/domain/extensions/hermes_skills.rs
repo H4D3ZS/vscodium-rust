@@ -72,7 +72,7 @@ pub fn hermes_skills_roots() -> Vec<(PathBuf, &'static str)> {
         }
     }
 
-    for p in skill_store_installed_root() {
+    if let Some(p) = skill_store_installed_root() {
         out.push((p, "skill-store"));
     }
     out
@@ -271,6 +271,8 @@ pub fn search_skills(query: &str, limit: usize) -> Vec<IntegratedSkill> {
         .collect()
 }
 
+#[cfg(feature = "tauri")]
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn hermes_skills_list(limit: Option<usize>) -> Result<Value, String> {
     let all = cached_skills();
@@ -283,6 +285,8 @@ pub fn hermes_skills_list(limit: Option<usize>) -> Result<Value, String> {
     }))
 }
 
+#[cfg(feature = "tauri")]
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn hermes_skills_get(id: String) -> Result<Value, String> {
     let skill = find_skill(&id).ok_or_else(|| format!("Skill not found: {id}"))?;
@@ -293,12 +297,16 @@ pub fn hermes_skills_get(id: String) -> Result<Value, String> {
     }))
 }
 
+#[cfg(feature = "tauri")]
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn hermes_skills_search(query: String, limit: Option<usize>) -> Result<Value, String> {
     let hits = search_skills(&query, limit.unwrap_or(20).min(50));
     Ok(json!({ "query": query, "results": hits }))
 }
 
+#[cfg(feature = "tauri")]
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn hermes_integration_status() -> Result<Value, String> {
     let roots = hermes_skills_roots();

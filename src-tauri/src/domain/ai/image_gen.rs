@@ -7,6 +7,9 @@ const DEFAULT_OLLAMA: &str = "http://127.0.0.1:11434";
 const DEFAULT_VISION_MODEL: &str = "llava";
 const DEFAULT_IMAGE_MODEL: &str = "x/flux2-klein";
 
+/// Resolve the inference backend URL. Checks Ollama env vars first, then
+/// falls back to the hardcoded default. For Lemonade users, set
+/// `OLLAMA_HOST=http://127.0.0.1:13305` or use the main engine routing.
 fn ollama_base() -> String {
     std::env::var("OLLAMA_HOST")
         .or_else(|_| std::env::var("OLLAMA_BASE_URL"))

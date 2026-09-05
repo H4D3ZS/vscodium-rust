@@ -1,5 +1,4 @@
 use tauri::State;
-use crate::EditorState;
 
 #[tauri::command]
 pub async fn backend_ping() -> String {
@@ -10,7 +9,7 @@ pub async fn backend_ping() -> String {
 /// Called by the frontend ToolPermissionDialog when the user approves or denies.
 #[tauri::command]
 pub async fn respond_tool_permission(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     tool_id: String,
     approved: bool,
 ) -> Result<(), String> {
@@ -26,7 +25,7 @@ pub async fn respond_tool_permission(
 }
 
 #[tauri::command]
-pub fn get_config_path(state: State<'_, EditorState>) -> String {
+pub fn get_config_path(state: State<'_, std::sync::Arc<crate::EditorState>>) -> String {
     state.config_dir.to_string_lossy().to_string()
 }
 
@@ -48,28 +47,41 @@ pub fn get_config_path(state: State<'_, EditorState>) -> String {
 /// Returns the URL that was opened so the caller can echo it in a toast.
 #[tauri::command]
 pub async fn open_ai_login(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     provider: String,
     mode: Option<String>,
 ) -> Result<String, String> {
     let mode = mode.unwrap_or_else(|| "api_key".to_string());
     match mode.as_str() {
-        "api_key" => crate::ai_auth::open_api_key_console(&provider),
-        "webview" => {
-            crate::ai_auth::open_login_window(app, provider).await?;
-            Ok("opened-in-webview".to_string())
+        "api_key" => {
+            let url = match provider.to_lowercase().as_str() {
+                "anthropic" => "https://console.anthropic.com/settings/keys",
+                "openai" => "https://platform.openai.com/api-keys",
+                "google" => "https://aistudio.google.com/app/apikey",
+                "groq" => "https://console.groq.com/keys",
+                "openrouter" => "https://openrouter.ai/keys",
+                "mistral" => "https://console.mistral.ai/api-keys",
+                _ => "https://console.anthropic.com/settings/keys",
+            };
+            #[cfg(target_os = "windows")]
+            { let _ = std::process::Command::new("cmd").args(["/c", "start", url]).spawn(); }
+            #[cfg(target_os = "macos")]
+            { let _ = std::process::Command::new("open").arg(url).spawn(); }
+            #[cfg(target_os = "linux")]
+            { let _ = std::process::Command::new("xdg-open").arg(url).spawn(); }
+            Ok(format!("Opened {} API key page in browser", provider))
         }
-        other => Err(format!("Unknown login mode '{}'. Use 'api_key' or 'webview'.", other)),
+        other => Err(format!("Unknown login mode '{}'. Use 'api_key'.", other)),
     }
 }
 
 #[tauri::command]
-pub fn get_yolo_mode(state: State<'_, EditorState>) -> bool {
+pub fn get_yolo_mode(state: State<'_, std::sync::Arc<crate::EditorState>>) -> bool {
     state.ai.engine.is_yolo_mode()
 }
 
 #[tauri::command]
-pub fn set_yolo_mode(state: State<'_, EditorState>, enabled: bool) {
+pub fn set_yolo_mode(state: State<'_, std::sync::Arc<crate::EditorState>>, enabled: bool) {
     state.ai.engine.set_yolo_mode(enabled);
 }
 

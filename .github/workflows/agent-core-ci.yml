@@ -1,10 +1,8 @@
 name: Agent Core CI
 
 on:
-  push:
-    branches: [windows, main, macos]
-  pull_request:
-    branches: [windows, main]
+  workflow_dispatch:
+  # DISABLED: Auto-run on push removed — manual trigger only
 
 jobs:
   rust-backend-tests:

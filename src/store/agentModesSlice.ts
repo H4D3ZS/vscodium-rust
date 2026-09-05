@@ -93,7 +93,7 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
         const saved = localStorage.getItem('agentModel') || '';
         const oldDefaults = new Set([
             'Ollama|airi-fast:latest', 'Ollama|qwen3:35b', 'qwen3:35b',
-            'COMMUNITYAI|qwen3:35b', 'COMMUNITYAI|COMMUNITYAI/qwen3:35b',
+            'cyberifrit|qwen3:35b', 'cyberifrit|cyberifrit/qwen3:35b',
             'huihui_ai/qwen2.5-coder-abliterate:7b', 'Ollama|huihui_ai/qwen2.5-coder-abliterate:7b',
             // Legacy fake model — Antigravity is a workflow layer, not an LLM id.
             'Antigravity|antigravity-sentient', 'antigravity|antigravity-sentient',
@@ -153,15 +153,44 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
         try { localStorage.setItem('agent.mode', agentMode); } catch { }
         set({ agentMode });
         onAgentModeChanged(agentMode);
+        // Bug-bounty / offensive mode auto-drives the dedicated local Ollama model
+        // `claude-bug-bounty` when it's installed — zero manual switching.
+        const offensive = agentMode === 'BugBounty' || agentMode === 'Bug Bounty'
+            || agentMode === 'RedTeam' || agentMode === 'Red Team';
+        if (offensive) {
+            const models = get().availableModels || [];
+            const match = models.find((m: any) => {
+                const id = (typeof m === 'string' ? m : m.id || m.name || '').toLowerCase();
+                return id.includes('claude-bug-bounty');
+            });
+            if (match) {
+                const id = typeof match === 'string' ? match : (match.id || match.name);
+                if (id && get().agentModel !== id) get().setAgentModel?.(id);
+            }
+        }
     },
     setAgentModel: (agentModel) => {
         const stale = new Set(['antigravity|antigravity-sentient', 'Antigravity|antigravity-sentient']);
         if (stale.has(agentModel)) {
-            console.warn('[agent] antigravity-sentient is not a real model — pick Ollama/Community AI from the toolbar.');
+            console.warn('[agent] antigravity-sentient is not a real model — pick Ollama/Cyber-Ifrit from the toolbar.');
             agentModel = '';
         }
         try { localStorage.setItem('agentModel', agentModel); } catch { }
         set({ agentModel });
+        // Align the global inference backend with the picked model's provider so the
+        // pre-flight probe, status pill, and endpoint URL all target the right server.
+        // Only flip for local OpenAI-compat backends — cloud models route by provider.
+        try {
+            const provider = (agentModel.includes('|') ? agentModel.split('|')[0] : '').toLowerCase();
+            const g: any = get();
+            const setBackend = g.setInferenceBackend;
+            if (typeof setBackend === 'function') {
+                if (provider === 'lemonade' && g.inferenceBackend !== 'lemonade') setBackend('lemonade');
+                else if (provider === 'huggingface' && g.inferenceBackend !== 'huggingface') setBackend('huggingface');
+                else if (provider === 'openmodel' && g.inferenceBackend !== 'openmodel') setBackend('openmodel');
+                else if ((provider === 'ollama' || provider === 'antigravity') && g.inferenceBackend !== 'ollama') setBackend('ollama');
+            }
+        } catch { /* non-fatal */ }
     },
     setPlannerModel: (plannerModel) => { try { localStorage.setItem('agent.plannerModel', plannerModel); } catch { } set({ plannerModel }); },
     setPlannerEnabled: (plannerEnabled) => {

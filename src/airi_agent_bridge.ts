@@ -31,12 +31,16 @@ export interface AIRIAgentConfig {
     consciousness: boolean;
     /** Enable voice responses */
     voice: boolean;
+    /** Enable Lemonade server integration */
+    lemonadeEnabled: boolean;
 }
 
 export class AIRIAgentBridge {
     private config: AIRIAgentConfig;
     private initialized = false;
     private autonomyInterval: NodeJS.Timeout | null = null;
+    private _onFileChanged: ((event: any) => void) | null = null;
+    private _onBuildComplete: ((event: any) => void) | null = null;
 
     constructor(config: Partial<AIRIAgentConfig> = {}) {
         // Full autonomy (background loops that proactively hit the model + run
@@ -47,10 +51,11 @@ export class AIRIAgentBridge {
             && localStorage.getItem('airi.autonomous24x7') === '1';
         this.config = {
             fullAutonomy: config.fullAutonomy ?? autonomyOptIn,
-            selfLearning: config.selfLearning ?? true,
-            biology: config.biology ?? true,
-            consciousness: config.consciousness ?? true,
-            voice: config.voice ?? false, // Off by default
+            selfLearning: config.selfLearning ?? false,
+            biology: config.biology ?? false,
+            consciousness: config.consciousness ?? false,
+            voice: config.voice ?? false,
+            lemonadeEnabled: config.lemonadeEnabled ?? false,
         };
     }
 
@@ -64,17 +69,17 @@ export class AIRIAgentBridge {
 
 
         try {
-            const rawOllama = useStore.getState().ollamaUrl || 'http://127.0.0.1:11434';
+            const rawOllama = useStore.getState().ollamaUrl || 'http://127.0.0.1:13305';
             let ollamaHost: string;
             try {
                 ollamaHost = normalizeOllamaUrl(rawOllama);
             } catch {
-                ollamaHost = 'http://127.0.0.1:11434';
+                ollamaHost = 'http://127.0.0.1:13305';
             }
             try {
-                await invoke('set_ollama_url', { url: ollamaHost });
+                await invoke('set_lemonade_url', { url: ollamaHost });
             } catch (e) {
-                console.warn('[AIRI Bridge] set_ollama_url failed:', e);
+                console.warn('[AIRI Bridge] set_lemonade_url failed:', e);
             }
             let ollamaHeaders: Record<string, string> | undefined;
             try {
@@ -125,7 +130,7 @@ export class AIRIAgentBridge {
             console.log('\n💬 AIRI is ready to work, learn, and evolve with you!\n');
 
         } catch (error) {
-            console.error('❌ AIRI initialization failed:', error);
+ console.error(' AIRI initialization failed:', error);
             throw error;
         }
     }
@@ -248,29 +253,39 @@ export class AIRIAgentBridge {
      * Setup event listeners for learning
      */
     private setupEventListeners() {
-        // Listen for file changes
-        if (typeof window !== 'undefined') {
-            window.addEventListener('file-changed', (event: any) => {
-                if (this.config.selfLearning) {
-                    airiSelfLearning.learnFromEvent(
-                        'observation', // Validated event type
-                        JSON.stringify({ type: 'file_change', path: event.detail?.path }),
-                        'neutral'
-                    );
-                }
-            });
+        if (typeof window === 'undefined') return;
 
-            // Listen for build events
-            window.addEventListener('build-complete', (event: any) => {
-                if (this.config.selfLearning) {
-                    airiSelfLearning.learnFromEvent(
-                        'success',
-                        JSON.stringify({ type: 'build_result', success: event.detail?.success, errors: event.detail?.errors }),
-                        event.detail?.success ? 'success' : 'failure'
-                    );
-                }
-            });
-        }
+        // Store handler references so they can be removed on destroy
+        this._onFileChanged = (event: any) => {
+            if (this.config.selfLearning) {
+                airiSelfLearning.learnFromEvent(
+                    'observation',
+                    JSON.stringify({ type: 'file_change', path: event.detail?.path }),
+                    'neutral'
+                );
+            }
+        };
+        this._onBuildComplete = (event: any) => {
+            if (this.config.selfLearning) {
+                airiSelfLearning.learnFromEvent(
+                    'success',
+                    JSON.stringify({ type: 'build_result', success: event.detail?.success, errors: event.detail?.errors }),
+                    event.detail?.success ? 'success' : 'failure'
+                );
+            }
+        };
+
+        window.addEventListener('file-changed', this._onFileChanged);
+        window.addEventListener('build-complete', this._onBuildComplete);
+    }
+
+    /**
+     * Remove event listeners — must be called on destroy to prevent OOM.
+     */
+    private removeEventListeners() {
+        if (typeof window === 'undefined') return;
+        if (this._onFileChanged) { window.removeEventListener('file-changed', this._onFileChanged); this._onFileChanged = null; }
+        if (this._onBuildComplete) { window.removeEventListener('build-complete', this._onBuildComplete); this._onBuildComplete = null; }
     }
 
     /**
@@ -332,6 +347,7 @@ export class AIRIAgentBridge {
             clearInterval(this.autonomyInterval);
             this.autonomyInterval = null;
         }
+        this.removeEventListeners();
     }
 }
 

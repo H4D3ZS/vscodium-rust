@@ -3,7 +3,7 @@
  * Full-featured terminal matching VSCode/VSCodium behavior
  */
 
-import { invoke, listen } from './tauri_bridge.ts';
+import { invoke } from './tauri_bridge.ts';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -77,10 +77,6 @@ export class TerminalManager {
   private defaultProfileId: string = 'powershell';
   private linkProvider: any = null;
   private profilesReady: Promise<void>;
-  // Global `terminal-data` listener — set up exactly once and routes payloads
-  // to whichever terminal instance owns the term_id. Without this listener
-  // the xterm display stayed blank (PTY output was emitted into the void).
-  private dataListenerInstalled = false;
   // Per-terminal write buffers used until the underlying xterm has been
   // attached and is ready to receive `term.write`.
   private pendingWrites: Map<string, string[]> = new Map();
@@ -98,54 +94,57 @@ export class TerminalManager {
 
   constructor() {
     this.profilesReady = this.loadProfiles();
-    void this.ensureDataListener();
+    // NOTE: no `terminal-data` event subscription — PTY output is rendered
+    // exclusively via `terminal_take_pending` polling, and the backend no
+    // longer emits the event (it was pure IPC overhead).
   }
 
-  /** Subscribe once to the Tauri `terminal-data` event stream. */
-  private async ensureDataListener(): Promise<void> {
-    if (this.dataListenerInstalled) return;
-    this.dataListenerInstalled = true;
-    try {
-      await listen('terminal-data', (_event: any) => {
-        // Intentionally a no-op. PTY output is rendered via polling
-        // (`terminal_take_pending`) because this event stream does not reliably
-        // reach the webview. The backend still emits it as a best-effort
-        // secondary, but writing here too would double-render the output on
-        // hosts where the event DOES fire. Kept subscribed for diagnostics.
-      });
-    } catch (err) {
-      console.warn('[terminal] Failed to subscribe to terminal-data:', err);
-      this.dataListenerInstalled = false;
-    }
-  }
-
-  /** Begin polling the backend pending buffer for this terminal's PTY output. */
+  /** Begin adaptive polling: 50ms when active, backs off to 500ms when idle. */
   private startPolling(id: string): void {
     if (this.pollTimers.has(id)) return;
+
+    // Adaptive backoff: emptyStreak counts consecutive empty polls.
+    // Active output → 50ms. Quiet for a while → step up to 150ms, then 500ms.
+    let emptyStreak = 0;
+    let currentInterval = 50;
+    let timerId: ReturnType<typeof setTimeout>;
+
     const tick = async () => {
       if (!this.terminals.has(id)) { this.stopPolling(id); return; }
       try {
         const chunk = await invoke<string>('terminal_take_pending', { id });
         if (chunk) {
+          emptyStreak = 0;
+          currentInterval = 50; // snap back to fast poll on activity
           const inst = this.terminals.get(id);
           if (inst) {
             this.firstDataIds.add(id);
             inst.term.write(chunk);
             inst.lastOutput = chunk;
           }
+        } else {
+          emptyStreak++;
+          // Back off: 5 empty → 150ms, 25 empty → 500ms
+          if (emptyStreak >= 25) currentInterval = 500;
+          else if (emptyStreak >= 5) currentInterval = 150;
         }
       } catch {
         /* backend not ready / terminal gone — keep ticking */
       }
+      // Re-schedule only if not yet stopped
+      if (this.pollTimers.has(id)) {
+        timerId = setTimeout(tick, currentInterval);
+        this.pollTimers.set(id, timerId);
+      }
     };
-    const timer = setInterval(tick, 50);
-    this.pollTimers.set(id, timer);
-    void tick(); // immediate first pull (don't wait a full interval)
+
+    timerId = setTimeout(tick, 0); // immediate first pull
+    this.pollTimers.set(id, timerId);
   }
 
   private stopPolling(id: string): void {
     const t = this.pollTimers.get(id);
-    if (t) { clearInterval(t); this.pollTimers.delete(id); }
+    if (t != null) { clearTimeout(t); this.pollTimers.delete(id); }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -209,7 +208,11 @@ export class TerminalManager {
     groupId?: string,
     cwd?: string,
     /** Must match React/store `instanceId` so `attach()` can find this terminal. */
-    explicitId?: string
+    explicitId?: string,
+    /** Override the Tauri spawn command. When set, invoked as `{ id }` only (no shell arg). */
+    spawnCommand?: string,
+    /** Extra args merged into the spawn payload. Only used with `spawnCommand`. */
+    spawnArgs?: Record<string, unknown>
   ): Promise<string> {
     await this.profilesReady;
     const id =
@@ -303,10 +306,9 @@ export class TerminalManager {
       instance.blocks = tracker;
     } catch { /* decorations are best-effort */ }
 
-    // Visible boot line. xterm buffers this until open() (in attach). If you SEE it,
-    // the renderer works and any missing shell prompt is a PTY issue; if the pane is
-    // totally blank, the element never got opened/attached.
-    try { term.writeln('\x1b[90m✓ terminal ready — ' + profile.name + '\x1b[0m'); } catch { /* */ }
+    // Clean start — no boot banner (Cursor-style: just the shell prompt). The
+    // diagnostic "no shell output after ~2s" watchdog below still catches a dead
+    // PTY, so we don't need a cosmetic ready line cluttering the terminal.
 
     // If data arrived before this instance was registered, flush it now.
     const pending = this.pendingWrites.get(id);
@@ -336,10 +338,10 @@ export class TerminalManager {
 
     // Spawn shell (Rust `spawn_terminal` only accepts `id` + optional `shell`)
     try {
-      const result = await invoke<{ id?: string; status?: string; pid?: number }>('spawn_terminal', {
-        id,
-        shell: profile.path
-      });
+      const result = await invoke<{ id?: string; status?: string; pid?: number }>(
+        spawnCommand || 'spawn_terminal',
+        spawnCommand ? { id, ...(spawnArgs || {}) } : { id, shell: profile.path }
+      );
 
       if (result && typeof result === 'object' && 'pid' in result) {
         instance.pid = (result as any).pid;
@@ -406,6 +408,46 @@ export class TerminalManager {
     }
 
     return id;
+  }
+
+  /** Spawn an OpenCode TUI session. Passes provider env vars via the dedicated Tauri command. */
+  async createOpenCodeTerminal(explicitId?: string, groupId?: string): Promise<string> {
+    return this.createTerminal(undefined, groupId, undefined, explicitId, 'spawn_opencode_terminal');
+  }
+
+  /**
+   * Spawn a Claude Code session wired to the local Lemonade server.
+   *
+   * The backend applies the measured per-model `ctx_size`/`llamacpp.args` and
+   * reloads if they changed, maps every model alias to the local model, and
+   * defaults to skip-permissions + airgapped. Omitting `model` uses whatever
+   * the IDE currently has selected.
+   */
+  async createClaudeCodeTerminal(
+    opts: {
+      explicitId?: string;
+      groupId?: string;
+      model?: string;
+      skipPermissions?: boolean;
+      allowNet?: boolean;
+      extraArgs?: string[];
+    } = {}
+  ): Promise<string> {
+    const { explicitId, groupId, model, skipPermissions, allowNet, extraArgs } = opts;
+    return this.createTerminal(
+      undefined,
+      groupId,
+      undefined,
+      explicitId,
+      'spawn_claude_terminal',
+      // Tauri maps camelCase args onto the Rust snake_case params.
+      {
+        ...(model ? { model } : {}),
+        ...(skipPermissions !== undefined ? { skipPermissions } : {}),
+        ...(allowNet !== undefined ? { allowNet } : {}),
+        ...(extraArgs ? { extraArgs } : {}),
+      }
+    );
   }
 
   private setupTerminalEvents(instance: TerminalInstance) {
@@ -566,7 +608,8 @@ export class TerminalManager {
     term.loadAddon(fitAddon);
     term.loadAddon(searchAddon);
     term.loadAddon(webLinksAddon);
-    try { term.loadAddon(new WebglAddon()); } catch { try { term.loadAddon(new CanvasAddon()); } catch { /* */ } }
+    // DOM renderer only — AIRI is a virtual output terminal; WebGL keeps the GPU
+    // in a high-power state even when the panel is hidden.
     term.open(element);
 
     const instance: TerminalInstance = {
@@ -702,6 +745,9 @@ export class TerminalManager {
     let draining = false;
     const drainTick = async () => {
       if (draining) return;
+      // Don't burn 8 invokes/sec while the window is hidden — the buffer is
+      // drained in one shot when the tab becomes visible again.
+      if (typeof document !== 'undefined' && document.hidden) return;
       draining = true;
       try {
         const lines = await invoke<string[]>('agent_activity_drain');
@@ -799,7 +845,10 @@ export class TerminalManager {
       }
 
       this.terminals.delete(id);
-      
+      this.pendingWrites.delete(id);
+      this.firstDataIds.delete(id);
+      this.openedIds.delete(id);
+      this.pollTimers.delete(id);
       // Remove from group
       for (const group of this.groups.values()) {
         const idx = group.instances.findIndex(i => i.id === id);

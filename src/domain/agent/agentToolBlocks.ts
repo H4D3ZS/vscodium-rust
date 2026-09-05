@@ -2,7 +2,13 @@
 
 import { canonicalToolName, toolsMatchForFinish } from './toolAliases';
 
-export type AgentToolBlockKind = 'terminal' | 'read' | 'edit' | 'search' | 'todo' | 'canvas' | 'generic';
+export type AgentToolBlockKind = 'terminal' | 'read' | 'edit' | 'search' | 'todo' | 'canvas' | 'explore' | 'generic';
+
+export interface ExploreCitation {
+    path: string;
+    lineRange?: string;
+    context?: string;
+}
 export type AgentToolBlockStatus = 'running' | 'done' | 'error';
 
 export type AgentTodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
@@ -34,6 +40,8 @@ export interface AgentToolBlock {
     /** For canvas blocks: id/title used by the "Open canvas" chip. */
     canvasId?: string;
     canvasTitle?: string;
+    /** For explore blocks: FastContext file:line citations. */
+    citations?: ExploreCitation[];
 }
 
 export function parseToolArgs(raw: unknown): Record<string, unknown> {
@@ -55,6 +63,7 @@ export function classifyToolKind(tool: string): AgentToolBlockKind {
     if (t === 'create_canvas' || t.includes('canvas')) return 'canvas';
     if (t.includes('todo_write') || t === 'todo_write' || t.includes('task_create')) return 'todo';
     if (t === 'run_command' || t.includes('terminal')) return 'terminal';
+    if (t === 'explore_repository' || t.includes('explore')) return 'explore';
     if (t === 'view_file' || t.includes('file_read') || t.includes('read_file')) return 'read';
     if (t.includes('write') || t.includes('edit') || t.includes('replace') || t.includes('patch') || t.includes('apply')) return 'edit';
     if (t === 'grep' || t === 'find_by_name' || t === 'search_files' || t === 'list_files' || t === 'search_codebase' || t.includes('glob') || t.includes('grep') || t.includes('search') || t.includes('list') || t.includes('find')) return 'search';
@@ -69,6 +78,28 @@ export function isQuietReconBlock(block: AgentToolBlock): boolean {
     if (block.status === 'running' || block.status === 'error') return false;
     if (block.kind === 'terminal' || block.kind === 'edit' || block.kind === 'todo') return false;
     return block.kind === 'search' || block.kind === 'read' || block.kind === 'generic';
+}
+
+/**
+ * Internal read-only git probes (branch/status/log/config/diff…) the agent runs to
+ * orient itself. Cursor never shows these in chat — they're plumbing, not work. We
+ * hide them from the chat stream (they still ran; the terminal panel has the real
+ * git). Mutating git (commit/checkout/add/push/merge/reset) is NOT hidden.
+ */
+export function isHiddenGitReconBlock(block: AgentToolBlock): boolean {
+    if (block.kind !== 'terminal') return false;
+    // Hide read-only git plumbing even when it FAILS — these auto-probes use
+    // `2>/dev/null` (bash) which errors under PowerShell, but the failure is
+    // irrelevant noise, not something the user needs to see.
+    const cmd = String(block.command || '').trim().replace(/^\(*/, '');
+    const m = /^git\s+(?:-[^\s]+\s+)*([a-z-]+)/i.exec(cmd);
+    if (!m) return false;
+    const READ_ONLY = new Set([
+        'status', 'branch', 'log', 'config', 'rev-parse', 'diff', 'show',
+        'remote', 'describe', 'symbolic-ref', 'ls-files', 'for-each-ref',
+        'rev-list', 'name-rev', 'cat-file', 'blame', 'shortlog', 'count-objects',
+    ]);
+    return READ_ONLY.has(m[1].toLowerCase());
 }
 
 export interface ReconSummary {
@@ -100,6 +131,9 @@ export function collapseToolBlocksForDisplay(blocks: AgentToolBlock[]): DisplayT
     };
 
     for (const b of blocks) {
+        if (isHiddenGitReconBlock(b)) {
+            continue; // internal git plumbing — never shown in chat
+        }
         if (isQuietReconBlock(b)) {
             quiet.push(b);
         } else {
@@ -186,6 +220,9 @@ export function buildToolBlockTitle(tool: string, args: Record<string, unknown>)
         const t = String(args.title || '');
         return t ? `Canvas · ${t}` : 'Canvas';
     }
+    if (kind === 'explore') {
+        return 'Exploring repository…';
+    }
     if (kind === 'search') {
         const pat = String(args.pattern || args.query || '');
         if (pat && path) return `Grepped \`${pat}\` in ${basename(path)}`;
@@ -244,6 +281,28 @@ export function enrichCanvasBlockFromResult(block: AgentToolBlock, result: strin
         if (id) return { ...block, canvasId: id };
     } catch { /* not json */ }
     return block;
+}
+
+/** Pull FastContext citations out of an explore_repository result. */
+export function enrichExploreBlockFromResult(block: AgentToolBlock, result: string): AgentToolBlock {
+    if (block.kind !== 'explore') return block;
+    try {
+        const j = JSON.parse(result);
+        const data = (j && typeof j === 'object' && typeof j.data === 'object' && j.data) || j;
+        const raw = (data && (data as any).citations) || [];
+        if (Array.isArray(raw)) {
+            const citations: ExploreCitation[] = raw.map((c: any) => ({
+                path: String(c?.path || ''),
+                lineRange: c?.line_range ? String(c.line_range) : undefined,
+                context: c?.context ? String(c.context) : undefined,
+            })).filter((c: ExploreCitation) => c.path);
+            const title = citations.length
+                ? `Explored repository · ${citations.length} file${citations.length === 1 ? '' : 's'}`
+                : 'Explored repository';
+            return { ...block, citations, title };
+        }
+    } catch { /* not json */ }
+    return { ...block, title: 'Explored repository' };
 }
 
 /** Try to enrich edit blocks from a tool result payload. */

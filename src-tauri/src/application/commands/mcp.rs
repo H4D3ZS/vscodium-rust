@@ -1,5 +1,4 @@
 use tauri::State;
-use crate::EditorState;
 use crate::mcp_registry;
 use serde_json::{json, Value};
 
@@ -25,13 +24,13 @@ pub async fn detect_ida_install_dir(path: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub async fn list_mcp_servers(state: State<'_, EditorState>) -> Result<Value, String> {
+pub async fn list_mcp_servers(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Value, String> {
     Ok(json!(state.services.mcp_registry.list_servers().await))
 }
 
 #[tauri::command]
 pub async fn add_mcp_server(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     name: String,
     config: mcp_registry::McpServerConfig,
 ) -> Result<(), String> {
@@ -43,7 +42,7 @@ pub async fn add_mcp_server(
 }
 
 #[tauri::command]
-pub async fn remove_mcp_server(state: State<'_, EditorState>, name: String) -> Result<(), String> {
+pub async fn remove_mcp_server(state: State<'_, std::sync::Arc<crate::EditorState>>, name: String) -> Result<(), String> {
     state
         .services.mcp_registry
         .remove_server(&name)
@@ -53,7 +52,7 @@ pub async fn remove_mcp_server(state: State<'_, EditorState>, name: String) -> R
 
 #[tauri::command]
 pub async fn set_mcp_server_enabled(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     name: String,
     enabled: bool,
 ) -> Result<(), String> {
@@ -65,7 +64,7 @@ pub async fn set_mcp_server_enabled(
 }
 
 #[tauri::command]
-pub fn get_mcp_config_path(state: State<'_, EditorState>) -> Result<String, String> {
+pub fn get_mcp_config_path(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<String, String> {
     Ok(state
         .services.mcp_registry
         .config_path()
@@ -74,7 +73,7 @@ pub fn get_mcp_config_path(state: State<'_, EditorState>) -> Result<String, Stri
 }
 
 #[tauri::command]
-pub async fn list_mcp_tools(state: State<'_, EditorState>) -> Result<Value, String> {
+pub async fn list_mcp_tools(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Value, String> {
     state
         .services.mcp_registry
         .list_tools()
@@ -84,7 +83,7 @@ pub async fn list_mcp_tools(state: State<'_, EditorState>) -> Result<Value, Stri
 }
 
 #[tauri::command]
-pub async fn read_mcp_config(state: State<'_, EditorState>) -> Result<Value, String> {
+pub async fn read_mcp_config(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Value, String> {
     let path = state.services.mcp_registry.config_path().to_string_lossy().into_owned();
     let text = state
         .services.mcp_registry
@@ -95,7 +94,7 @@ pub async fn read_mcp_config(state: State<'_, EditorState>) -> Result<Value, Str
 
 #[tauri::command]
 pub async fn write_mcp_config(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     text: String,
 ) -> Result<(), String> {
     state

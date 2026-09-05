@@ -54,7 +54,7 @@ const AgentFirstIdePanel: React.FC = () => {
                 <div style={{ fontWeight: 600, marginBottom: 6 }}>Hermes skills (native in Sentient)</div>
                 {hermes?.skillsCount != null ? (
                     <div className="afi-muted">
-                        ✅ {hermes.skillsCount} SKILL.md files from <code>hermes-agent/</code> — no Python subprocess.
+                        {hermes.skillsCount} SKILL.md files from <code>hermes-agent/</code> — no Python subprocess.
                         Git Bash: {shell?.ready ? shell.gitBash : 'not configured'}
                     </div>
                 ) : (

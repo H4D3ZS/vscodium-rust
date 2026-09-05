@@ -80,7 +80,7 @@ const MissionControl: React.FC = () => {
 
     useEffect(() => { void refresh(); }, [refresh]);
     useEffect(() => {
-        const t = setInterval(() => void refresh(), 8000);
+        const t = setInterval(() => void refresh(), 15000);
         return () => clearInterval(t);
     }, [refresh]);
 

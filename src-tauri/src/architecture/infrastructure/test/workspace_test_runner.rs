@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::architecture::domain::test::{TestCase, TestFramework, TestRunnerRepository, TestRunResult};
+#[cfg(feature = "tauri")]
 use crate::architecture::infrastructure::gradle::gradle_util::resolve_gradlew;
 use crate::architecture::infrastructure::test::test_runner_logic::{
     run_all_command, run_file_command,
@@ -25,12 +26,19 @@ impl WorkspaceTestRunner {
         args: Vec<String>,
     ) -> Result<TestRunResult, String> {
         let (program, args) = if program == "__gradlew__" {
-            let gradlew = resolve_gradlew(root_path)
-                .ok_or("Gradle wrapper not found (gradlew / gradlew.bat)")?;
-            (
-                gradlew.to_string_lossy().to_string(),
-                args,
-            )
+            #[cfg(feature = "tauri")]
+            {
+                let gradlew = resolve_gradlew(root_path)
+                    .ok_or("Gradle wrapper not found (gradlew / gradlew.bat)")?;
+                (
+                    gradlew.to_string_lossy().to_string(),
+                    args,
+                )
+            }
+            #[cfg(not(feature = "tauri"))]
+            {
+                return Err("Gradle support requires the Tauri shell".to_string());
+            }
         } else {
             (program.to_string(), args)
         };

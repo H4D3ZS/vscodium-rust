@@ -42,7 +42,7 @@ export function isGpuServerOnlyModel(modelTag: string): boolean {
 
 export function isLocalOllamaUrl(url: string): boolean {
     try {
-        const host = new URL(url.replace(/\/$/, '') || 'http://127.0.0.1:11434').hostname.toLowerCase();
+        const host = new URL(url.replace(/\/$/, '') || 'http://127.0.0.1:13305').hostname.toLowerCase();
         return host === 'localhost' || host === '127.0.0.1' || host === '::1';
     } catch {
         return /localhost|127\.0\.0\.1/i.test(url);
@@ -108,7 +108,7 @@ export const COMPOSER2_STACKS: Composer2Stack[] = [
             'Pull on server: batiai/minimax-m2.7:iq3',
         ollamaMode: 'hybrid',
         remoteHost: '192.168.1.50',
-        localHost: 'http://127.0.0.1:11434',
+        localHost: 'http://127.0.0.1:13305',
         planner: `ollama|${COMPOSER2_DEFAULT_GPU_MODEL}`,
         executor: `ollama|${COMPOSER2_DEFAULT_GPU_MODEL}`,
         chatFast: 'ollama|qwen2.5-coder:7b',
@@ -123,7 +123,7 @@ export const COMPOSER2_STACKS: Composer2Stack[] = [
             'more VRAM, closer to Cursor Composer 2 base model. Pull: batiai/kimi-k2.6:iq3',
         ollamaMode: 'hybrid',
         remoteHost: '192.168.1.50',
-        localHost: 'http://127.0.0.1:11434',
+        localHost: 'http://127.0.0.1:13305',
         planner: 'ollama|batiai/kimi-k2.6:iq3',
         executor: 'ollama|batiai/kimi-k2.6:iq3',
         chatFast: 'ollama|qwen2.5-coder:7b',
@@ -135,7 +135,7 @@ export const COMPOSER2_STACKS: Composer2Stack[] = [
         label: 'Composer 2 Lite — 3900X local only',
         desc: 'No GPU server: fast chat + qwen2.5-coder:14b agent on CPU/RX 580. No Kimi K2.6.',
         ollamaMode: 'local',
-        localHost: 'http://127.0.0.1:11434',
+        localHost: 'http://127.0.0.1:13305',
         planner: '',
         executor: 'ollama|qwen2.5-coder:14b',
         chatFast: 'ollama|airi-fast:latest',
@@ -173,9 +173,9 @@ const FALLBACK_EXEC_KEY = 'composer2.executorLocalFallback';
 
 function normalizeRemoteOllamaUrl(hostOrUrl: string): string {
     const raw = hostOrUrl.trim();
-    if (!raw) return 'http://127.0.0.1:11434';
+    if (!raw) return 'http://127.0.0.1:13305';
     if (raw.startsWith('http://') || raw.startsWith('https://')) return raw.replace(/\/$/, '');
-    return `http://${raw.replace(/\/$/, '')}:11434`;
+    return `http://${raw.replace(/\/$/, '')}:13305`;
 }
 
 export function getComposer2ChatFastModel(): string | null {
@@ -213,7 +213,7 @@ export function getComposer2LocalOllamaUrl(): string | null {
 
 export function getComposer2FastOllamaUrl(defaultUrl: string): string {
     if (isComposer2HybridMode()) {
-        return getComposer2LocalOllamaUrl() || 'http://127.0.0.1:11434';
+        return getComposer2LocalOllamaUrl() || 'http://127.0.0.1:13305';
     }
     return defaultUrl;
 }
@@ -241,7 +241,7 @@ async function resolveOllamaTagAtUrl(
     restoreAfter?: string,
 ): Promise<string> {
     const base = url.replace(/\/$/, '');
-    await invoke('set_ollama_url', { url: base }).catch(() => {});
+    await invoke('set_lemonade_url', { url: base }).catch(() => {});
     try {
         const { resolveOllamaModelTag } = await import('../airi/shared-ollama');
         return await resolveOllamaModelTag(requested);
@@ -249,7 +249,7 @@ async function resolveOllamaTagAtUrl(
         return requested;
     } finally {
         if (restoreAfter) {
-            await invoke('set_ollama_url', { url: restoreAfter.replace(/\/$/, '') }).catch(() => {});
+            await invoke('set_lemonade_url', { url: restoreAfter.replace(/\/$/, '') }).catch(() => {});
         }
     }
 }
@@ -264,33 +264,33 @@ function getComposer2RemoteOllamaUrl(): string | null {
 
 /** Pick a chat model guaranteed safe for local Ollama (never MiniMax/Kimi-class). */
 export async function ensureLocalChatModel(requested: string, localUrl?: string): Promise<string> {
-    const url = (localUrl || getComposer2LocalOllamaUrl() || 'http://127.0.0.1:11434').replace(/\/$/, '');
+    const url = (localUrl || getComposer2LocalOllamaUrl() || 'http://127.0.0.1:13305').replace(/\/$/, '');
     const restoreUrl = isComposer2HybridMode()
         ? (getComposer2RemoteOllamaUrl() || useStore.getState().customOllamaUrl || undefined)
         : undefined;
     if (!isGpuServerOnlyModel(requested)) {
         const hit = await resolveOllamaTagAtUrl(url, requested);
         if (!isGpuServerOnlyModel(hit)) {
-            if (restoreUrl) await invoke('set_ollama_url', { url: restoreUrl.replace(/\/$/, '') }).catch(() => {});
+            if (restoreUrl) await invoke('set_lemonade_url', { url: restoreUrl.replace(/\/$/, '') }).catch(() => {});
             return hit;
         }
     }
     for (const fallback of COMPOSER2_LOCAL_CHAT_DEFAULTS) {
         const hit = await resolveOllamaTagAtUrl(url, fallback);
         if (!isGpuServerOnlyModel(hit)) {
-            if (restoreUrl) await invoke('set_ollama_url', { url: restoreUrl.replace(/\/$/, '') }).catch(() => {});
+            if (restoreUrl) await invoke('set_lemonade_url', { url: restoreUrl.replace(/\/$/, '') }).catch(() => {});
             return hit;
         }
     }
-    if (restoreUrl) await invoke('set_ollama_url', { url: restoreUrl.replace(/\/$/, '') }).catch(() => {});
+    if (restoreUrl) await invoke('set_lemonade_url', { url: restoreUrl.replace(/\/$/, '') }).catch(() => {});
     return COMPOSER2_LOCAL_CHAT_DEFAULTS[0];
 }
 
 async function verifyOllamaReachable(url: string): Promise<boolean> {
     try {
-        await invoke('set_ollama_url', { url: url.replace(/\/$/, '') });
+        await invoke('set_lemonade_url', { url: url.replace(/\/$/, '') });
         const base = url.replace(/\/$/, '');
-        const r = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(4000) });
+        const r = await fetch(`${base}/api/v1/models`, { signal: AbortSignal.timeout(4000) });
         return r.ok;
     } catch {
         return false;
@@ -305,7 +305,7 @@ export async function applyComposer2Stack(
     const notes: string[] = [];
 
     const remoteHost = remoteHostOverride?.trim() || stack.remoteHost || '';
-    const localUrl = (stack.localHost || 'http://127.0.0.1:11434').replace(/\/$/, '');
+    const localUrl = (stack.localHost || 'http://127.0.0.1:13305').replace(/\/$/, '');
     const remoteUrl = remoteHost ? normalizeRemoteOllamaUrl(remoteHost) : '';
 
     try {
@@ -330,11 +330,11 @@ export async function applyComposer2Stack(
         notes.push(`Agent + planner → remote Ollama at ${remoteUrl}`);
     } else {
         await st.setOllamaServerMode?.('local');
-        notes.push(`All inference → local Ollama at ${localUrl}`);
+        notes.push(`All inference → local Lemonade at ${localUrl}`);
     }
 
     await st.syncOllamaEndpoint?.();
-    st.setInferenceBackend?.('ollama');
+    st.setInferenceBackend?.('lemonade');
 
     st.setHybridAuto?.(stack.enableHybrid);
     st.setPlannerEnabled?.(stack.enableHybrid && !!stack.planner);
@@ -379,7 +379,7 @@ export async function applyComposer2Stack(
 
     if (stack.ollamaMode === 'hybrid') {
         const localOk = await verifyOllamaReachable(localUrl);
-        await invoke('set_ollama_url', { url: remoteUrl }).catch(() => {});
+        await invoke('set_lemonade_url', { url: remoteUrl }).catch(() => {});
         if (!localOk) {
             notes.push('⚠ Local Ollama not reachable — run `ollama serve` on this PC and pull qwen2.5-coder:7b');
         } else {
@@ -396,7 +396,7 @@ export async function applyComposer2Stack(
         }
     }
 
-    await st.refreshAvailableModels?.('ollama');
+    await st.refreshAvailableModels?.('lemonade');
     return notes;
 }
 
@@ -409,7 +409,7 @@ export async function pickComposer2FastChatModel(preferred: string): Promise<str
     }
     if (isGpuServerOnlyModel(slot)) return null;
     return resolveOllamaTagAtUrl(
-        getComposer2LocalOllamaUrl() || 'http://127.0.0.1:11434',
+        getComposer2LocalOllamaUrl() || 'http://127.0.0.1:13305',
         slot,
     );
 }

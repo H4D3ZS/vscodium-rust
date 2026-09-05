@@ -102,7 +102,7 @@ const ReasoningToggle: React.FC = memo(() => {
                     userSelect: 'none',
                 }}
             >
-                {isThinkTag ? '🧠 Think' : isAnthropicModel ? '💡 Thinking' : '⚡ Reason'}
+                {isThinkTag ? 'Think' : isAnthropicModel ? 'Thinking' : 'Reason'}
             </span>
             {isEnabled && open && (
                 <div style={{

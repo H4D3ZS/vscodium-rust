@@ -16,31 +16,11 @@ pub async fn web_fetch(url: String) -> Result<String, String> {
 /// (a small, fast embedding model). Returns the embedding vector.
 #[tauri::command]
 pub async fn embed_text(text: String, model: Option<String>) -> Result<Vec<f32>, String> {
-    let model = model.unwrap_or_else(|| "nomic-embed-text".to_string());
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let res = client
-        .post("http://127.0.0.1:11434/api/embeddings")
-        .json(&json!({ "model": model, "prompt": text }))
-        .send()
-        .await
-        .map_err(|e| format!("Ollama embeddings request failed: {e}. Is Ollama running and is '{model}' pulled?"))?;
-
-    if !res.status().is_success() {
-        return Err(format!(
-            "Ollama embeddings returned {}. Try: ollama pull {model}",
-            res.status()
-        ));
-    }
-    let body: Value = res.json().await.map_err(|e| e.to_string())?;
-    let arr = body
-        .get("embedding")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| "No 'embedding' field in Ollama response".to_string())?;
-    Ok(arr.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect())
+    // Delegates to the shared embedding client rather than calling Ollama
+    // directly. This used to POST to :11434 with Ollama's payload shape, which
+    // on a Lemonade-only machine failed every call — taking AIRI's semantic
+    // memory down with it, silently, since callers treat an error as "no match".
+    crate::embeddings::embed_text_async(&text, model.as_deref()).await
 }
 
 /// Real HTTP probe for security testing: returns status, response headers,

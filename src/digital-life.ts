@@ -68,6 +68,7 @@ export class DigitalLifeCore {
    * Ambient Behavior - AIRI exists even when not talking
    */
   private startAmbientBehavior(): void {
+    if (this.ambientInterval) return;
     // Subtle presence updates
     this.ambientInterval = setInterval(() => {
       if (!this.presenceActive) return;
@@ -308,9 +309,3 @@ export class DigitalLifeCore {
 
 // Export singleton
 export const digitalLife = new DigitalLifeCore();
-
-// Auto-activate
-if (typeof window !== 'undefined') {
-  
-  digitalLife.activate().catch(console.error);
-}

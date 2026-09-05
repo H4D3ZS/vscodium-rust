@@ -1,34 +1,80 @@
 use crate::{EditorState, domain::FileEntry};
 use tauri::State;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs;
 use ropey::Rope;
 
-pub async fn is_path_valid(_state: &EditorState, _path: &PathBuf) -> Result<(), String> {
-    // Basic validation logic
+const LARGE_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const PAGED_VIEWER_WINDOW: u64 = 4096;
+
+#[derive(serde::Serialize)]
+pub struct FileStat {
+    pub size: u64,
+    pub lines: usize,
+    pub is_large: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct LargeFileMarker {
+    pub large: bool,
+    pub size: u64,
+    pub lines: usize,
+}
+
+/// Validate that a path is within the project root and not a blocked directory.
+fn validate_path_against_root(path: &str, root: &Path) -> Result<PathBuf, String> {
+    let p = PathBuf::from(path);
+    let full = if p.is_absolute() { p } else { root.join(&p) };
+    // Normalize separators for comparison
+    let full_str = full.to_string_lossy().replace('\\', "/");
+    let root_str = root.to_string_lossy().replace('\\', "/");
+    // Check if the file is within the project root (allow root itself)
+    if !full_str.starts_with(&root_str) && !root_str.starts_with(&full_str.trim_end_matches('/')) {
+        return Err(format!("Path escapes project root: {}", path));
+    }
+    Ok(full)
+}
+
+pub async fn is_path_valid(state: &EditorState, path: &PathBuf) -> Result<(), String> {
+    let root = state.editor.active_root.lock().await
+        .clone()
+        .ok_or_else(|| "No project root set".to_string())?;
+    validate_path_against_root(&path.to_string_lossy(), &root)?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn create_dir(path: String) -> Result<(), String> {
-    fs::create_dir_all(path).map_err(|e| e.to_string())?;
+pub async fn create_dir(state: State<'_, std::sync::Arc<crate::EditorState>>, path: String) -> Result<(), String> {
+    let root = state.editor.active_root.lock().await
+        .clone()
+        .ok_or_else(|| "No project root set".to_string())?;
+    let full = validate_path_against_root(&path, &root)?;
+    fs::create_dir_all(&full).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn create_directory(path: String) -> Result<(), String> {
-    fs::create_dir_all(path).map_err(|e| e.to_string())?;
+pub async fn create_directory(state: State<'_, std::sync::Arc<crate::EditorState>>, path: String) -> Result<(), String> {
+    let root = state.editor.active_root.lock().await
+        .clone()
+        .ok_or_else(|| "No project root set".to_string())?;
+    let full = validate_path_against_root(&path, &root)?;
+    fs::create_dir_all(&full).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn create_file(path: String) -> Result<(), String> {
-    fs::File::create(path).map_err(|e| e.to_string())?;
+pub async fn create_file(state: State<'_, std::sync::Arc<crate::EditorState>>, path: String) -> Result<(), String> {
+    let root = state.editor.active_root.lock().await
+        .clone()
+        .ok_or_else(|| "No project root set".to_string())?;
+    let full = validate_path_against_root(&path, &root)?;
+    fs::File::create(&full).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn validate_path(state: State<'_, EditorState>, path: PathBuf) -> Result<(), String> {
+pub async fn validate_path(state: State<'_, std::sync::Arc<crate::EditorState>>, path: PathBuf) -> Result<(), String> {
     is_path_valid(&state, &path).await
 }
 
@@ -99,7 +145,7 @@ pub async fn list_dir_flat(path: PathBuf) -> Result<Vec<FileEntry>, String> {
 
 #[tauri::command]
 pub async fn get_file_tree(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     path: Option<String>,
 ) -> Result<Vec<FileEntry>, String> {
     let root = if let Some(raw) = path {
@@ -129,13 +175,13 @@ pub async fn get_file_tree(
 }
 
 #[tauri::command]
-pub async fn refresh_file_tree(state: State<'_, EditorState>) -> Result<Vec<FileEntry>, String> {
+pub async fn refresh_file_tree(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Vec<FileEntry>, String> {
     get_file_tree(state, None).await
 }
 
 #[tauri::command]
 pub async fn get_directory_contents(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     path: String,
 ) -> Result<Vec<FileEntry>, String> {
     let path_buf = PathBuf::from(&path);
@@ -144,20 +190,63 @@ pub async fn get_directory_contents(
 }
 
 #[tauri::command]
-pub async fn open_file(state: State<'_, EditorState>, path: String) -> Result<String, String> {
-    let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))?;
-
-    let mut buffers = state.editor.buffers.lock().await;
-    buffers.insert(path.clone(), Rope::from_str(&content));
-
-    let mut active = state.editor.active_path.lock().await;
-    *active = Some(path);
-
-    Ok(content)
+pub async fn file_stat(path: String) -> Result<FileStat, String> {
+    let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
+    let size = meta.len();
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let lines = content.lines().count();
+    Ok(FileStat { size, lines, is_large: size > LARGE_FILE_BYTES })
 }
 
 #[tauri::command]
-pub async fn save_file(state: State<'_, EditorState>, path: String, content: String) -> Result<(), String> {
+pub async fn read_file_range(path: String, start_byte: u64, len: u64) -> Result<String, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = fs::File::open(&path).map_err(|e| e.to_string())?;
+    file.seek(SeekFrom::Start(start_byte)).map_err(|e| e.to_string())?;
+    let read_len = len.min(PAGED_VIEWER_WINDOW * 200);
+    let mut buf = vec![0u8; read_len as usize];
+    let n = file.read(&mut buf).map_err(|e| e.to_string())?;
+    buf.truncate(n);
+    String::from_utf8(buf).map_err(|e| format!("Invalid UTF-8: {}", e))
+}
+
+#[tauri::command]
+pub async fn open_file(state: State<'_, std::sync::Arc<crate::EditorState>>, path: String) -> Result<serde_json::Value, String> {
+    if let Some(root) = state.editor.active_root.lock().await.clone() {
+        validate_path_against_root(&path, &root)?;
+    }
+    let meta = fs::metadata(&path).map_err(|e| format!("Failed to read file: {}", e))?;
+    let size = meta.len();
+
+    if size > LARGE_FILE_BYTES {
+        let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let lines = content.lines().count();
+        let preview: String = content.lines().take(PAGED_VIEWER_WINDOW as usize).collect::<Vec<_>>().join("\n");
+        let mut buffers = state.editor.buffers.lock().await;
+        buffers.insert(path.clone(), Rope::from_str(&preview));
+        let mut active = state.editor.active_path.lock().await;
+        *active = Some(path);
+        return Ok(serde_json::json!({
+            "large": true,
+            "size": size,
+            "lines": lines,
+            "preview": preview
+        }));
+    }
+
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut buffers = state.editor.buffers.lock().await;
+    buffers.insert(path.clone(), Rope::from_str(&content));
+    let mut active = state.editor.active_path.lock().await;
+    *active = Some(path);
+    Ok(serde_json::json!({ "large": false, "content": content }))
+}
+
+#[tauri::command]
+pub async fn save_file(state: State<'_, std::sync::Arc<crate::EditorState>>, path: String, content: String) -> Result<(), String> {
+    if let Some(root) = state.editor.active_root.lock().await.clone() {
+        validate_path_against_root(&path, &root)?;
+    }
     fs::write(&path, &content).map_err(|e| format!("Failed to write file: {}", e))?;
     let mut buffers = state.editor.buffers.lock().await;
     buffers.insert(path, Rope::from_str(&content));
@@ -193,7 +282,7 @@ pub fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
 #[tauri::command]
 pub async fn open_folder(
     app: tauri::AppHandle,
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -219,7 +308,7 @@ pub async fn open_folder(
 }
 
 #[tauri::command]
-pub async fn list_project_files(state: State<'_, EditorState>) -> Result<Vec<String>, String> {
+pub async fn list_project_files(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Vec<String>, String> {
     let root = state.editor.active_root.lock().await.clone()
         .ok_or_else(|| "No folder open".to_string())?;
     let skip_dirs = ["node_modules", ".git", "target", "dist", ".next", "build", "__pycache__", ".cache"];
@@ -244,27 +333,31 @@ pub async fn list_project_files(state: State<'_, EditorState>) -> Result<Vec<Str
 }
 
 #[tauri::command]
-pub async fn read_file(state: State<'_, EditorState>, path: String) -> Result<String, String> {
-    let path_buf = PathBuf::from(&path);
-    is_path_valid(&state, &path_buf).await?;
-    fs::read_to_string(path).map_err(|e| e.to_string())
+pub async fn read_file(state: State<'_, std::sync::Arc<crate::EditorState>>, path: String) -> Result<String, String> {
+    if let Some(root) = state.editor.active_root.lock().await.clone() {
+        validate_path_against_root(&path, &root)?;
+    }
+    fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn write_file(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     path: String,
     content: String,
 ) -> Result<(), String> {
-    let path_buf = PathBuf::from(&path);
-    is_path_valid(&state, &path_buf).await?;
-    fs::write(path, content).map_err(|e| e.to_string())
+    if let Some(root) = state.editor.active_root.lock().await.clone() {
+        validate_path_against_root(&path, &root)?;
+    }
+    fs::write(&path, content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn delete_path(state: State<'_, EditorState>, path: String) -> Result<(), String> {
+pub async fn delete_path(state: State<'_, std::sync::Arc<crate::EditorState>>, path: String) -> Result<(), String> {
     let path_buf = PathBuf::from(&path);
-    is_path_valid(&state, &path_buf).await?;
+    if let Some(root) = state.editor.active_root.lock().await.clone() {
+        validate_path_against_root(&path, &root)?;
+    }
     
     if path_buf.is_dir() {
         fs::remove_dir_all(path_buf).map_err(|e| e.to_string())
@@ -275,7 +368,7 @@ pub async fn delete_path(state: State<'_, EditorState>, path: String) -> Result<
 
 #[tauri::command]
 pub async fn rename_path(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     old_path: String,
     new_path: String,
 ) -> Result<(), String> {
@@ -301,7 +394,7 @@ pub async fn write_file_content(path: String, content: String) -> Result<(), Str
 
 #[tauri::command]
 pub async fn glob_files(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     pattern: String,
     path: Option<String>,
 ) -> Result<Vec<String>, String> {
@@ -333,7 +426,7 @@ pub async fn glob_files(
 }
 #[tauri::command]
 pub async fn editor_get_active_file(
-    state: tauri::State<'_, EditorState>,
+    state: tauri::State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<serde_json::Value, String> {
     let sentient = state.ai.engine.clone();
     let tools = sentient.get_tools();
@@ -345,7 +438,7 @@ pub async fn editor_get_active_file(
 
 #[tauri::command]
 pub async fn replace_in_files(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     query: String,
     replacement: String,
     case_sensitive: bool,

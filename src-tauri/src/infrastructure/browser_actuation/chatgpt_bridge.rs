@@ -21,7 +21,7 @@ impl ChatGPTBridge {
 
         // Inject automation script
         let window_clone = window.clone();
-        tauri::async_runtime::spawn(async move {
+        tokio::spawn(async move {
             // Wait for webview to be ready
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 

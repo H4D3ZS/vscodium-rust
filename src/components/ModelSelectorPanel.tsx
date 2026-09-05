@@ -22,15 +22,54 @@ const ModelSelectorPanel: React.FC = () => {
     const loadModels = async () => {
         setLoading(true);
         try {
-            const [modelList, current] = await Promise.all([
-                invoke<ModelInfo[]>('list_ollama_models', {}),
-                invoke<string>('get_current_model', {}),
-            ]);
+            // Probe the active inference backend first instead of always trying
+            // Ollama. This avoids a wasted network round-trip (and a confusing
+            // error) when the user is on Lemonade or another backend.
+            const backend = localStorage.getItem('inferenceBackend') || 'lemonade';
+            let modelList: ModelInfo[] = [];
+            let current = '';
+
+            if (backend === 'lemonade') {
+                // Lemonade's catalog gives context windows + LLM-only filtering.
+                [modelList, current] = await Promise.all([
+                    invoke<ModelInfo[]>('list_local_models', {}),
+                    invoke<string>('get_current_model', {}),
+                ]);
+            } else {
+                // Lemonade, llama-cpp, or other OpenAI-compatible backends
+                const ids = await invoke<string[]>('list_provider_models', { provider: backend });
+                modelList = (ids || []).map((id) => ({
+                    name: id,
+                    context_window: 128000,
+                    recommended: true,
+                    supports_12b_and_below: true,
+                }));
+                current = await invoke<string>('get_current_model', {}).catch(() => '');
+            }
+
             setModels(modelList);
             setCurrentModel(current);
             setError(null);
         } catch (err) {
-            setError(`${err}`);
+            // Fallback: try the other backend if the primary fails
+            try {
+                const backend = localStorage.getItem('inferenceBackend') || 'lemonade';
+                const fallback = backend === 'lemonade' ? 'llama-cpp' : 'lemonade';
+                const ids = await invoke<string[]>('list_provider_models', { provider: fallback });
+                if (ids?.length) {
+                    setModels(ids.map((id) => ({
+                        name: id,
+                        context_window: 128000,
+                        recommended: true,
+                        supports_12b_and_below: true,
+                    })));
+                    setError(null);
+                } else {
+                    setError(`${err}`);
+                }
+            } catch {
+                setError(`${err}`);
+            }
         } finally {
             setLoading(false);
         }
@@ -59,7 +98,7 @@ const ModelSelectorPanel: React.FC = () => {
     };
 
     if (loading) {
-        return <div style={{ padding: 16, opacity: 0.6 }}>Loading Ollama models...</div>;
+        return <div style={{ padding: 16, opacity: 0.6 }}>Loading models from Ollama/Lemonade...</div>;
     }
 
     if (error) {
@@ -155,7 +194,7 @@ const ModelSelectorPanel: React.FC = () => {
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 4 }}>
                                     <div style={{ fontWeight: 500, fontSize: 12 }}>
                                         {model.name}
-                                        {model.recommended && <span style={{ marginLeft: 8, color: '#9ece6a' }}>⭐ Recommended</span>}
+                                        {model.recommended && <span style={{ marginLeft: 8, color: '#9ece6a' }}>Recommended</span>}
                                         {currentModel === model.name && <span style={{ marginLeft: 8, color: '#9ece6a' }}>✓ Active</span>}
                                     </div>
                                 </div>
@@ -171,13 +210,13 @@ const ModelSelectorPanel: React.FC = () => {
             <div className="settings-card" style={{ marginTop: 16 }}>
                 <div style={{ fontSize: 12, opacity: 0.7, lineHeight: 1.6 }}>
                     <p style={{ margin: '0 0 8px 0' }}>
-                        💡 <strong>Recommended for offline work:</strong> 12b models (qwen3.5:12b, mistral:7b)
+                        <strong>Recommended for offline work:</strong> 12b models (qwen3.5:12b, mistral:7b)
                     </p>
                     <p style={{ margin: '0 0 8px 0' }}>
-                        ⚡ <strong>Speed:</strong> ~12-15 tokens/sec on M1 CPU (faster with ANE acceleration)
+                        <strong>Speed:</strong> ~12-15 tokens/sec on M1 CPU (faster with ANE acceleration)
                     </p>
                     <p style={{ margin: 0 }}>
-                        🔗 <strong>Pull new models:</strong> Run <code style={{ background: '#ffffff10', padding: '2px 4px', borderRadius: 2 }}>ollama pull mistral:7b</code>
+                        <strong>Pull new models:</strong> Run <code style={{ background: '#ffffff10', padding: '2px 4px', borderRadius: 2 }}>ollama pull mistral:7b</code>
                     </p>
                 </div>
             </div>

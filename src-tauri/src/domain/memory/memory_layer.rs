@@ -142,8 +142,13 @@ impl MemoryLayer {
         Ok(())
     }
 
-    /// Retrieves the aggregate memory context for LLM injection
+    /// Retrieves the aggregate memory context for LLM injection.
+    /// `max_chars` caps total size — 0 means no limit.
     pub fn get_aggregate_context(&self) -> Result<String> {
+        self.get_aggregate_context_sized(0)
+    }
+
+    pub fn get_aggregate_context_sized(&self, max_chars: usize) -> Result<String> {
         let files = ["memory.md", "decisions.md", "patterns.md", "state.md"];
         let mut aggregate = String::from("### HADES SENTIENT MEMORY CONTEXT ###\n");
         
@@ -151,7 +156,16 @@ impl MemoryLayer {
             let path = self.hades_dir.join(file);
             if path.exists() {
                 let content = fs::read_to_string(path)?;
-                aggregate.push_str(&format!("\n--- {} ---\n{}\n", file, content));
+                let entry = format!("\n--- {} ---\n{}\n", file, content);
+                if max_chars > 0 && aggregate.len() + entry.len() > max_chars {
+                    // Truncate this file's content to fit
+                    let remaining = max_chars.saturating_sub(aggregate.len()).saturating_sub(64);
+                    if remaining > 100 {
+                        aggregate.push_str(&format!("\n--- {} ---\n{}...(truncated)\n", file, &content[..content.floor_char_boundary(remaining)]));
+                    }
+                    break;
+                }
+                aggregate.push_str(&entry);
             }
         }
         

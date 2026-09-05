@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 pub const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
-const DEFAULT_MAX_FILES: usize = 2_000;
+const _DEFAULT_MAX_FILES: usize = 2_000;
 
 /// Bundle output dirs scanned first for faster bounty triage.
 const PRIORITY_DIR_NAMES: &[&str] = &[

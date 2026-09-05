@@ -26,7 +26,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
 use super::llamacpp::LlamaCppClient;
-use super::store::{align_save_count, sha256_tokens_hex, slotbin_path, CacheStore};
+use super::store::{plan_save_count, sha256_tokens_hex, slotbin_path, CacheStore};
 use super::types::{KvCacheEntry, KvCacheOptions, KvCacheStats, SaveReason};
 
 /// Snapshot of the most recent successful request, used by the shutdown flush
@@ -49,10 +49,14 @@ pub struct ProxyState {
     /// chat/completion. `flush_shutdown_checkpoint` reads this to persist a
     /// final snapshot on clean shutdown.
     pub live_session: Mutex<Option<LiveSession>>,
+    /// Concrete caching tier resolved at startup (never `Auto`). Requests
+    /// branch on this: `Kv` runs the KDKVC prefix path; anything else is a
+    /// transparent passthrough until the response cache (Tier 2) ships.
+    pub resolved_tier: super::types::CacheTier,
 }
 
 impl ProxyState {
-    pub fn new(opts: KvCacheOptions, store: CacheStore) -> Self {
+    pub fn new(opts: KvCacheOptions, store: CacheStore, resolved_tier: super::types::CacheTier) -> Self {
         let client = LlamaCppClient::new(&opts.upstream_url, opts.slot_id);
         let http = reqwest::Client::builder()
             .pool_max_idle_per_host(8)
@@ -67,6 +71,7 @@ impl ProxyState {
             http,
             shutdown_tx: tokio::sync::Mutex::new(None),
             live_session: Mutex::new(None),
+            resolved_tier,
         }
     }
 
@@ -139,15 +144,12 @@ pub async fn flush_shutdown_checkpoint(state: &SharedProxy) -> Result<()> {
         return Ok(());
     };
     let n = tokens.len() as u32;
-    if n < state.opts.min_tokens {
+    // Shutdown flush persists even long sessions → don't enforce cold_max.
+    // Same gate/align helper as the normal save path so a shutdown entry is
+    // interchangeable with the cold/continued ones (matchable at the same SHA).
+    let Some(save_count) = plan_save_count(&state.opts, n, false) else {
         return Ok(());
-    }
-    // Use the same align/trim policy as the normal save path so a shutdown
-    // entry is interchangeable with the cold/continued ones.
-    let save_count = align_save_count(&state.opts, n);
-    if save_count < state.opts.min_tokens {
-        return Ok(());
-    }
+    };
     let save_tokens = &tokens[..save_count as usize];
     let sha = sha256_tokens_hex(save_tokens);
 
@@ -214,6 +216,18 @@ async fn handle_intercepted(
     body: Bytes,
     kind: IntercepKind,
 ) -> Response {
+    // Tier gate: KV-slot reuse only runs when the upstream was detected to
+    // support llama.cpp slot save/restore. For `Response` (no slot API — Tier 2
+    // not yet implemented) and `Off`, this is a transparent passthrough so the
+    // proxy is always safe to sit in front of any OpenAI-compatible server.
+    if state.resolved_tier != super::types::CacheTier::Kv {
+        let path = match kind {
+            IntercepKind::Chat => "/v1/chat/completions",
+            IntercepKind::Completion => "/v1/completions",
+        };
+        return forward_raw(&state, headers, body, path).await;
+    }
+
     // Parse the body as JSON. If it doesn't parse, just transparently forward.
     let parsed: Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
@@ -402,13 +416,10 @@ async fn spawn_save_after(state: SharedProxy, save: SaveAfterStream) {
         .await;
 
     let n = tokens.len() as u32;
-    if n < state.opts.min_tokens || n > state.opts.cold_max_tokens {
+    // Normal cold/continued save path enforces cold_max (skip giant one-shots).
+    let Some(save_count) = plan_save_count(&state.opts, n, true) else {
         return;
-    }
-    let save_count = align_save_count(&state.opts, n);
-    if save_count < state.opts.min_tokens {
-        return;
-    }
+    };
     let save_tokens = &tokens[..save_count as usize];
     let sha = sha256_tokens_hex(save_tokens);
 

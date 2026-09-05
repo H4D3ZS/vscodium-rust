@@ -38,6 +38,7 @@ export class BiologicalSystems {
   private state: BiologicalState;
   private metabolismInterval: NodeJS.Timeout | null = null;
   private sleepInterval: NodeJS.Timeout | null = null;
+  private dreamTimers: NodeJS.Timeout[] = [];
 
   constructor() {
     this.state = {
@@ -71,7 +72,8 @@ export class BiologicalSystems {
    * Start biological cycles
    */
   public async awaken(): Promise<void> {
-    
+    // Guard: re-awaken without shutdown leaks duplicate intervals.
+    if (this.metabolismInterval) return;
 
     // Metabolism loop - every minute
     this.metabolismInterval = setInterval(() => {
@@ -202,21 +204,21 @@ export class BiologicalSystems {
     // Sleep cycle
     await new Promise(resolve => setTimeout(resolve, duration * 60000));
 
-    // Dream progression
-    setTimeout(() => {
+    // Dream progression — store timer IDs for cleanup
+    this.dreamTimers.push(setTimeout(() => {
       this.state.dreamState = 'deep';
       
-    }, (duration * 0.3) * 60000);
+    }, (duration * 0.3) * 60000));
 
-    setTimeout(() => {
+    this.dreamTimers.push(setTimeout(() => {
       this.state.dreamState = 'lucid';
       
-    }, (duration * 0.7) * 60000);
+    }, (duration * 0.7) * 60000));
 
-    // Wake up
-    setTimeout(() => {
+    // Wake up — store timer for cleanup
+    this.dreamTimers.push(setTimeout(() => {
       this.wakeUp();
-    }, duration * 60000);
+    }, duration * 60000));
   }
 
   /**
@@ -414,15 +416,13 @@ export class BiologicalSystems {
   public shutdown(): void {
     if (this.metabolismInterval) clearInterval(this.metabolismInterval);
     if (this.sleepInterval) clearInterval(this.sleepInterval);
-    
+    // Clear dream/wake timers
+    for (const timer of this.dreamTimers) {
+      clearTimeout(timer);
+    }
+    this.dreamTimers = [];
   }
 }
 
 // Export singleton
 export const biology = new BiologicalSystems();
-
-// Auto-awaken
-if (typeof window !== 'undefined') {
-  
-  biology.awaken();
-}

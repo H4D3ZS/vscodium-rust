@@ -40,7 +40,7 @@ export async function runPureChatTurn(params: {
 
     try {
         state.setIsAgentThinking?.(true);
-        const isLocal = routingProvider === 'ollama' || inferenceBackend === 'llama-cpp';
+        const isLocal = routingProvider === 'lemonade' || inferenceBackend === 'llama-cpp';
         const leanMessages = [
             {
                 role: 'system',

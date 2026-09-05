@@ -1,4 +1,0 @@
-# Frozen sidecars land here and ship in the MSI/NSIS via bundle.resources:
-#   browser-agent.exe  — invisible_playwright (PyInstaller)
-#   claurst.exe        — optional GPL agent backend (cargo release)
-# Build: npm run prebuild:sidecar  OR  scripts/build-sidecar.ps1 + build-claurst.ps1

@@ -93,10 +93,10 @@ const SpecsGenerator: React.FC = () => {
     const theme = useStore(state => state.theme);
 
     useEffect(() => {
-        if (preferredProvider === 'Ollama') {
+        if (preferredProvider === 'Lemonade') {
             const fetchModels = async () => {
                 try {
-                    const models = await invoke<string[]>("list_provider_models", { provider: 'ollama' });
+                    const models = await invoke<string[]>("list_provider_models", { provider: 'lemonade' });
                     setAvailableModels(models);
                     if (models.length > 0 && !ollamaModel) {
                         setOllamaModel(models[0]);
@@ -118,9 +118,9 @@ const SpecsGenerator: React.FC = () => {
         const idea = `${projectName}\n${specs}`.trim();
         if (!idea || idea.length < 4) { alert('Enter a project name / idea first.'); return; }
         setGuiding(true);
-        const isOllama = preferredProvider.toLowerCase().includes('ollama');
-        const provider = isOllama ? 'ollama' : 'google';
-        const model = isOllama ? (ollamaModel || '') : 'gemini-2.0-flash';
+        const isLocal = preferredProvider.toLowerCase().includes('lemonade');
+        const provider = isLocal ? 'lemonade' : 'google';
+        const model = isLocal ? (ollamaModel || '') : 'gemini-2.0-flash';
         const ask = async (sys: string, user: string): Promise<string> => {
             const r = await invoke<string>('ai_chat_fast', {
                 request: {
@@ -158,7 +158,7 @@ const SpecsGenerator: React.FC = () => {
             const id = await invoke<number>("cmd_specs_create_project", {
                 name: projectName,
                 specs,
-                provider: preferredProvider.toLowerCase().includes('ollama') ? `ollama:${ollamaModel}` : 'google'
+                provider: preferredProvider.toLowerCase().includes('lemonade') ? `lemonade:${ollamaModel}` : 'google'
             });
             setCurrentSpecProjectId(id);
             setSpecsWizardStep('status');
@@ -214,7 +214,7 @@ const SpecsGenerator: React.FC = () => {
                     </button>
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>
-                    {['API Cloud', 'Ollama'].map(p => (
+                    {['API Cloud', 'Lemonade'].map(p => (
                         <button
                             key={p}
                             onClick={() => setPreferredProvider(p)}
@@ -235,7 +235,7 @@ const SpecsGenerator: React.FC = () => {
                         </button>
                     ))}
                 </div>
-                {preferredProvider === 'Ollama' && (
+                {preferredProvider === 'Lemonade' && (
                     <div style={{ marginTop: '8px' }}>
                         <select
                             value={ollamaModel}
@@ -273,7 +273,7 @@ const SpecsGenerator: React.FC = () => {
                         title="Generate a requirements doc → design doc from your idea, then review before generating tasks."
                         style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6, cursor: guiding ? 'wait' : 'pointer', border: '1px solid rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}
                     >
-                        {guiding ? '⟳ Generating…' : '✨ Guided (Requirements → Design)'}
+                        {guiding ? '⟳ Generating…' : 'Guided (Requirements → Design)'}
                     </button>
                 </div>
                 {guideStatus && <div style={{ fontSize: 10, opacity: 0.6 }}>{guideStatus}</div>}

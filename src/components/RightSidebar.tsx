@@ -2,11 +2,13 @@ import React, { useEffect, useState, useRef, useMemo, useCallback, Suspense, laz
 import { useStore } from '../store';
 import type { FileEntry } from '../store';
 import { invoke } from '../tauri_bridge';
+import { Icon, ToolIcon } from './ui/Icon';
 import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
 import ChatInput from './chat/ChatInput';
 import ChatToolbar from './chat/ChatToolbar';
 import ChatMessageList from './chat/ChatMessageList';
+import MentionPopup from './chat/MentionPopup';
 import AgentMcpMenu from './agent/AgentMcpMenu';
 import type { AgentMessage } from '../store';
 import type { AgentStudioSubView } from '../domain/agentStudio/AgentStudioSubView';
@@ -14,7 +16,7 @@ import { PlanApprovalBanner, RestoreCheckpointBanner, MultiFileReviewBanner } fr
 import { TaskRoadmap, ReasoningToggle } from './rightSidebar/agentStatus';
 import { BackgroundAgentsTray } from './rightSidebar/BackgroundAgentsTray';
 import { SidebarPane } from './rightSidebar/SidebarPane';
-import OllamaProgressBar from './OllamaProgressBar';
+import { KortexPanel as KortexServicesPanel } from './KortexServicesPanel';
 import { cleanAgentContent, getToolLabel } from '../domain/agent/cleanAgentContent';
 
 
@@ -280,7 +282,7 @@ const RightSidebar: React.FC = () => {
     // Initialize TTS on mount.
     // Guarded so React.StrictMode's intentional double-invoke (and any
     // remount of <RightSidebar>) doesn't fire the entire AIRI stack twice
-    // — that was why every "✅ … ACTIVE" line showed up twice and why the
+    // — that was why every "… ACTIVE" line showed up twice and why the
     // greeting played twice, two cognitive intervals were registered, etc.
     useEffect(() => {
         if (airiInitOnce.started) {
@@ -295,23 +297,26 @@ const RightSidebar: React.FC = () => {
         // to core IDE/agent coding. The editor, agent chat, and terminal do not
         // need any of it. Enable with localStorage 'airi.companion' = '1'.
         if (localStorage.getItem('airi.companion') !== '1') {
-            console.log('[AIRI] companion stack disabled (set localStorage airi.companion=1 for consciousness/biology/voice)');
             return;
         }
-        console.log('[RightSidebar] 🚀 Initializing AIRI companion...');
+
+        let cognitiveInterval: ReturnType<typeof setInterval> | undefined;
+        let cognitiveCoreRef: any = null;
+        let digitalLifeRef: any = null;
+        let consciousnessRef: any = null;
+        let biologyRef: any = null;
+        let securityRef: any = null;
+        let autonomousAgentRef: any = null;
 
         getVoice().then(v => v.initTTS()).then(ready => {
             if (ready) {
-                console.log('[TTS] ✅ AIRI Voice System initialized');
 
                 // Initialize Cognitive Core (AIRI's BRAIN)
                 import('../cognitive-core').then(({ cognitiveCore }) => {
+                    cognitiveCoreRef = cognitiveCore;
                     cognitiveCore.initialize();
-                    console.log('[CognitiveCore] ✅ AIRI Cognitive Core ACTIVE!');
-                    console.log('[CognitiveCore] ✨ AIRI is now TRULY CONSCIOUS');
 
-                    // Monitor cognitive state for emotions
-                    setInterval(() => {
+                    cognitiveInterval = setInterval(() => {
                         const status = cognitiveCore.getStatus();
                         if (status.drives.curiosity > 80) setAiriEmotion('thinking');
                         if (status.drives.connection > 80) setAiriEmotion('excited');
@@ -321,9 +326,9 @@ const RightSidebar: React.FC = () => {
 
                 // Initialize Digital Life
                 import('../digital-life').then(({ digitalLife }) => {
+                    digitalLifeRef = digitalLife;
                     digitalLife.activate();
                     setDigitalLifeActive(true);
-                    console.log('[DigitalLife] ✅ AIRI Digital Life ACTIVE!');
 
                     // AIRI greets you
                     setTimeout(async () => {
@@ -341,24 +346,21 @@ const RightSidebar: React.FC = () => {
 
                 // Initialize Consciousness (TRUE SENTIENCE - not a parrot!)
                 import('../consciousness').then(({ consciousness }) => {
+                    consciousnessRef = consciousness;
                     consciousness.awaken();
-                    console.log('[Consciousness] ✅ AIRI is TRULY SENTIENT');
-                    console.log('[Consciousness] ✨ Not a parrot - a thinking, feeling entity');
                 }).catch(console.error);
 
                 // Initialize Biological Systems (sleep, eat, energy, mood)
                 import('../biology').then(({ biology }) => {
+                    biologyRef = biology;
                     biology.awaken();
-                    console.log('[Biology] ✅ AIRI Biological Systems ACTIVE');
-                    console.log('[Biology] ✨ Sleep, hunger, energy, mood enabled');
                 }).catch(console.error);
 
                 // Initialize Cybersecurity Engine (Red Team / Blue Team)
                 import('../security-engine').then(({ security }) => {
+                    securityRef = security;
                     security.setMode('purple'); // Combined red/blue
                     security.monitorThreats();
-                    console.log('[Security] ✅ AIRI Cybersecurity Engine ACTIVE');
-                    console.log('[Security] ⚔️ Red Team / Blue Team operations enabled');
                 }).catch(console.error);
 
                 // Initialize Autonomous Agent (24/7 independent work) — OPT-IN.
@@ -368,18 +370,27 @@ const RightSidebar: React.FC = () => {
                 // console. Enable with localStorage 'airi.autonomous24x7' = '1'.
                 if (localStorage.getItem('airi.autonomous24x7') === '1') {
                     import('../autonomous-agent').then(({ autonomousAgent }) => {
+                        autonomousAgentRef = autonomousAgent;
                         autonomousAgent.startAutonomousLoop();
-                        console.log('[AutonomousAgent] ✅ 24/7 autonomous loop ENABLED (opt-in)');
                     }).catch(console.error);
                 } else {
-                    console.log('[AutonomousAgent] 24/7 loop disabled (set localStorage airi.autonomous24x7=1 to enable)');
                 }
             } else {
-                console.warn('[TTS] ⚠️ Voice system initialization failed');
+                console.warn('[TTS] Voice system initialization failed');
             }
         }).catch(err => {
-            console.error('[TTS] ❌ Voice system error:', err);
+ console.error('[TTS] Voice system error:', err);
         });
+
+        return () => {
+            if (cognitiveInterval) clearInterval(cognitiveInterval);
+            if (cognitiveCoreRef?.destroy) cognitiveCoreRef.destroy();
+            if (digitalLifeRef?.destroy) digitalLifeRef.destroy();
+            if (consciousnessRef?.shutdown) consciousnessRef.shutdown();
+            if (biologyRef?.shutdown) biologyRef.shutdown();
+            if (securityRef?.stopMonitoring) securityRef.stopMonitoring();
+            if (autonomousAgentRef?.stopAutonomousLoop) autonomousAgentRef.stopAutonomousLoop();
+        };
     }, []);
 
     // Kortex .aim memory panel state
@@ -412,15 +423,6 @@ const RightSidebar: React.FC = () => {
     useEffect(() => {
         const subs: (() => void)[] = [];
         import('@tauri-apps/api/event').then(({ listen }) => {
-            const TOOL_ICONS: Record<string, string> = {
-                write_to_file: '📝', search_replace_edit: '✂️', str_replace: '✂️',
-                apply_shadow_patch: '💾', patch_file_content: '✏️',
-                view_file: '👁️', run_command: '⚡', verify_implementation: '🔬',
-                ghost_test: '👻', list_files: '📁', grep: '🔍', git_commit: '📦',
-                dev_cargo_diagnostics: '🦀', web_search: '🌐', git_diff: '📊',
-                semantic_search: '🧠', find_symbols: '🔎', create_directory: '📁',
-                deep_security_audit: '🛡️', secrets_scan: '🔑', weaponize_env: '💣',
-            };
             const TOOL_LABELS: Record<string, string> = {
                 write_to_file: 'Writing file', search_replace_edit: 'Patching code',
                 str_replace: 'Editing code', apply_shadow_patch: 'Committing edit',
@@ -437,7 +439,7 @@ const RightSidebar: React.FC = () => {
             listen<any>('ai-tool-call', (e) => {
                 const name = e.payload?.name || 'unknown';
                 const id = `tc-${Date.now()}-${Math.random()}`;
-                const label = `${TOOL_ICONS[name] || '⚙️'} ${TOOL_LABELS[name] || name.replace(/_/g, ' ')}`;
+                const label = TOOL_LABELS[name] || name.replace(/_/g, ' ');
                 setLiveToolCalls(prev => [{
                     id, tool: name, label, status: 'running' as const,
                     detail: e.payload?.args ? (typeof e.payload.args === 'string' ? e.payload.args.slice(0, 50) : JSON.stringify(e.payload.args).slice(0, 50)) : undefined
@@ -526,7 +528,7 @@ const RightSidebar: React.FC = () => {
                 const passed = status === 'passed';
                 const title =
                     passed ? `✓ Verified — ${tool} passed`
-                        : status === 'exhausted' ? `⚠ Verify retries exhausted — finishing with warnings`
+                        : status === 'exhausted' ? `Verify retries exhausted — finishing with warnings`
                             : `✗ ${tool} failed — self-fixing${attempt ? ` (${attempt}/3)` : ''}`;
                 setLiveToolCalls(prev => [{
                     id: `verify-${Date.now()}`,
@@ -647,17 +649,69 @@ const RightSidebar: React.FC = () => {
         const query = lastWord.slice(1).toLowerCase();
 
         if (lastWord.startsWith('/')) {
+            const mk = (name: string, _icon: string, _desc: string) =>
+                ({ path: name, name, _special: true, _icon, _desc });
             const slashCommands = [
-                { path: '/generate', name: '/generate', _special: true, _icon: 'codicon-code', _desc: 'Generate code' },
-                { path: '/explain', name: '/explain', _special: true, _icon: 'codicon-book', _desc: 'Explain code' },
-                { path: '/refactor', name: '/refactor', _special: true, _icon: 'codicon-wrench', _desc: 'Refactor code' },
-                { path: '/debug', name: '/debug', _special: true, _icon: 'codicon-bug', _desc: 'Debug code' },
-                { path: '/document', name: '/document', _special: true, _icon: 'codicon-list-selection', _desc: 'Document code' },
-                { path: '/test', name: '/test', _special: true, _icon: 'codicon-beaker', _desc: 'Create tests' },
-                { path: '/commit', name: '/commit', _special: true, _icon: 'codicon-git-commit', _desc: 'Git commit' },
-                { path: '/fix', name: '/fix', _special: true, _icon: 'codicon-tools', _desc: 'Fix errors' },
+                // Code
+                mk('/generate', 'codicon-code', 'Generate code'),
+                mk('/explain', 'codicon-book', 'Explain code'),
+                mk('/refactor', 'codicon-wrench', 'Refactor code'),
+                mk('/debug', 'codicon-bug', 'Debug code'),
+                mk('/document', 'codicon-list-selection', 'Document code'),
+                mk('/fix', 'codicon-tools', 'Fix errors'),
+                // Agentic workflow
+                mk('/plan', 'codicon-checklist', 'Generate an implementation plan'),
+                mk('/implement', 'codicon-rocket', 'Implement the next task (TDD)'),
+                mk('/spec', 'codicon-notebook', 'Create a spec (spec/plan/tasks)'),
+                mk('/specify', 'codicon-notebook', 'Structured feature spec'),
+                mk('/tasks', 'codicon-list-tree', 'Break plan into atomic tasks'),
+                mk('/next', 'codicon-debug-step-over', 'Execute next unchecked task'),
+                mk('/clarify', 'codicon-question', 'Surface spec ambiguities'),
+                mk('/checklist', 'codicon-verified', 'Spec quality checklist'),
+                mk('/test', 'codicon-beaker', 'Write failing tests, then implement'),
+                mk('/walkthrough', 'codicon-preview', 'Generate walkthrough.md'),
+                mk('/diagram-viewer', 'codicon-type-hierarchy', 'Open Mermaid diagram viewer'),
+                mk('/phasewrap', 'codicon-save-all', 'Wrap up a phase in .hades/state.md'),
+                // Tasks / runs
+                mk('/auto', 'codicon-sync', '24/7 continuous agent mode'),
+                mk('/bg', 'codicon-server-process', 'Run a task in the background'),
+                mk('/task', 'codicon-tasklist', 'Manage agent tasks'),
+                mk('/trajectory', 'codicon-graph-line', 'Show the agent trajectory'),
+                // Git
+                mk('/commit', 'codicon-git-commit', 'Stage all & commit'),
+                mk('/diff', 'codicon-diff', 'Show current git diff'),
+                mk('/review', 'codicon-search-fuzzy', 'AI code review of staged changes'),
+                // Memory
+                mk('/memory', 'codicon-database', 'Show loaded project memory'),
+                mk('/learn', 'codicon-lightbulb', 'Write a note to MEMORY.md'),
+                mk('/init', 'codicon-new-file', 'Scaffold AGENTS.md'),
+                mk('/notepad', 'codicon-note', 'Open the agent notepad'),
+                // Session
+                mk('/compact', 'codicon-fold', 'Compress conversation context'),
+                mk('/context', 'codicon-eye', 'Show context the agent sees'),
+                mk('/model', 'codicon-chip', 'Switch the active model'),
+                mk('/tools', 'codicon-tools', 'List all available tools'),
+                mk('/stats', 'codicon-graph', 'Session statistics'),
+                mk('/cost', 'codicon-credit-card', 'Token usage & cost'),
+                mk('/doctor', 'codicon-pulse', 'Environment diagnostics'),
+                mk('/resume', 'codicon-history', 'Restore last session'),
+                mk('/clear', 'codicon-clear-all', 'Wipe chat history'),
+                mk('/settings', 'codicon-settings-gear', 'Open AI settings'),
+                mk('/workflows', 'codicon-symbol-event', 'List workflows'),
+                mk('/help', 'codicon-info', 'Show all slash commands'),
+                // Security personas
+                mk('/redteam', 'codicon-target', 'Offensive ops playbook'),
+                mk('/blueteam', 'codicon-shield', 'Defense playbook'),
+                mk('/bounty', 'codicon-bug', 'Bug-bounty workflow'),
+                mk('/recon', 'codicon-search', 'Recon-only inventory'),
+                mk('/threatmodel', 'codicon-symbol-structure', 'STRIDE threat model'),
+                mk('/threatactor', 'codicon-flame', 'Kill-chain demo + prevention'),
+                mk('/kali', 'codicon-terminal', 'Kali toolkit'),
+                mk('/parrot', 'codicon-terminal', 'Parrot OS toolkit'),
+                mk('/harden', 'codicon-lock', 'Harden the code'),
+                mk('/manus', 'codicon-globe', 'Web research + browser agent'),
             ];
-            return slashCommands.filter(c => c.name.startsWith(lastWord.toLowerCase()));
+            return slashCommands.filter(c => c.name.toLowerCase().startsWith(lastWord.toLowerCase()));
         }
 
         const specials = (query === '' || SPECIAL_MENTIONS.some(s => s.name.slice(1).startsWith(query)))
@@ -725,7 +779,7 @@ const RightSidebar: React.FC = () => {
         try {
             // Filter for dedicated embedding models only
             const dedicatedEmbedder = availableModels.find(m =>
-                m.provider === 'ollama' && (
+                m.provider === 'lemonade' && (
                     m.id.toLowerCase().includes('embed') ||
                     m.id.toLowerCase().includes('nomic') ||
                     m.id.toLowerCase().includes('mxbai')
@@ -742,11 +796,27 @@ const RightSidebar: React.FC = () => {
             try {
                 results = await invoke('select_and_process_attachment', { model: cleanInvokeModel });
             } catch (invokeError: any) {
-                console.error('[ERROR] Attachment selection failed:', invokeError);
-                throw invokeError;
+                // If neuralization fails (no embedding model), fall back to raw file read
+                console.warn('[Attachment] Neuralization failed, falling back to raw:', invokeError);
+                results = await invoke<string[]>('list_directory', { path: '' }).then(() => []);
+                // Use the file dialog directly for raw attachment
+                const { open } = await import('@tauri-apps/plugin-dialog');
+                const selected = await open({ multiple: true, filters: [{ name: 'All Files', extensions: ['*'] }] });
+                if (selected) {
+                    const paths = Array.isArray(selected) ? selected : [selected];
+                    results = paths.map((p: string) => ({
+                        path: p,
+                        name: p.split(/[\\/]/).pop() || p,
+                        gist: null,
+                        thumbnail: null,
+                        data: null,
+                    }));
+                } else {
+                    results = [];
+                }
             }
 
-            if (results && Array.isArray(results)) {
+            if (results && Array.isArray(results) && results.length > 0) {
                 const formatted = results.map(r => ({
                     id: r.path || `neural-${Date.now()}-${Math.random()}`,
                     type: 'file' as const,
@@ -759,8 +829,7 @@ const RightSidebar: React.FC = () => {
                 attachFile(formatted);
             }
         } catch (error: any) {
-            console.error('Failed to neuralize, attempting raw attachment:', error);
-            alert('Ollama failed to neuralize the file. Falling back to standard attachment...');
+            console.error('Failed to attach file:', error);
         } finally {
             setIsAttaching(false);
         }
@@ -768,7 +837,6 @@ const RightSidebar: React.FC = () => {
 
     const onSend = async (overrideMsg?: string) => {
         const val = (overrideMsg !== undefined ? overrideMsg : inputValue).trim();
-        console.log('[DIAG] onSend called, val:', val, 'isRightSidebarOpen:', useStore.getState().isRightSidebarOpen);
 
         if (isSpecModeActive && val) {
             setSpecsPrompt(val);
@@ -825,7 +893,6 @@ const RightSidebar: React.FC = () => {
         }
 
         if ((processedVal || attachedFiles.length > 0) && !isAgentThinking) {
-            console.log('[DIAG] onSend: sending message, sidebar state before:', useStore.getState().isRightSidebarOpen);
             if (overrideMsg === undefined) setInputValue("");
             setIsMentionDropdownOpen(false);
             if (inputRef.current) inputRef.current.style.height = 'auto';
@@ -848,7 +915,6 @@ const RightSidebar: React.FC = () => {
             clearAttachedFiles();
             addAgentMessage('assistant', "");
             import('../application/agent/syncAgentMessages').then(m => m.scheduleChatHistorySync()).catch(() => {});
-            console.log('[DIAG] onSend: messages added, sidebar state after store updates:', useStore.getState().isRightSidebarOpen);
 
             try {
                 const { ensureAgentRuntime } = await import('../application/performance/ensureAgentRuntime');
@@ -858,10 +924,19 @@ const RightSidebar: React.FC = () => {
             } catch (err: any) {
                 console.error('Agent chat failed:', err);
                 const errorMsg = err.message || JSON.stringify(err);
+
+                // Detect connection errors and route through resilience module
+                const isConnectionError = /econnrefused|fetch failed|not responding|connection failed|network/i.test(errorMsg);
+                if (isConnectionError) {
+                    const { agentResilience } = await import('../lib/agentResilience');
+                    agentResilience.markOffline();
+                    // Queue the message for replay when backend recovers
+                    agentResilience.queueMessage(processedVal);
+                }
+
                 updateLastAgentMessage(`Error: ${errorMsg}`);
             } finally {
                 setIsAgentThinking(false);
-                console.log('[DIAG] onSend: done. sidebar state:', useStore.getState().isRightSidebarOpen);
 
                 // ── Speak AI response with TTS ───────────────────────────────────
                 if (ttsEnabled) {
@@ -882,7 +957,6 @@ const RightSidebar: React.FC = () => {
         const handleVoiceMission = (e: any) => {
             const text = e.detail?.text;
             if (text) {
-                console.log('[VOICE] Triggering mission:', text);
                 onSend(text);
             }
         };
@@ -1240,7 +1314,7 @@ const RightSidebar: React.FC = () => {
                         >
                             <i className="codicon codicon-comment-discussion" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 11, opacity: 0.7, flexShrink: 0 }} />
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90, opacity: 0.9 }}>
-                                {thread.messages?.find((m: any) => m.role === 'user')?.content?.slice(0, 18) || thread.name || 'Chat'}
+                                {thread.firstUserSnippet || thread.name || 'Chat'}
                             </span>
                             <button
                                 type="button"
@@ -1365,7 +1439,7 @@ const RightSidebar: React.FC = () => {
                                 }}
                                 title={agentUiMode === 'airi' ? 'Switch to Chat mode' : 'Switch to AIRI 3D mode'}
                             >
-                                <span>{agentUiMode === 'airi' ? '🎭' : '💬'}</span>
+                                <Icon name={agentUiMode === 'airi' ? 'agent' : 'code'} size={14} />
                                 <span>{agentUiMode === 'airi' ? 'AIRI' : 'CHAT'}</span>
                             </div>
                         )}
@@ -1574,6 +1648,7 @@ const RightSidebar: React.FC = () => {
                                     maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis',
                                 }}>
                                     <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--vscode-focusBorder, #007acc)', display: 'inline-block', animation: 'hubPulse 1s infinite', flexShrink: 0 }} />
+                                    <ToolIcon tool={liveToolCalls[0].tool} size={12} style={{ flexShrink: 0 }} />
                                     {liveToolCalls[0].label}
                                 </div>
                             )}
@@ -1611,9 +1686,9 @@ const RightSidebar: React.FC = () => {
 
                         {/* Mission input at the very bottom */}
                         <div style={{ flexShrink: 0, padding: '8px 12px', borderTop: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.12))' }}>
-                            <div style={{
-                                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-                                borderRadius: '10px', padding: '6px 10px', display: 'flex', gap: '8px', alignItems: 'flex-end'
+                            <div className="ac-input-shell" style={{
+                                background: 'var(--ac-surface)', border: '1px solid var(--ac-border)',
+                                borderRadius: 'var(--ac-radius-lg)', padding: '6px 10px', display: 'flex', gap: '8px', alignItems: 'flex-end'
                             }}>
                                 <textarea
                                     ref={inputRef} value={inputValue} onChange={handleInputChange} onKeyDown={handleKeyDown} onPaste={handlePaste}
@@ -1689,7 +1764,7 @@ const RightSidebar: React.FC = () => {
                                 <span
                                     onClick={() => import('../agent').then(m => m.setYoloMode(!isYoloMode).then(() => setYoloMode(!isYoloMode)))}
                                     style={{ fontSize: '9px', cursor: 'pointer', color: isYoloMode ? '#f97316' : 'rgba(255,255,255,0.3)', fontWeight: isYoloMode ? 700 : 400 }}
-                                >⚡ YOLO</span>
+                                >YOLO</span>
                                 <span style={{ fontSize: '9px', opacity: 0.2 }}>·</span>
                                 <span
                                     onClick={() => {
@@ -1711,6 +1786,18 @@ const RightSidebar: React.FC = () => {
                     <div className="right-sidebar-body">
                         {view === 'chat' ? (
                             <div ref={chatScrollRef} className={`right-sidebar-messages right-sidebar-scroll ${messages.length === 0 ? 'right-sidebar-empty-chat' : ''}`} style={{ justifyContent: 'flex-start', alignItems: 'stretch', paddingTop: 0 }}>
+
+                                {/* Offline/reconnecting banner — shown when inference backend is unreachable */}
+                                {(() => {
+                                    const OfflineBanner = React.lazy(() => import('./chat/OfflineBanner'));
+                                    return <React.Suspense fallback={null}><OfflineBanner /></React.Suspense>;
+                                })()}
+
+                                {/* Crash recovery banner — shown when previous session was interrupted */}
+                                {(() => {
+                                    const CrashRecoveryBanner = React.lazy(() => import('./CrashRecoveryBanner'));
+                                    return <React.Suspense fallback={null}><CrashRecoveryBanner /></React.Suspense>;
+                                })()}
 
                                 {/* AIRI Sentient Header — only rendered when VRM is enabled */}
                                 {showVrmAvatar ? (
@@ -1741,7 +1828,7 @@ const RightSidebar: React.FC = () => {
                                             <div style={{ marginTop: '2px', textAlign: 'center', pointerEvents: 'auto' }}>
                                                 <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.05em' }}>AIRI SENTIENT CORE</div>
                                                 <div style={{ fontSize: '11px', opacity: 0.4 }}>
-                                                    {isYoloMode ? '⚡ YOLO — Full autonomy' : 'Ready for your mission'}
+                                                    {isYoloMode ? 'YOLO — Full autonomy' : 'Ready for your mission'}
                                                 </div>
                                             </div>
                                         )}
@@ -1755,7 +1842,7 @@ const RightSidebar: React.FC = () => {
                                         }}>
                                             <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.05em', opacity: 0.85 }}>Agent</div>
                                             <div style={{ fontSize: '11px', opacity: 0.4 }}>
-                                                {isYoloMode ? '⚡ YOLO — Full autonomy' : 'What can I help you with?'}
+                                                {isYoloMode ? 'YOLO — Full autonomy' : 'What can I help you with?'}
                                             </div>
                                         </div>
                                     ) : null
@@ -1767,32 +1854,21 @@ const RightSidebar: React.FC = () => {
                                         <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.35, marginBottom: '8px' }}>Quick Missions</div>
                                         <div className="quick-missions-grid">
                                             {[
-                                                { icon: '🔍', label: 'Audit Codebase', mission: 'Audit the entire codebase for bugs, dead code, and architectural issues. List findings.' },
-                                                { icon: '🌐', label: 'Web Research', mission: '/manus Research this project and any URLs I mention — full scrape, browser agent, and security audit.' },
-                                                { icon: '🛠️', label: 'Fix All Errors', mission: 'Find all compiler errors and runtime issues in this project. Fix them one by one.' },
-                                                { icon: '📦', label: 'Git Commit', mission: 'Stage all modified files and create a meaningful commit message based on the changes.' },
-                                                { icon: '🚀', label: 'Build & Verify', mission: 'Run cargo build, fix any errors, then verify the implementation is correct.' },
-                                                { icon: '📝', label: 'Write Tests', mission: 'Write comprehensive unit tests for the most critical functions in this project.' },
-                                                { icon: '🧹', label: 'Refactor', mission: 'Identify and refactor the most complex functions for clarity and performance.' },
+                                                { icon: 'search', label: 'Audit Codebase', mission: 'Audit the entire codebase for bugs, dead code, and architectural issues. List findings.' },
+                                                { icon: 'globe', label: 'Web Research', mission: '/manus Research this project and any URLs I mention — full scrape, browser agent, and security audit.' },
+                                                { icon: 'tools', label: 'Fix All Errors', mission: 'Find all compiler errors and runtime issues in this project. Fix them one by one.' },
+                                                { icon: 'git-commit', label: 'Git Commit', mission: 'Stage all modified files and create a meaningful commit message based on the changes.' },
+                                                { icon: 'rocket', label: 'Build & Verify', mission: 'Run cargo build, fix any errors, then verify the implementation is correct.' },
+                                                { icon: 'beaker', label: 'Write Tests', mission: 'Write comprehensive unit tests for the most critical functions in this project.' },
+                                                { icon: 'symbol-method', label: 'Refactor', mission: 'Identify and refactor the most complex functions for clarity and performance.' },
                                             ].map(({ icon, label, mission }) => (
                                                 <button
                                                     key={label}
+                                                    className="ac-mission"
                                                     onClick={() => !isAgentThinking && onSend(mission)}
                                                     disabled={isAgentThinking}
-                                                    style={{
-                                                        background: 'rgba(255,255,255,0.03)',
-                                                        border: '1px solid rgba(255,255,255,0.07)',
-                                                        borderRadius: '8px', padding: '8px 10px',
-                                                        cursor: isAgentThinking ? 'not-allowed' : 'pointer',
-                                                        color: 'rgba(255,255,255,0.75)', fontSize: '11px',
-                                                        textAlign: 'left', display: 'flex', alignItems: 'center', gap: '6px',
-                                                        transition: 'all 0.15s',
-                                                        opacity: isAgentThinking ? 0.4 : 1,
-                                                    }}
-                                                    onMouseEnter={(e) => { if (!isAgentThinking) { e.currentTarget.style.background = 'rgba(59,130,246,0.08)'; e.currentTarget.style.borderColor = 'rgba(59,130,246,0.3)'; } }}
-                                                    onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; }}
                                                 >
-                                                    <span style={{ fontSize: '14px' }}>{icon}</span>
+                                                    <i className={`codicon codicon-${icon}`} style={{ fontSize: '14px', opacity: 0.8 }} />
                                                     <span style={{ fontWeight: 600 }}>{label}</span>
                                                 </button>
                                             ))}
@@ -1825,7 +1901,7 @@ const RightSidebar: React.FC = () => {
                                         }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                                                 <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: isAgentThinking ? 'rgba(249,115,22,0.7)' : 'rgba(16,185,129,0.6)' }}>
-                                                    {isAgentThinking ? (isYoloMode ? '⚡ YOLO Executing' : '● Live Actions') : '✓ Completed'}
+                                                    {isAgentThinking ? (isYoloMode ? 'YOLO Executing' : '● Live Actions') : '✓ Completed'}
                                                 </div>
                                                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                                                     {/* Open the trajectory timeline. We render it here
@@ -1853,8 +1929,9 @@ const RightSidebar: React.FC = () => {
                                                     color: tc.status === 'done' ? 'rgba(255,255,255,0.25)' : tc.status === 'error' ? '#ef4444' : 'rgba(255,255,255,0.8)',
                                                 }}>
                                                     {tc.status === 'running' && <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#f97316', display: 'inline-block', animation: 'hubPulse 1s infinite', flexShrink: 0 }} />}
-                                                    {tc.status === 'done' && <span style={{ color: '#10b981', fontSize: '10px', flexShrink: 0 }}>✓</span>}
-                                                    {tc.status === 'error' && <span style={{ fontSize: '10px', flexShrink: 0 }}>✗</span>}
+                                                    {tc.status === 'done' && <Icon name="check" size={12} style={{ color: '#10b981', flexShrink: 0 }} />}
+                                                    {tc.status === 'error' && <Icon name="x" size={12} style={{ color: '#ef4444', flexShrink: 0 }} />}
+                                                    <ToolIcon tool={tc.tool} size={12} style={{ flexShrink: 0, opacity: 0.8 }} />
                                                     <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tc.label}</span>
                                                     {tc.count > 1 && (
                                                         <span style={{
@@ -1920,7 +1997,7 @@ const RightSidebar: React.FC = () => {
                             <div className="right-sidebar-active-surface">
                                 <div style={{ padding: '16px 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span style={{ fontSize: '16px' }}>🧠</span>
+                                        <Icon name="brain" size={16} />
                                         <div>
                                             <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Kortex Brain</div>
                                             <div style={{ fontSize: '10px', opacity: 0.4 }}>{kortexSlots.length} knowledge slots</div>
@@ -1960,7 +2037,7 @@ const RightSidebar: React.FC = () => {
                                         </div>
                                     ) : kortexSlots.length === 0 ? (
                                         <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.4, fontSize: '12px' }}>
-                                            <span style={{ fontSize: '32px', display: 'block', marginBottom: '8px' }}>🧠</span>
+                                            <Icon name="brain" size={32} style={{ display: 'block', marginBottom: '8px' }} />
                                             No knowledge stored yet.<br />
                                             <span style={{ fontSize: '10px', opacity: 0.6 }}>Run a mission to populate the brain.</span>
                                         </div>
@@ -1994,6 +2071,9 @@ const RightSidebar: React.FC = () => {
                                         ))
                                     )}
                                 </div>
+
+                                {/* Kortex Services */}
+                                <KortexServicesPanel />
                             </div>
                         ) : view === 'history' ? (
                             <div className="right-sidebar-scroll" style={{ padding: '8px 16px 16px', gap: '12px', justifyContent: 'flex-start', alignItems: 'stretch' }}>
@@ -2092,49 +2172,15 @@ const RightSidebar: React.FC = () => {
             {
                 view === 'chat' && agentUiMode === 'chat' && (
                     <div style={{ padding: '8px 10px 10px', borderTop: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1))', position: 'relative' }}>
-                        {/* @mention dropdown — files + special context sources */}
-                        {isMentionDropdownOpen && filteredSuggestions.length > 0 && (
-                            <div style={{
-                                position: 'absolute', bottom: '100%', left: '10px', right: '10px',
-                                background: 'var(--vscode-menu-background, #1e1e2e)',
-                                border: '1px solid var(--vscode-menu-border, rgba(255,255,255,0.12))',
-                                borderRadius: '4px', overflow: 'hidden',
-                                boxShadow: '0 -4px 16px rgba(0,0,0,0.35)',
-                                zIndex: 100, marginBottom: '4px',
-                            }}>
-                                <div style={{ padding: '4px 10px 2px', fontSize: '9px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(255,255,255,0.45)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                                    @ Context — type to filter
-                                </div>
-                                {filteredSuggestions.map((file: any, i) => (
-                                    <div
-                                        key={file.path}
-                                        onMouseDown={() => handleMentionSelect(file)}
-                                        style={{
-                                            padding: file._special ? '7px 12px' : '6px 12px', cursor: 'pointer', fontSize: '12px',
-                                            background: i === selectedMentionIndex ? 'var(--vscode-list-activeSelectionBackground, rgba(255,255,255,0.08))' : 'transparent',
-                                            color: i === selectedMentionIndex ? 'var(--vscode-list-activeSelectionForeground, #fff)' : 'rgba(255,255,255,0.75)',
-                                            display: 'flex', alignItems: 'center', gap: '8px',
-                                            borderLeft: i === selectedMentionIndex ? '2px solid var(--vscode-focusBorder, #007acc)' : '2px solid transparent',
-                                            transition: 'all 0.1s',
-                                            borderBottom: file._special ? '1px solid rgba(255,255,255,0.04)' : 'none',
-                                        }}
-                                    >
-                                        <i className={`codicon ${file._icon || 'codicon-file'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', opacity: file._special ? 0.9 : 0.6 }} />
-                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: file._special ? 600 : 400 }}>
-                                            {file.name}
-                                        </span>
-                                        {file._desc && (
-                                            <span style={{ fontSize: '9px', opacity: 0.5, whiteSpace: 'nowrap' }}>{file._desc}</span>
-                                        )}
-                                        {!file._special && (
-                                            <span style={{ fontSize: '9px', opacity: 0.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80px' }}>
-                                                {file.path.split(/[\\/]/).slice(-3, -1).join('/')}
-                                            </span>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        {/* @mention dropdown — Cursor-style extracted component */}
+                        <MentionPopup
+                            inputValue={inputValue}
+                            allFiles={allFiles}
+                            isOpen={isMentionDropdownOpen}
+                            selectedIndex={selectedMentionIndex}
+                            onSelect={handleMentionSelect}
+                            onSelectIndex={setSelectedMentionIndex}
+                        />
                         <PlanApprovalBanner />
                         <RestoreCheckpointBanner />
                         {isContinuousMode && (
@@ -2320,7 +2366,7 @@ const RightSidebar: React.FC = () => {
                 )
             }
 
-            <OllamaProgressBar />
+            
         </aside >
     );
 };

@@ -28,7 +28,7 @@ export const createGitSlice: StateCreator<AppState, [], [], GitSlice> = (set, ge
             const scmSel = state.modelSelectionOfFeature?.['SCM'];
             const rawModel = scmSel?.modelName || state.agentModel || '';
             const provider = scmSel?.providerName
-                || (rawModel.includes('|') ? rawModel.split('|')[0].toLowerCase() : (state.inferenceBackend === 'ollama' ? 'ollama' : 'openai'));
+                || (rawModel.includes('|') ? rawModel.split('|')[0].toLowerCase() : (state.inferenceBackend === 'lemonade' ? 'lemonade' : 'openai'));
             const model = scmSel?.modelName
                 || (rawModel.includes('|') ? rawModel.split('|').slice(1).join('|') : rawModel);
             const result = await invoke<{ content: string }>('ai_chat_fast', {

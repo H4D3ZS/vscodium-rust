@@ -58,6 +58,7 @@ fn detect_total_ram_gb() -> f64 {
 }
 
 /// Frontend gate: panels and bootstraps query this once and cache it.
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn get_system_profile() -> SystemProfile {
     get().clone()

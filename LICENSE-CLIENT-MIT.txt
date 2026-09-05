@@ -1,10 +1,10 @@
-MIT License — Community AI IDE (client)
+MIT License — Cyber-Ifrit IDE (client)
 
-  TEMPLATE — apply this license ONLY to the PUBLIC client repository (Community AI-ide),
+  TEMPLATE — apply this license ONLY to the PUBLIC client repository (cyber-ifrit-ide),
   to the files explicitly published there. It does NOT apply to this private repository
   or to any proprietary brain component listed in PROPRIETARY.md / SEPARATION.md.
 
-Copyright (c) 2026 Community AI / H4D3ZS
+Copyright (c) 2026 Cyber-Ifrit / H4D3ZS
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -26,5 +26,5 @@ SOFTWARE.
 
 ---
 NOTE: Cloud AI routing, Neural VFS compression, and subscription management are
-proprietary services hosted on Community AI infrastructure and are NOT covered by
-this MIT license. To use AI features, subscribe at https://example.invalid
+proprietary services hosted on Cyber-Ifrit infrastructure and are NOT covered by
+this MIT license. To use AI features, subscribe at https://cyberifrit.xyz/pricing

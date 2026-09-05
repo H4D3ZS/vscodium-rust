@@ -6,8 +6,6 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{Emitter, Manager};
-use tree_sitter::StreamingIterator;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ToolDefinition {
@@ -19,7 +17,15 @@ pub struct ToolDefinition {
 #[derive(Clone)]
 pub struct AiTools {
     pub root_path: Arc<tokio::sync::Mutex<PathBuf>>,
-    pub app_handle: Arc<tokio::sync::Mutex<Option<tauri::AppHandle>>>,
+    /// Contention-free mirror of `root_path` for the SYNC `get_root_path()`.
+    /// Without it, `try_lock()` on the tokio mutex loses the race during an
+    /// active agent run and falls back to `current_dir()` (the IDE's launch dir,
+    /// not the open project) — making the agent read the wrong directory.
+    pub(crate) root_cache: Arc<std::sync::RwLock<PathBuf>>,
+    /// Weak back-reference to the owning EditorState. Replaces the old
+    /// `tauri::AppHandle`: tools read config/engine/terminal through this and
+    /// emit via `EditorState::emit`, so the engine no longer depends on Tauri.
+    pub(crate) editor_state: Arc<std::sync::RwLock<std::sync::Weak<crate::EditorState>>>,
     pub browser_state: Arc<crate::browser::BrowserState>,
     pub(crate) git_manager: Arc<crate::git::GitManager>,
     pub(crate) mcp_registry: Arc<crate::mcp_registry::McpRegistry>,
@@ -34,6 +40,11 @@ pub struct AiTools {
     /// streamed-command reader threads push `{kind,payload}` JSON lines here so
     /// the activity terminal can drain them — `h.emit` is dead in the webview.
     pub activity_log: Arc<std::sync::Mutex<Vec<String>>>,
+    /// Shared YOLO mode flag — replaces the unsafe `std::env::set_var` pattern.
+    /// Set by `Sentient::set_yolo_mode`, read by `ToolInvoker` for permission bypass.
+    pub yolo_flag: Arc<std::sync::atomic::AtomicBool>,
+    /// In-memory task store with disk persistence.
+    pub task_store: Arc<tokio::sync::RwLock<super::task_store::TaskStore>>,
 }
 
 /// Append one `{kind,payload}` activity line to the shared buffer (capped at
@@ -121,10 +132,12 @@ impl AiTools {
         shadow_workspace: Arc<crate::shadow_workspace::ShadowWorkspace>,
         apex: Option<Arc<crate::apex_orchestrator::ApexOrchestrator>>,
         activity_log: Arc<std::sync::Mutex<Vec<String>>>,
+        yolo_flag: Arc<std::sync::atomic::AtomicBool>,
     ) -> Self {
         Self {
+            root_cache: Arc::new(std::sync::RwLock::new(root_path.clone())),
             root_path: Arc::new(tokio::sync::Mutex::new(root_path)),
-            app_handle: Arc::new(tokio::sync::Mutex::new(None)),
+            editor_state: Arc::new(std::sync::RwLock::new(std::sync::Weak::new())),
             browser_state,
             git_manager,
             mcp_registry,
@@ -136,22 +149,35 @@ impl AiTools {
             apex: Arc::new(tokio::sync::Mutex::new(apex)),
             vector_indexer: Arc::new(tokio::sync::Mutex::new(None)),
             activity_log,
+            yolo_flag,
+            task_store: Arc::new(tokio::sync::RwLock::new(super::task_store::TaskStore::new())),
         }
     }
 
-    pub async fn set_app_handle(&self, handle: tauri::AppHandle) {
-        let mut h = self.app_handle.lock().await;
-        *h = Some(handle);
+    pub fn set_editor_state(&self, weak: std::sync::Weak<crate::EditorState>) {
+        if let Ok(mut g) = self.editor_state.write() {
+            *g = weak;
+        }
+    }
+
+    /// Upgrade the back-reference to the live EditorState, if still alive.
+    pub(crate) fn editor_state(&self) -> Option<Arc<crate::EditorState>> {
+        self.editor_state.read().ok().and_then(|w| w.upgrade())
+    }
+
+    /// Snapshot the current event sink (Send+Sync) for moving into worker
+    /// threads that emit streamed output without holding the EditorState.
+    pub(crate) fn sink(&self) -> Option<Arc<dyn crate::EventSink>> {
+        self.editor_state()
+            .and_then(|s| s.event_sink.read().ok().and_then(|g| g.clone()))
     }
 
     pub(crate) async fn load_keys_value(&self) -> Value {
-        if let Some(handle) = self.app_handle.lock().await.clone() {
-            if let Some(state) = handle.try_state::<crate::EditorState>() {
-                let path = state.config_dir.join("api_keys.json");
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(v) = serde_json::from_str(&content) {
-                        return v;
-                    }
+        if let Some(state) = self.editor_state() {
+            let path = state.config_dir.join("api_keys.json");
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(v) = serde_json::from_str(&content) {
+                    return v;
                 }
             }
         }
@@ -159,33 +185,12 @@ impl AiTools {
     }
 
     pub(crate) async fn config_dir(&self) -> Option<std::path::PathBuf> {
-        let handle = self.app_handle.lock().await.clone()?;
-        let state: tauri::State<crate::EditorState> = handle.state();
-        Some(state.config_dir.clone())
+        self.editor_state().map(|s| s.config_dir.clone())
     }
 
-    /// Backend SaaS gate — complements frontend checks in `agent.ts`.
-    pub(crate) async fn gate_tool_entitlement(&self, tool: &str) -> Result<()> {
-        let Some(dir) = self.config_dir().await else { return Ok(()); };
-        match tool {
-            "aim_pack_context" | "aim_query_spans" => {
-                crate::account::require_feature_at(&dir, "neural_vfs").map_err(|e| anyhow!(e))
-            }
-            "reverse_shell_generate" | "security_listener_generate" | "csp_bypass_analyze"
-            | "shellcode_recipe_generate" | "payload_encode"
-            | "ai_vuln_hunt" | "web_security_audit" | "deep_security_audit" | "weaponize_env"
-            | "network_port_scanner" | "binary_mach_o_scanner" | "generate_0day_exploit"
-            | "apex_red_team_scan" | "apex_scan_url" | "apex_simulate_attack"
-            | "apex_full_sweep" | "apex_pentest_report" | "apex_quick_check" => {
-                crate::account::require_security_suite(&dir).map_err(|e| anyhow!(e))
-            }
-            "apex_architect_design" | "apex_threat_anticipate" | "apex_perf_optimize"
-            | "apex_self_improve" | "apex_security_explain" | "apex_predict_failures"
-            | "spawn_subagent" | "browser_subagent" => {
-                crate::account::require_feature_at(&dir, "agentic").map_err(|e| anyhow!(e))
-            }
-            _ => Ok(()),
-        }
+    /// Backend gate — no entitlement checks in OSS edition.
+    pub(crate) async fn gate_tool_entitlement(&self, _tool: &str) -> Result<()> {
+        Ok(())
     }
 
     pub async fn set_apex(&self, apex: Arc<crate::apex_orchestrator::ApexOrchestrator>) {
@@ -199,6 +204,7 @@ impl AiTools {
     }
 
     pub async fn set_root_path(&self, root_path: PathBuf) {
+        if let Ok(mut c) = self.root_cache.write() { *c = root_path.clone(); }
         let mut r = self.root_path.lock().await;
         *r = root_path;
     }
@@ -206,29 +212,43 @@ impl AiTools {
     /// Emit `agent_editing_file` Tauri event so the frontend editor can show
     /// an animated "agent hands" cursor at the file being written.
     pub(crate) fn emit_agent_editing(&self, path: &str) {
-        if let Ok(guard) = self.app_handle.try_lock() {
-            if let Some(handle) = guard.as_ref() {
-                let _ = handle.emit("agent_editing_file", serde_json::json!({ "path": path }));
-            }
+        if let Some(state) = self.editor_state() {
+            state.emit("agent_editing_file", serde_json::json!({ "path": path }));
         }
     }
 
     pub fn get_root_path(&self) -> PathBuf {
-        // Use try_lock() instead of blocking_lock() — blocking_lock() PANICS
-        // when called from within a tokio async runtime (which is always the case
-        // since autonomous_loop is async). try_lock() is safe in all contexts.
-        self.root_path
-            .try_lock()
-            .map(|guard| guard.clone())
-            .unwrap_or_else(|_| {
-                // Lock briefly contended — fall back to cwd. This is safe and
-                // won't crash the process.
-                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-            })
+        // Read the contention-free cache, NOT a try_lock() on the tokio mutex.
+        // The old code fell back to current_dir() on lock contention — which is
+        // constant during an agent run — so the agent intermittently operated on
+        // the IDE's launch dir instead of the open project. The cache always
+        // holds the last root set via set_root_path (open folder / set_active_root).
+        self.root_cache
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_else(|_| PathBuf::from("."))
     }
 
     pub async fn get_root_path_async(&self) -> PathBuf {
         self.root_path.lock().await.clone()
     }
 
+    /// Resolve a file path argument against the project root, with path traversal protection.
+    pub(crate) async fn resolve_path(&self, args: &Value, key: &str) -> Result<(PathBuf, PathBuf)> {
+        let path_str = args.get(key)
+            .or_else(|| args.get("path"))
+            .or_else(|| args.get("TargetFile"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing '{}'", key))?;
+        let root = self.root_path.lock().await.clone();
+        let full = self.validate_path(&root, path_str)?;
+        Ok((root, full))
+    }
+
+    /// Emit a Tauri event if app handle is available. Fire-and-forget.
+    pub(crate) fn emit_tool_event(&self, event: &str, payload: Value) {
+        if let Some(state) = self.editor_state() {
+            state.emit(event, payload);
+        }
+    }
 }

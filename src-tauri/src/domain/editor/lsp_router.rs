@@ -2,11 +2,13 @@
 
 use crate::lsp::{DiagnosticsMap, LspClient};
 use crate::lsp_bundle::{self, BundledLspId, ResolvedLaunch};
+#[cfg(feature = "tauri")]
 use crate::lsp_store::{self, UserLspRecord};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+#[cfg(feature = "tauri")]
 use tauri::{AppHandle, Emitter};
 
 pub struct LspRouter {
@@ -71,6 +73,7 @@ impl LspRouter {
         }
     }
 
+    #[cfg(feature = "tauri")]
     pub async fn ensure_server(
         &mut self,
         server_id: &str,
@@ -117,6 +120,7 @@ impl LspRouter {
         Ok(client)
     }
 
+    #[cfg(feature = "tauri")]
     pub async fn ensure_for_file(
         &mut self,
         file_path: &Path,
@@ -142,6 +146,15 @@ impl LspRouter {
             .await?;
 
         let uri = Self::path_to_uri(&file_path.to_string_lossy());
+        // Cap document servers at 200 entries to prevent unbounded growth
+        const MAX_DOCUMENT_SERVERS: usize = 200;
+        if self.document_servers.len() >= MAX_DOCUMENT_SERVERS {
+            // Remove the oldest entries (first inserted)
+            let keys_to_remove: Vec<String> = self.document_servers.keys().take(50).cloned().collect();
+            for key in keys_to_remove {
+                self.document_servers.remove(&key);
+            }
+        }
         self.document_servers
             .insert(uri.clone(), server_id.clone());
         self.active_server_id = Some(server_id.clone());
@@ -336,6 +349,7 @@ fn language_matches_file(lang: &str, ext: &str, fname: &str) -> bool {
     }
 }
 
+#[cfg(feature = "tauri")]
 pub fn user_server_for_file(path: &Path) -> Option<UserLspRecord> {
     let ext = path
         .extension()
@@ -370,6 +384,7 @@ pub fn user_server_for_file(path: &Path) -> Option<UserLspRecord> {
     None
 }
 
+#[cfg(feature = "tauri")]
 pub fn resolve_server_for_file(
     file_path: &Path,
     workspace_root: &Path,
@@ -405,6 +420,7 @@ pub fn resolve_server_for_file(
     lsp_bundle::workspace_lsp_id(workspace_root).map(|id| id.as_str().to_string())
 }
 
+#[cfg(feature = "tauri")]
 pub fn user_workspace_candidates(root: &Path) -> Vec<(String, String, u8, String)> {
     let mut out = Vec::new();
     for rec in lsp_store::list_user_servers() {
@@ -450,6 +466,7 @@ pub fn all_workspace_candidates(root: &Path, _config_dir: &Path) -> Vec<Workspac
         })
         .collect();
 
+    #[cfg(feature = "tauri")]
     for (id, name, score, reason) in user_workspace_candidates(root) {
         out.push(WorkspaceCandidate {
             id: id.clone(),
@@ -466,6 +483,7 @@ pub fn all_workspace_candidates(root: &Path, _config_dir: &Path) -> Vec<Workspac
     out
 }
 
+#[cfg(feature = "tauri")]
 pub fn detect_workspace_lsp_json(root: &Path, config_dir: &Path) -> Value {
     let candidates: Vec<Value> = all_workspace_candidates(root, config_dir)
         .into_iter()

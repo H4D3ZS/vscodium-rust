@@ -107,7 +107,7 @@ const McpManager: React.FC = () => {
                                     </div>
                                     <div style={{ fontSize: '11px', opacity: 0.6, lineHeight: 1.4, minHeight: '30px' }}>{entry.description}</div>
                                     {entry.needsConfig && (
-                                        <div style={{ fontSize: '10px', opacity: 0.45, fontStyle: 'italic' }}>⚙ {entry.needsConfig}</div>
+                                        <div style={{ fontSize: '10px', opacity: 0.45, fontStyle: 'italic' }}>{entry.needsConfig}</div>
                                     )}
                                     <button
                                         onClick={() => handleInstall(entry)}

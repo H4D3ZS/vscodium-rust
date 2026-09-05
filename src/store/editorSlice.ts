@@ -1,8 +1,9 @@
-﻿import type { StateCreator } from 'zustand';
+import type { StateCreator } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { computeDiffBlocks, patchContentSelective } from '../domain/editor/DiffService';
 import type { AppState } from './index';
 import type { EditorTab, FileEntry, PendingChange, WorkspaceFolder } from './types';
+import { boundedPush, boundedTail, MAX_TAB_HISTORY, MAX_PENDING_CHANGES, MAX_PENDING_CHANGE_CONTENT } from '../domain/utils/boundedArray';
 
 export interface EditorSlice {
     // State
@@ -146,7 +147,13 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
             code: d.code?.toString() ?? '',
         }));
         const key = uri.replace(/^file:\/\/\//, '').replace(/^file:\/\//, '').replace(/\//g, '\\');
-        return { diagnosticsMap: { ...state.diagnosticsMap, [key]: mapped } };
+        const openPaths = new Set(state.tabs.map((t: any) => t.path));
+        const newMap: Record<string, any[]> = {};
+        for (const [k, v] of Object.entries(state.diagnosticsMap)) {
+            if (k === key || openPaths.has(k)) newMap[k] = v;
+        }
+        newMap[key] = mapped;
+        return { diagnosticsMap: newMap };
     }),
 
     setActiveRoot: (path) => {
@@ -231,6 +238,23 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     },
 
     closeTab: (id: string) => {
+        const state = get();
+        const tab = state.tabs.find((t: any) => t.id === id);
+        if (tab) {
+            try {
+                const monaco = (window as any).monaco;
+                if (monaco?.editor) {
+                    const models = monaco.editor.getModels();
+                    const cleanPath = (p: string) => p.replace(/\\/g, '/').replace(/^\//, '').toLowerCase();
+                    const targetPath = cleanPath(tab.path);
+                    const model = models.find((m: any) => {
+                        const modelPath = cleanPath(m.uri.path);
+                        return modelPath === targetPath || decodeURIComponent(m.uri.toString()).toLowerCase().includes(targetPath);
+                    });
+                    if (model) model.dispose();
+                }
+            } catch { /* best effort */ }
+        }
         set((state) => {
             const tabs = state.tabs.filter((t: any) => t.id !== id);
             let activeTabId = state.activeTabId;
@@ -242,8 +266,8 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     setActiveTab: (id: string) => set((state) => {
         if (state.activeTabId === id) return {} as any;
         const history = state.tabHistory.slice(0, state.tabHistoryIndex + 1);
-        history.push(id);
-        return { activeTabId: id, tabHistory: history, tabHistoryIndex: history.length - 1 };
+        const newHistory = boundedPush(history, id, MAX_TAB_HISTORY);
+        return { activeTabId: id, tabHistory: newHistory, tabHistoryIndex: newHistory.length - 1 };
     }),
 
     navigateBack: () => set((state) => {
@@ -342,14 +366,13 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     },
 
     proposePendingChange: (change) => {
-        // Merge by path: an agent run can edit one file repeatedly, and proposals
-        // arrive across separate poll-drains. Collapse into a single review entry,
-        // preserving the EARLIEST oldContent so the diff spans the whole run and
-        // reject reverts fully.
         const path = change.path;
         const existing = get().pendingChanges.find(c => c.path === path);
-        const oldContent = existing?.oldContent || (change as any).oldContent || '';
-        const newContent = (change as any).newContent || '';
+        const rawOld = existing?.oldContent || (change as any).oldContent || '';
+        const rawNew = (change as any).newContent || '';
+        const truncate = (s: string) => s.length > MAX_PENDING_CHANGE_CONTENT ? s.slice(0, MAX_PENDING_CHANGE_CONTENT) + '\n… (truncated)' : s;
+        const oldContent = truncate(rawOld);
+        const newContent = truncate(rawNew);
         const merged: PendingChange = {
             id: existing?.id || Math.random().toString(36).substring(7),
             path,
@@ -364,9 +387,10 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
             oldContent,
             applied: (change as any).applied === true || existing?.applied === true,
         };
-        const replace = (state: any) => ({
-            pendingChanges: [...state.pendingChanges.filter((c: PendingChange) => c.path !== path), merged],
-        });
+        const replace = (state: any) => {
+            const filtered = state.pendingChanges.filter((c: PendingChange) => c.path !== path);
+            return { pendingChanges: boundedTail([...filtered, merged], MAX_PENDING_CHANGES) };
+        };
         // Auto-apply when enabled OR in YOLO mode (YOLO = full autonomy, no prompts).
         if (get().autoAcceptChanges || (get() as any).isYoloMode) {
             set(replace);

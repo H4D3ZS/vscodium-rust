@@ -2,13 +2,13 @@ import type { TerminalTheme, TerminalThemeMode } from '../../domain/terminal/Ter
 
 const THEME_MODE_KEY = 'vscr.terminal.themeMode';
 
-/** Read persisted theme preference (defaults to VSCode IDE theme). */
+/** Read persisted theme preference (defaults to the native Cursor-style theme). */
 export function getTerminalThemeMode(): TerminalThemeMode {
     try {
         const v = localStorage.getItem(THEME_MODE_KEY);
-        return v === 'native' ? 'native' : 'vscode';
+        return v === 'vscode' ? 'vscode' : 'native';
     } catch {
-        return 'vscode';
+        return 'native';
     }
 }
 
@@ -48,32 +48,35 @@ export function getVSCodeTheme(): TerminalTheme {
 }
 
 /**
- * Warp/cmder-inspired palette (Tokyo-night-ish). Original colors — not copied
- * from either product. Gives the panel a distinct native-terminal feel.
+ * Cursor-native terminal palette — clean neutral dark matching the Cursor IDE
+ * look (and our neutral-dark agent chat): near-black surface, soft neutral
+ * foreground, a single blue cursor/accent, standard balanced ANSI colors.
  */
 export function getNativeTerminalTheme(): TerminalTheme {
     return {
-        background: '#171922',
-        foreground: '#d5d8e0',
-        cursor: '#7aa2f7',
-        cursorAccent: '#171922',
-        selectionBackground: 'rgba(122,162,247,0.25)',
-        black: '#15161e',
-        red: '#f7768e',
-        green: '#9ece6a',
-        yellow: '#e0af68',
-        blue: '#7aa2f7',
-        magenta: '#bb9af7',
-        cyan: '#7dcfff',
-        white: '#a9b1d6',
-        brightBlack: '#414868',
-        brightRed: '#ff899d',
-        brightGreen: '#b9f27c',
-        brightYellow: '#ff9e64',
-        brightBlue: '#8db0ff',
-        brightMagenta: '#d7b4f3',
-        brightCyan: '#a4daff',
-        brightWhite: '#e6e9f0',
+        // Match the panel/editor background exactly so the terminal reads as one
+        // seamless black surface (Cursor-style), not a boxed-in pane.
+        background: '#1a1a1a',
+        foreground: '#d4d4d6',
+        cursor: '#3b82f6',
+        cursorAccent: '#1a1a1a',
+        selectionBackground: 'rgba(59,130,246,0.25)',
+        black: '#1b1d20',
+        red: '#f14c4c',
+        green: '#3fb950',
+        yellow: '#d6ad3c',
+        blue: '#4c8ef7',
+        magenta: '#bc7cf0',
+        cyan: '#3dc9d6',
+        white: '#cfd1d4',
+        brightBlack: '#5a5f66',
+        brightRed: '#ff6a6a',
+        brightGreen: '#56d364',
+        brightYellow: '#e7c662',
+        brightBlue: '#6ba5ff',
+        brightMagenta: '#d2a8ff',
+        brightCyan: '#5fdce8',
+        brightWhite: '#f0f1f3',
     };
 }
 

@@ -8,7 +8,6 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use tauri::State;
 
-use crate::EditorState;
 
 const MAX_LINES: usize = 10_000;
 
@@ -164,13 +163,13 @@ pub fn list_audit(config_dir: &Path, limit: usize) -> Vec<AuditEntry> {
 }
 
 #[tauri::command]
-pub async fn enterprise_get_policy(state: State<'_, EditorState>) -> Result<EnterprisePolicy, String> {
+pub async fn enterprise_get_policy(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<EnterprisePolicy, String> {
     Ok(load_policy(&state.config_dir))
 }
 
 #[tauri::command]
 pub async fn enterprise_set_policy(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     policy: EnterprisePolicy,
 ) -> Result<(), String> {
     save_policy(&state.config_dir, &policy)?;
@@ -185,14 +184,14 @@ pub async fn enterprise_set_policy(
 
 #[tauri::command]
 pub async fn enterprise_audit_list(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     limit: Option<usize>,
 ) -> Result<Vec<AuditEntry>, String> {
     Ok(list_audit(&state.config_dir, limit.unwrap_or(100)))
 }
 
 #[tauri::command]
-pub async fn enterprise_audit_export(state: State<'_, EditorState>) -> Result<String, String> {
+pub async fn enterprise_audit_export(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<String, String> {
     let src = audit_path(&state.config_dir);
     if !src.exists() {
         return Err("No audit log yet.".into());
@@ -212,7 +211,7 @@ pub async fn enterprise_audit_export(state: State<'_, EditorState>) -> Result<St
 
 #[tauri::command]
 pub async fn enterprise_audit_log(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     action: String,
     detail: Option<Value>,
 ) -> Result<(), String> {
@@ -227,7 +226,7 @@ pub async fn enterprise_audit_log(
 /// Seed cyber-enterprise defaults (audit, DLP, private-network block).
 #[tauri::command]
 pub async fn enterprise_seed_cyber_policy(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     org_name: Option<String>,
 ) -> Result<EnterprisePolicy, String> {
     let mut policy = crate::enterprise_governance::default_cyber_enterprise_policy(
@@ -260,7 +259,7 @@ pub async fn enterprise_seed_cyber_policy(
 /// Initialize engagement folder layout under workspace root.
 #[tauri::command]
 pub async fn enterprise_init_engagement(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     engagement_id: String,
     targets: Vec<String>,
 ) -> Result<Value, String> {
@@ -304,7 +303,7 @@ pub async fn enterprise_init_engagement(
 /// Export findings under `reports/` as SARIF 2.1.0 JSON.
 #[tauri::command]
 pub async fn enterprise_export_sarif(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<String, String> {
     let root = state.editor.active_root.lock().await.clone();
     let root = root.unwrap_or_else(|| state.config_dir.clone());

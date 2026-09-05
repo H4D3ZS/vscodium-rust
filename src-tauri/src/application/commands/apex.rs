@@ -1,12 +1,11 @@
 use tauri::State;
-use crate::EditorState;
 use serde_json::Value;
 use crate::apex_red_team;
 
 /// Red Team: Full security scan using BugTraceAI-Apex-G4-26B
 #[tauri::command]
 pub async fn apex_red_team_scan(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     code: String,
     file_path: String,
     language: String,
@@ -30,7 +29,7 @@ pub async fn apex_red_team_scan(
 /// Red Team: Quick vulnerability check
 #[tauri::command]
 pub async fn apex_quick_check(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     code: String,
     language: String,
 ) -> Result<Value, String> {
@@ -41,7 +40,7 @@ pub async fn apex_quick_check(
 /// Red Team: Execute a LIVE attack chain (real curl/nmap/audits — not LLM simulation)
 #[tauri::command]
 pub async fn apex_simulate_attack(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     target: String,
     attack_type: String,
 ) -> Result<Value, String> {
@@ -58,7 +57,7 @@ pub async fn apex_simulate_attack(
 /// Red Team: Generate pentest report
 #[tauri::command]
 pub async fn apex_pentest_report(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     files: Vec<Vec<String>>,
 ) -> Result<Value, String> {
     let file_pairs: Vec<(String, String)> = files.into_iter()
@@ -72,7 +71,7 @@ pub async fn apex_pentest_report(
 /// Engine 1: Autonomous System Architect — design complete system
 #[tauri::command]
 pub async fn apex_architect_design(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     description: String,
 ) -> Result<Value, String> {
     let rec = state.ai.apex.architect_design(&description).await?;
@@ -82,7 +81,7 @@ pub async fn apex_architect_design(
 /// Engine 1: Scaffold a project from architecture spec
 #[tauri::command]
 pub async fn apex_architect_scaffold(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     architecture: String,
 ) -> Result<Value, String> {
     state.ai.apex.architect_scaffold(&architecture).await
@@ -91,7 +90,7 @@ pub async fn apex_architect_scaffold(
 /// Engine 2: Threat Anticipation — predict future vulnerabilities
 #[tauri::command]
 pub async fn apex_threat_anticipate(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     code: String,
     context: String,
 ) -> Result<Value, String> {
@@ -101,7 +100,7 @@ pub async fn apex_threat_anticipate(
 /// Engine 2: Simulate attack with concurrent users
 #[tauri::command]
 pub async fn apex_threat_simulate(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     endpoint: String,
     attack_type: String,
     concurrent_users: u32,
@@ -109,10 +108,22 @@ pub async fn apex_threat_simulate(
     state.ai.apex.threat_simulate(&endpoint, &attack_type, concurrent_users).await
 }
 
+/// Exploit/tooling engine — generate a complete runnable security artifact
+/// (Nuclei template, CVE PoC, cracker, bypass) via the Lemonade-backed
+/// BugTrace CORE-Ultra model. Returns `{ "artifact": "..." }`.
+#[tauri::command]
+pub async fn apex_exploit_tooling(
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
+    task: String,
+    target_context: Option<String>,
+) -> Result<Value, String> {
+    state.ai.apex.exploit_tooling(&task, target_context.as_deref()).await
+}
+
 /// Engine 3: Performance Optimizer — find and fix bottlenecks
 #[tauri::command]
 pub async fn apex_perf_optimize(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     code: String,
     language: String,
 ) -> Result<Value, String> {
@@ -123,7 +134,7 @@ pub async fn apex_perf_optimize(
 /// Engine 3: Deep profile a specific function
 #[tauri::command]
 pub async fn apex_perf_profile(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     function_code: String,
     language: String,
 ) -> Result<Value, String> {
@@ -133,7 +144,7 @@ pub async fn apex_perf_profile(
 /// Engine 4: Self-Improving Code — iteratively improve generated code
 #[tauri::command]
 pub async fn apex_self_improve(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     code: String,
     language: String,
     iterations: Option<u32>,
@@ -144,7 +155,7 @@ pub async fn apex_self_improve(
 /// Engine 5: Explainable Security — explain fixes in plain English
 #[tauri::command]
 pub async fn apex_security_explain(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     vulnerability: String,
     fix_diff: String,
 ) -> Result<Value, String> {
@@ -154,7 +165,7 @@ pub async fn apex_security_explain(
 /// Engine 5: Security audit with educational annotations
 #[tauri::command]
 pub async fn apex_security_audit(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     code: String,
     language: String,
 ) -> Result<Value, String> {
@@ -164,7 +175,7 @@ pub async fn apex_security_audit(
 /// Engine 6: Multi-System Control — scan multiple systems
 #[tauri::command]
 pub async fn apex_multi_system_scan(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     systems: Vec<Vec<String>>,
 ) -> Result<Value, String> {
     let system_pairs: Vec<(String, String)> = systems.into_iter()
@@ -178,7 +189,7 @@ pub async fn apex_multi_system_scan(
 /// Engine 7: Failure Prediction — predict system crashes
 #[tauri::command]
 pub async fn apex_predict_failures(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     code: String,
     logs: Option<String>,
 ) -> Result<Value, String> {
@@ -189,7 +200,7 @@ pub async fn apex_predict_failures(
 /// Engine 7: Predict from server logs
 #[tauri::command]
 pub async fn apex_predict_from_logs(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     logs: String,
 ) -> Result<Value, String> {
     state.ai.apex.predict_from_logs(&logs).await
@@ -198,7 +209,7 @@ pub async fn apex_predict_from_logs(
 /// FULL SWEEP: Run all APEX engines in parallel on a target
 #[tauri::command]
 pub async fn apex_full_sweep(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     code: String,
     file_path: String,
     language: String,
@@ -209,7 +220,7 @@ pub async fn apex_full_sweep(
 /// Get the APEX results feed (latest intelligence findings)
 #[tauri::command]
 pub async fn apex_get_results_feed(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Value, String> {
     let feed = state.ai.apex.get_results_feed().await;
     serde_json::to_value(&feed).map_err(|e| e.to_string())
@@ -218,7 +229,7 @@ pub async fn apex_get_results_feed(
 /// Set the model for a specific APEX engine
 #[tauri::command]
 pub async fn apex_set_engine_model(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     engine: String,
     model: String,
 ) -> Result<(), String> {
@@ -229,7 +240,7 @@ pub async fn apex_set_engine_model(
 /// Get red team findings history
 #[tauri::command]
 pub async fn apex_get_findings_history(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Value, String> {
     let history = state.ai.apex.red_team().get_findings_history().await;
     serde_json::to_value(&history).map_err(|e| e.to_string())
@@ -239,7 +250,7 @@ pub async fn apex_get_findings_history(
 /// Recommended for M1 Macs with limited RAM (8GB+)
 #[tauri::command]
 pub async fn apex_set_local_mode(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     small_model: Option<String>,
 ) -> Result<(), String> {
     let model = small_model.unwrap_or_else(|| "qwen3.5:2b".to_string());

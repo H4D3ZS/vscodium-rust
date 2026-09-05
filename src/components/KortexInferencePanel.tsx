@@ -40,7 +40,6 @@ import {
     summarizeAimTelemetry,
     type AimTelemetrySnapshot,
 } from '../kortex/aim-vfs';
-import { resolveOllamaModelToGguf } from '../kortex/ollama-bridge';
 
 // ─── presentational helpers ────────────────────────────────────────────────
 
@@ -121,16 +120,6 @@ function fmtBytes(n: number): string {
     return `${n} B`;
 }
 
-/** Strip `Ollama|<tag>` prefix used by the agent model picker. */
-function parseOllamaModelTag(agentModel: string): string {
-    const t = agentModel.trim();
-    const pipe = t.indexOf('|');
-    if (pipe > 0 && t.slice(0, pipe).toLowerCase() === 'ollama') {
-        return t.slice(pipe + 1).trim();
-    }
-    return t;
-}
-
 // ─── component ──────────────────────────────────────────────────────────────
 
 const KortexInferencePanel: React.FC = () => {
@@ -186,7 +175,6 @@ const KortexInferencePanel: React.FC = () => {
     const [kvRunning, setKvRunning] = useState<boolean>(false);
     const [cacheStatus, setCacheStatus] = useState<RunningCacheInfo | null>(null);
     const [aim, setAim] = useState<AimTelemetrySnapshot | null>(null);
-    const [ollamaTagForGguf, setOllamaTagForGguf] = useState('');
 
     // Resolve the default profile path whenever the model changes.
     useEffect(() => {
@@ -199,7 +187,7 @@ const KortexInferencePanel: React.FC = () => {
         if (!kvRunning) return;
         const tick = () => { void refreshKvCacheStats(); };
         tick();
-        const id = setInterval(tick, 4000);
+        const id = setInterval(tick, 10000);
         return () => clearInterval(id);
     }, [kvRunning, refreshKvCacheStats]);
 
@@ -402,7 +390,7 @@ const KortexInferencePanel: React.FC = () => {
             <div style={{ ...sectionStyle, marginBottom: 8, borderColor: aimIndexStatus === 'done' ? 'rgba(74,222,128,0.3)' : 'var(--vscode-panel-border)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                     <span style={{ ...sectionTitleStyle, marginBottom: 0 }}>
-                        ⚡ AIM Workspace Index
+                        AIM Workspace Index
                     </span>
                     <span style={{ fontSize: 10, opacity: 0.6 }}>
                         {aimIndexStatus === 'idle' && 'Not indexed'}
@@ -427,7 +415,7 @@ const KortexInferencePanel: React.FC = () => {
                     disabled={aimIndexStatus === 'indexing'}
                     onClick={onIndexWorkspace}
                 >
-                    {aimIndexStatus === 'indexing' ? '⟳ Indexing…' : '⚡ Index Workspace'}
+                    {aimIndexStatus === 'indexing' ? '⟳ Indexing…' : 'Index Workspace'}
                 </button>
             </div>
 
@@ -459,7 +447,7 @@ const KortexInferencePanel: React.FC = () => {
                 </span>
                 {busy && (
                     <span style={{ fontSize: 11, opacity: 0.8, marginLeft: 8 }}>
-                        ⚙ {busy}…
+                        {busy}…
                     </span>
                 )}
             </div>
@@ -472,12 +460,12 @@ const KortexInferencePanel: React.FC = () => {
                 const s = useStore.getState();
                 const agentModel: string = s.agentModel || '';
                 const lower = agentModel.toLowerCase();
-                let activeBackend: 'ollama' | 'llama.cpp' | 'anthropic' | 'google' | 'openai' | 'unknown';
+                let activeBackend: 'lemonade' | 'llama.cpp' | 'anthropic' | 'google' | 'openai' | 'unknown';
                 if (lower.includes('claude') || lower.includes('anthropic')) activeBackend = 'anthropic';
                 else if (lower.includes('gemini') || lower.includes('google')) activeBackend = 'google';
                 else if (lower.startsWith('gpt') || lower.includes('openai')) activeBackend = 'openai';
                 else if (lower.includes('llama.cpp') || s.llamaCppStatus === 'running') activeBackend = 'llama.cpp';
-                else if (lower.includes('ollama') || agentModel.includes(':')) activeBackend = 'ollama';
+                else if (lower.includes('lemonade') || agentModel.includes(':')) activeBackend = 'lemonade';
                 else activeBackend = 'unknown';
 
                 type Row = { label: string; cells: ('on' | 'off' | 'n/a')[] };
@@ -493,7 +481,7 @@ const KortexInferencePanel: React.FC = () => {
                     { label: 'KDKVC disk KV cache', cells: [NA, kvRunning ? ON : OFF, NA] },
                     { label: 'GAC geometry-aware tier placement', cells: [NA, gacRunning ? ON : OFF, NA] },
                 ];
-                const colIndex = activeBackend === 'ollama' ? 0
+                const colIndex = activeBackend === 'lemonade' ? 0
                     : activeBackend === 'llama.cpp' ? 1
                         : (activeBackend === 'anthropic' || activeBackend === 'google' || activeBackend === 'openai') ? 2
                             : -1;
@@ -561,7 +549,7 @@ const KortexInferencePanel: React.FC = () => {
                                 </React.Fragment>
                             ))}
                         </div>
-                        {activeBackend === 'ollama' && (
+                        {activeBackend === 'lemonade' && (
                             <div style={{ fontSize: 10, opacity: 0.75, marginTop: 8, lineHeight: 1.5 }}>
                                 You're on Ollama. CCET, telemetry, and .aim gist injection work today.
                                 For KDKVC + GAC, launch the Kortex stack above and point your agent
@@ -730,42 +718,6 @@ const KortexInferencePanel: React.FC = () => {
                     onChange={e => setLlamaCppModelPath(e.target.value)}
                     placeholder="C:\\models\\qwen2.5-32b-coder.Q4_K_M.gguf"
                 />
-                <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                    <input
-                        style={{ ...inputStyle, flex: '1 1 200px', maxWidth: 420 }}
-                        value={ollamaTagForGguf}
-                        onChange={e => setOllamaTagForGguf(e.target.value)}
-                        placeholder="Ollama tag (e.g. llama3.2:latest) — empty uses agent model"
-                    />
-                    <button
-                        type="button"
-                        style={btnStyle('secondary')}
-                        disabled={!!busy}
-                        onClick={async () => {
-                            setErr('');
-                            const tag = (ollamaTagForGguf.trim() || parseOllamaModelTag(agentModel)).trim();
-                            if (!tag) {
-                                setErr('Set an Ollama model in the agent picker or enter a tag above.');
-                                return;
-                            }
-                            setBusy('Resolving GGUF from Ollama…');
-                            try {
-                                const p = await resolveOllamaModelToGguf(tag);
-                                if (!p) {
-                                    setErr('No local .gguf path found for this model (check `ollama show` / Modelfile FROM).');
-                                    return;
-                                }
-                                setLlamaCppModelPath(p);
-                            } catch (e: unknown) {
-                                setErr(e instanceof Error ? e.message : String(e));
-                            } finally {
-                                setBusy('');
-                            }
-                        }}
-                    >
-                        Resolve GGUF from Ollama
-                    </button>
-                </div>
                 {profilePath && (
                     <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, fontFamily: 'monospace' }}>
                         profile → {profilePath}

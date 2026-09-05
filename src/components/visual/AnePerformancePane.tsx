@@ -62,16 +62,17 @@ const AnePerformancePane: React.FC = () => {
         }
     };
 
+    // Loaded-model list comes straight from Lemonade's health endpoint; there is
+    // no Rust command for it (the old `get_ollama_ps` went with Ollama).
     const fetchOllamaPs = async () => {
         try {
-            const data: any = await invoke('get_ollama_ps');
-            if (data && data.models) {
-                setOllamaModels(data.models);
-            } else {
-                setOllamaModels([]);
-            }
+            const base = localStorage.getItem('provider.lemonade.url') || 'http://127.0.0.1:13305';
+            const res = await fetch(`${base.replace(/\/$/, '')}/api/v1/health`);
+            const data: any = await res.json();
+            setOllamaModels(Array.isArray(data?.all_models_loaded) ? data.all_models_loaded : []);
         } catch (e) {
-            console.error('Failed to fetch Ollama PS:', e);
+            console.error('Failed to fetch loaded Lemonade models:', e);
+            setOllamaModels([]);
         }
     };
 

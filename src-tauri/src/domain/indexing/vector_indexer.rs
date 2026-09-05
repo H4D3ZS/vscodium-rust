@@ -55,6 +55,13 @@ pub struct VectorIndexer {
     is_indexing: Arc<RwLock<bool>>,
     indexing_progress: Arc<RwLock<IndexingProgress>>,
     ann: Arc<std::sync::Mutex<crate::ann_index::AnnIndex>>,
+    /// Base URL for the embedding endpoint. Defaults to **Lemonade**
+    /// (`http://localhost:13305`), not Ollama — this machine has no Ollama, and
+    /// pointing here at a dead host silently disabled `@codebase`,
+    /// `semantic_search` and `search_codebase`, because a failed embed degrades
+    /// to an empty result instead of an error anyone sees.
+    /// Updated via `set_embed_url` when the user switches inference backends.
+    embed_url: Arc<RwLock<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +114,9 @@ impl VectorIndexer {
                 progress_percent: 0.0,
             })),
             ann,
+            embed_url: Arc::new(RwLock::new(
+                crate::embeddings::default_embed_base_url(),
+            )),
         })
     }
 
@@ -118,6 +128,20 @@ impl VectorIndexer {
         let fb = fallback_dir.join(".kortex").join("vector_index.db");
         Self::ensure_db_parent(&fb)?;
         Ok(fb)
+    }
+
+    /// Update the embedding endpoint URL (e.g. when switching to Lemonade).
+    pub fn set_embed_url(&self, url: String) {
+        if let Ok(mut u) = self.embed_url.write() {
+            *u = url;
+        }
+    }
+
+    fn current_embed_url(&self) -> String {
+        self.embed_url
+            .read()
+            .map(|u| u.clone())
+            .unwrap_or_else(|_| crate::embeddings::default_embed_base_url())
     }
 
     fn ensure_db_parent(db_path: &Path) -> anyhow::Result<()> {
@@ -265,9 +289,10 @@ impl VectorIndexer {
         let indexing_progress = self.indexing_progress.clone();
         let is_indexing = self.is_indexing.clone();
         let ann = self.ann.clone();
+        let embed_url = self.current_embed_url();
 
         tokio::spawn(async move {
-            let result = Self::run_indexing_internal(&root, &conn, &file_hashes, &indexing_progress, &ann).await;
+            let result = Self::run_indexing_internal(&root, &conn, &file_hashes, &indexing_progress, &ann, &embed_url).await;
 
             // Mark indexing as complete
             if let Ok(mut indexing) = is_indexing.write() {
@@ -288,11 +313,16 @@ impl VectorIndexer {
         file_hashes: &Arc<RwLock<HashMap<PathBuf, String>>>,
         indexing_progress: &Arc<RwLock<IndexingProgress>>,
         ann: &Arc<std::sync::Mutex<crate::ann_index::AnnIndex>>,
+        embed_url: &str,
     ) -> anyhow::Result<()> {
         println!("[VECTOR_INDEX] Starting codebase indexing for: {:?}", root);
 
-        // Collect all indexable files
-        let extensions = &["rs", "ts", "tsx", "js", "jsx", "py", "go", "c", "cpp", "h", "hpp", "java", "cs", "rb"];
+        // Collect all indexable files.
+        // Markdown/text are included so the semantic (embedding) path can retrieve
+        // the knowledge corpus — docs, knowledge briefs, and `.agent/` skills — not
+        // just code. This is what lets a small local model punch above its weight on
+        // this project's domain: retrieval over meaning, not just keyword gists.
+        let extensions = &["rs", "ts", "tsx", "js", "jsx", "py", "go", "c", "cpp", "h", "hpp", "java", "cs", "rb", "md", "mdx", "markdown", "txt"];
         let ignore_set = crate::cursor_compat::CursorIgnoreSet::load(
             root,
             crate::cursor_compat::IgnoreScope::Indexing,
@@ -300,6 +330,28 @@ impl VectorIndexer {
 
         let files: Vec<PathBuf> = WalkDir::new(root.as_path())
             .into_iter()
+            .filter_entry(|e| {
+                if e.file_type().is_dir() {
+                    let name = e.file_name().to_string_lossy();
+                    if name == "node_modules" || name == ".git" || name == ".aim" || name == ".kortex" || name == "target" || name == "dist" || name == ".cache" || name == "build" {
+                        return false;
+                    }
+                    // Vendored/generated bulk. Previously masked by the code-only
+                    // extension filter; now that markdown is indexed we must prune
+                    // these explicitly or we'd embed thousands of vendored docs.
+                    // NOTE: `.agent/` is intentionally NOT pruned here — its skills
+                    // are exactly the domain knowledge we want semantically retrievable.
+                    if matches!(name.as_ref(),
+                        "airi" | "llama.cpp" | "vendor" | ".venv" | "venv"
+                        | "__pycache__" | ".next" | "out" | ".turbo" | ".cache") {
+                        return false;
+                    }
+                    if ignore_set.is_ignored(e.path()) {
+                        return false;
+                    }
+                }
+                true
+            })
             .filter_map(|e| e.ok())
             .filter(|e| {
                 e.file_type().is_file() &&
@@ -366,34 +418,63 @@ impl VectorIndexer {
                 .and_then(|e| e.to_str())
                 .unwrap_or("");
 
-            let chunks = Self::chunk_code(&content, extension, &relative_path);
+            let mut chunks = Self::chunk_code(&content, extension, &relative_path);
 
-            // Store chunks (with optional Ollama embeddings)
-            let conn_lock = conn.lock().await;
-            for mut chunk in chunks {
+            // Compute embeddings OUTSIDE the SQLite connection lock
+            for chunk in &mut chunks {
                 let embed_text: String = chunk.content.chars().take(1500).collect();
-                if let Ok(emb) = crate::embeddings::embed_text_async(&embed_text, None).await {
-                    chunk.embedding = Some(emb);
+                match crate::embeddings::embed_text_at(&embed_text, None, embed_url).await {
+                    Ok(emb) => chunk.embedding = Some(emb),
+                    Err(e) => {
+                        // Never swallow this again. Discarding the error here is
+                        // how the index ended up with 0 of 33,205 chunks
+                        // embedded: the backend was unreachable, every call
+                        // failed, NULL was stored, and `@codebase` quietly
+                        // degraded to text matching for months with no symptom.
+                        //
+                        // Warned once per indexing run — a per-chunk log would
+                        // print tens of thousands of identical lines.
+                        static WARNED: std::sync::atomic::AtomicBool =
+                            std::sync::atomic::AtomicBool::new(false);
+                        if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                            eprintln!(
+                                "[index] EMBEDDINGS UNAVAILABLE at {embed_url}: {e}\n\
+                                 [index] Indexing will continue but semantic search WILL NOT WORK \
+                                 (chunks are stored without vectors).\n\
+                                 [index] Fix: start Lemonade and run `lemonade pull {}`.",
+                                crate::embeddings::default_embed_model()
+                            );
+                        }
+                    }
                 }
-                Self::store_chunk(&conn_lock, &chunk)?;
-                chunks_created += 1;
             }
 
-            // Extract and store symbols
+            // Extract symbols OUTSIDE the SQLite lock
             let symbols = Self::extract_symbols(&content, extension, &relative_path);
-            for symbol in &symbols {
-                Self::store_symbol(&conn_lock, symbol)?;
-                symbols_extracted += 1;
+
+            // Store chunks and symbols (Brief Lock Scope)
+            {
+                let conn_lock = conn.lock().await;
+                for chunk in &chunks {
+                    Self::store_chunk(&conn_lock, chunk)?;
+                    chunks_created += 1;
+                }
+
+                // Store symbols
+                for symbol in &symbols {
+                    Self::store_symbol(&conn_lock, symbol)?;
+                    symbols_extracted += 1;
+                }
+
+                // Store file metadata
+                let file_size = file_path.metadata().map(|m| m.len()).unwrap_or(0);
+                let file_modified = file_path.metadata()
+                    .and_then(|m| m.modified())
+                    .map(|t| t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0))
+                    .unwrap_or(0);
+
+                Self::store_file_metadata(&conn_lock, &relative_path, &current_hash, file_modified, extension, file_size)?;
             }
-
-            // Store file metadata
-            let file_size = file_path.metadata().map(|m| m.len()).unwrap_or(0);
-            let file_modified = file_path.metadata()
-                .and_then(|m| m.modified())
-                .map(|t| t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0))
-                .unwrap_or(0);
-
-            Self::store_file_metadata(&conn_lock, &relative_path, &current_hash, file_modified, extension, file_size)?;
 
             // Update progress with chunks
             {
@@ -406,6 +487,18 @@ impl VectorIndexer {
         {
             let conn_lock = conn.lock().await;
             Self::update_index_metadata(&conn_lock, "last_indexed", &chrono::Utc::now().timestamp().to_string())?;
+            // Record which model produced these vectors. Embedding dimensions
+            // differ between models (nomic-embed-text is 768, Qwen3-Embedding is
+            // 1024) and `cosine_similarity` returns 0.0 on a length mismatch —
+            // so an index built by a different model does not error, it just
+            // ranks everything as unrelated. Storing this lets a reader detect
+            // the mismatch instead of concluding the codebase has no matches.
+            Self::update_index_metadata(&conn_lock, "embed_model", crate::embeddings::default_embed_model())?;
+            Self::update_index_metadata(
+                &conn_lock,
+                "embed_dims",
+                &crate::embeddings::DEFAULT_EMBED_DIMS.to_string(),
+            )?;
         }
 
         println!("[VECTOR_INDEX] Indexing complete: {} files, {} chunks, {} symbols", 
@@ -735,7 +828,7 @@ impl VectorIndexer {
     // ── Search Operations ─────────────────────────────────────────────────
 
     pub async fn search_codebase(&self, query: &str, limit: usize) -> anyhow::Result<Vec<SearchResult>> {
-        let query_embedding = crate::embeddings::embed_text_async(query, None).await.ok();
+        let query_embedding = crate::embeddings::embed_text_at(query, None, &self.current_embed_url()).await.ok();
 
         // ANN fast path — hydrate top-k from SQLite by chunk id
         if let Some(ref qe) = query_embedding {

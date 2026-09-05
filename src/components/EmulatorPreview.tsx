@@ -187,7 +187,7 @@ export const EmulatorPreview: React.FC<EmulatorPreviewProps> = ({
             onClick={toggleStream}
             style={styles.button}
           >
-            {isPaused ? '▶ Resume' : '⏸ Pause'}
+            {isPaused ? 'Resume' : 'Pause'}
           </button>
         </div>
       )}

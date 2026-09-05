@@ -1,5 +1,4 @@
 use tauri::State;
-use crate::EditorState;
 use crate::domain::{Settings};
 use crate::context_key::{ContextValue};
 use serde_json::{json, Value};
@@ -9,7 +8,7 @@ use tree_sitter::Parser;
 use tree_sitter_rust::LANGUAGE;
 
 #[tauri::command]
-pub async fn get_settings(state: State<'_, EditorState>) -> Result<Settings, String> {
+pub async fn get_settings(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Settings, String> {
     let settings_path = state.config_dir.join("settings.json");
     if settings_path.exists() {
         if let Ok(raw) = fs::read_to_string(&settings_path) {
@@ -25,7 +24,7 @@ pub async fn get_settings(state: State<'_, EditorState>) -> Result<Settings, Str
 }
 
 #[tauri::command]
-pub async fn update_settings(state: State<'_, EditorState>, settings: Settings) -> Result<(), String> {
+pub async fn update_settings(state: State<'_, std::sync::Arc<crate::EditorState>>, settings: Settings) -> Result<(), String> {
     let settings_path = state.config_dir.join("settings.json");
     let content = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     fs::write(settings_path, content).map_err(|e| e.to_string())?;
@@ -33,13 +32,13 @@ pub async fn update_settings(state: State<'_, EditorState>, settings: Settings) 
 }
 
 #[tauri::command]
-pub async fn switch_to_buffer(_state: State<'_, EditorState>, _path: String) -> Result<(), String> {
+pub async fn switch_to_buffer(_state: State<'_, std::sync::Arc<crate::EditorState>>, _path: String) -> Result<(), String> {
     // Logic for switching active editor buffer
     Ok(())
 }
 
 #[tauri::command]
-pub async fn get_highlights(_state: State<'_, EditorState>, code: String) -> Result<Value, String> {
+pub async fn get_highlights(_state: State<'_, std::sync::Arc<crate::EditorState>>, code: String) -> Result<Value, String> {
     let mut parser = Parser::new();
     parser.set_language(&LANGUAGE.into()).map_err(|e| e.to_string())?;
     let _tree = parser.parse(&code, None).ok_or("Failed to parse code")?;
@@ -49,18 +48,18 @@ pub async fn get_highlights(_state: State<'_, EditorState>, code: String) -> Res
 }
 
 #[tauri::command]
-pub fn set_context_key(state: State<'_, EditorState>, key: String, value: ContextValue) {
+pub fn set_context_key(state: State<'_, std::sync::Arc<crate::EditorState>>, key: String, value: ContextValue) {
     state.ext.context_keys.set(key, value);
 }
 
 #[tauri::command]
-pub fn evaluate_when_clause(state: State<'_, EditorState>, clause: String) -> bool {
+pub fn evaluate_when_clause(state: State<'_, std::sync::Arc<crate::EditorState>>, clause: String) -> bool {
     state.ext.context_keys.evaluate(&clause)
 }
 
 #[tauri::command]
 pub async fn set_active_root(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     path: Option<String>,
 ) -> Result<Option<String>, String> {
     let mut root = state.editor.active_root.lock().await;
@@ -103,7 +102,7 @@ pub async fn set_active_root(
 }
 
 #[tauri::command]
-pub async fn get_active_root(state: State<'_, EditorState>) -> Result<Option<String>, String> {
+pub async fn get_active_root(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Option<String>, String> {
     let root = state.editor.active_root.lock().await;
     Ok(root.as_ref().map(|p| p.to_string_lossy().to_string()))
 }
@@ -118,7 +117,7 @@ pub fn path_exists(path: String) -> bool {
 }
 
 #[tauri::command]
-pub async fn resolve_keybinding(state: State<'_, EditorState>, key: String) -> Result<Option<String>, String> {
+pub async fn resolve_keybinding(state: State<'_, std::sync::Arc<crate::EditorState>>, key: String) -> Result<Option<String>, String> {
     let kb = state.ext.keybindings.lock().await;
     Ok(kb.resolve_key(&key, &state.ext.context_keys))
 }
@@ -126,7 +125,7 @@ pub async fn resolve_keybinding(state: State<'_, EditorState>, key: String) -> R
 /// Snapshot every registered keybinding. Powers the Keybindings panel in
 /// the settings UI; sorting / filtering happens client-side.
 #[tauri::command]
-pub async fn list_keybindings(state: State<'_, EditorState>) -> Result<Vec<crate::keybindings::Keybinding>, String> {
+pub async fn list_keybindings(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Vec<crate::keybindings::Keybinding>, String> {
     let kb = state.ext.keybindings.lock().await;
     Ok(kb.list())
 }
@@ -136,7 +135,7 @@ pub async fn list_keybindings(state: State<'_, EditorState>) -> Result<Vec<crate
 /// VS Code grammar.
 #[tauri::command]
 pub async fn update_keybinding(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     key: String,
     command: String,
     when: Option<String>,
@@ -151,7 +150,7 @@ pub async fn update_keybinding(
 /// update_settings serializes the typed Settings struct and would wipe
 /// unknown keys if they shared a file.
 #[tauri::command]
-pub async fn ui_settings_get_all(state: State<'_, EditorState>) -> Result<serde_json::Value, String> {
+pub async fn ui_settings_get_all(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<serde_json::Value, String> {
     let path = state.config_dir.join("ui_settings.json");
     if path.exists() {
         let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
@@ -162,7 +161,7 @@ pub async fn ui_settings_get_all(state: State<'_, EditorState>) -> Result<serde_
 
 #[tauri::command]
 pub async fn ui_settings_set(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     key: String,
     value: serde_json::Value,
 ) -> Result<(), String> {

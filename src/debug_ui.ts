@@ -29,13 +29,16 @@ export function initDebugUI() {
         };
     }
 
-    // Hook F5 basic handling
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'F5') {
-            e.preventDefault();
-            sendDap({ command: 'continue' });
-        }
-    });
+    // Hook F5 basic handling — with guard to prevent stacking
+    if (!(window as any).__debugF5Handler) {
+        (window as any).__debugF5Handler = (e: KeyboardEvent) => {
+            if (e.key === 'F5') {
+                e.preventDefault();
+                sendDap({ command: 'continue' });
+            }
+        };
+        document.addEventListener('keydown', (window as any).__debugF5Handler);
+    }
 
     // Listen for DAP messages (for now just log)
     listen('dap-message', (event) => {

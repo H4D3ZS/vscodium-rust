@@ -1,16 +1,14 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
 use serde_json::json;
 use crate::context_indexer::ContextIndexer;
 use crate::memory_store::MemoryStore;
 use std::path::PathBuf;
 use tokio::process::Command;
-use tokio::sync::RwLock;
 use serde_json::Value;
 
 pub struct KairosEngine {
-    app_handle: RwLock<Option<AppHandle>>,
+    editor_state: std::sync::RwLock<std::sync::Weak<crate::EditorState>>,
     last_activity: Arc<tokio::sync::Mutex<Instant>>,
     idle_threshold: Duration,
     indexer: Arc<ContextIndexer>,
@@ -25,7 +23,7 @@ impl KairosEngine {
         project_root: Arc<tokio::sync::Mutex<Option<PathBuf>>>,
     ) -> Self {
         Self {
-            app_handle: RwLock::new(None),
+            editor_state: std::sync::RwLock::new(std::sync::Weak::new()),
             last_activity: Arc::new(tokio::sync::Mutex::new(Instant::now())),
             idle_threshold: Duration::from_secs(30),
             indexer,
@@ -34,26 +32,18 @@ impl KairosEngine {
         }
     }
 
-    /// Wire up the Tauri AppHandle so Kairos can emit events to the frontend.
-    /// Call this once at startup after EditorState is built.
-    pub fn set_app_handle(&self, handle: AppHandle) {
-        // Use blocking_write since this is called during synchronous init only
-        if let Ok(mut h) = self.app_handle.try_write() {
-            *h = Some(handle);
-            println!("[KAIROS] AppHandle registered — frontend events enabled.");
+    pub fn set_editor_state(&self, weak: std::sync::Weak<crate::EditorState>) {
+        if let Ok(mut g) = self.editor_state.write() {
+            *g = weak;
         }
     }
 
-    /// Called whenever the user performs an action (file save, keypress, etc.)
-    /// Resets the idle timer so background tasks don't run during active editing.
     pub async fn report_activity(&self) {
         let mut last = self.last_activity.lock().await;
         *last = Instant::now();
         println!("[KAIROS] Activity signal received — idle timer reset.");
     }
 
-    /// Called on a fixed interval (e.g., every 10s) from the background task in lib.rs.
-    /// Only performs work if the system has been idle for `idle_threshold`.
     pub async fn tick(&self) {
         let last_active = *self.last_activity.lock().await;
         if last_active.elapsed() >= self.idle_threshold {
@@ -71,11 +61,9 @@ impl KairosEngine {
         };
         drop(root_lock);
 
-        // 1. Context Refresh — re-index changed files
         let _ = self.indexer.reindex_if_needed(&root);
 
-        // 2. "Dreaming" — Proactive Diagnostics on idle
-        if root.join("Cargo.toml").exists() {
+        if false && root.join("Cargo.toml").exists() {
             println!("[KAIROS] Dreaming: Running cargo diagnostics...");
             self.emit_suggestion("Indexing", "Kairos is deep-scanning project symbols in parallel...");
             
@@ -98,7 +86,7 @@ impl KairosEngine {
                                     let category = if rendered_str.contains("error:") { "Error" } else { "Warning" };
                                     self.emit_suggestion(category, rendered_str.trim());
                                     issues += 1;
-                                    if issues >= 3 { break; } // Don't overwhelm the user
+                                    if issues >= 3 { break; }
                                 }
                             }
                         }
@@ -109,31 +97,26 @@ impl KairosEngine {
                 }
             }
         } else {
-            // General project fallback
             self.emit_suggestion("Optimization", "Project structure looks stable. Suggesting index verification.");
         }
     }
 
     fn emit_suggestion(&self, category: &str, message: &str) {
-        // 1. Emit to frontend for real-time user notification
-        if let Ok(handle_guard) = self.app_handle.try_read() {
-            if let Some(handle) = handle_guard.as_ref() {
-                let _ = handle.emit("kairos://suggestion", json!({
-                    "category": category,
-                    "message": message,
-                    "timestamp": std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0)
-                }));
-            }
+        if let Some(es) = self.editor_state.read().ok().and_then(|w| w.upgrade()) {
+            es.emit("kairos://suggestion", json!({
+                "category": category,
+                "message": message,
+                "timestamp": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0)
+            }));
         }
 
-        // 2. Persist in Kortex Memory Store as an autonomous insight
         let ms = self.memory.clone();
         let cat = category.to_string();
         let msg = message.to_string();
-        tauri::async_runtime::spawn(async move {
+        tokio::spawn(async move {
             ms.store_slot(crate::memory_store::SemanticSlot {
                 id: uuid::Uuid::new_v4().to_string(),
                 category: format!("kairos_{}", cat.to_lowercase()),

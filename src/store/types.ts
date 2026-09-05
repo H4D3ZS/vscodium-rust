@@ -8,8 +8,12 @@ export interface EditorTab {
     content: string;
     isModified: boolean;
     language: string;
-    type?: 'file' | 'settings' | 'mcp-store' | 'aim' | 'canvas';
+    type?: 'file' | 'settings' | 'mcp-store' | 'aim' | 'canvas' | 'mermaid';
     diagnostics?: any[];
+    isLargePaged?: boolean;
+    fileSize?: number;
+    totalLines?: number;
+    loadedRange?: { start: number; end: number };
 }
 
 export interface AgentStep {

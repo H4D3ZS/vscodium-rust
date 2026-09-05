@@ -8,8 +8,13 @@ import { spawnTerminalGroup } from './spawnTerminal';
  * VSCode/Warp/cmder-inspired keybindings for the integrated terminal.
  * Pure shell UX — no AI shortcuts here.
  */
+let _terminalKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+
 export function registerTerminalKeybindings(manager: TerminalManager): void {
-    window.addEventListener('keydown', (e: KeyboardEvent) => {
+    // Prevent duplicate registration
+    if (_terminalKeyHandler) return;
+
+    _terminalKeyHandler = (e: KeyboardEvent) => {
         const inTerminal = document.activeElement?.closest(
             '.terminal-view-host, .terminal-instance-wrapper, .terminal-container, .xterm',
         );
@@ -123,5 +128,14 @@ export function registerTerminalKeybindings(manager: TerminalManager): void {
             instance.term.scrollPages(1);
             return;
         }
-    });
+    };
+
+    window.addEventListener('keydown', _terminalKeyHandler);
+}
+
+export function unregisterTerminalKeybindings(): void {
+    if (_terminalKeyHandler) {
+        window.removeEventListener('keydown', _terminalKeyHandler);
+        _terminalKeyHandler = null;
+    }
 }

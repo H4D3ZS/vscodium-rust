@@ -12,6 +12,7 @@ pub mod alerts;
 pub mod campaign;
 pub mod crawler;
 pub mod engine;
+pub mod error_based;
 pub mod fingerprint;
 pub mod injection_host;
 pub mod js_runtime;

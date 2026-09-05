@@ -1,5 +1,4 @@
 use tauri::State;
-use crate::EditorState;
 use crate::visual_lab;
 use crate::memory_store::SemanticSlot;
 use serde_json::Value;
@@ -22,7 +21,7 @@ pub async fn get_visual_graph(data: Value, format: String) -> Result<visual_lab:
 
 #[tauri::command]
 pub async fn get_neural_omni_graph(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<visual_lab::VisualGraph, String> {
     state.ai.engine.memory_store.generate_knowledge_graph().await
         .map_err(|e: anyhow::Error| e.to_string())
@@ -31,7 +30,7 @@ pub async fn get_neural_omni_graph(
 
 #[tauri::command]
 pub async fn get_all_memory_slots(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Vec<SemanticSlot>, String> {
     Ok(state.ai.engine.memory_store.get_all_slots().await)
 
@@ -39,7 +38,7 @@ pub async fn get_all_memory_slots(
 
 #[tauri::command]
 pub async fn generate_visual_graph(
-    _state: State<'_, EditorState>,
+    _state: State<'_, std::sync::Arc<crate::EditorState>>,
     data: Value,
     format: String,
 ) -> Result<visual_lab::VisualGraph, String> {

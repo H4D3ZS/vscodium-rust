@@ -8,6 +8,8 @@ pub mod editor;
 pub mod extensions;
 pub mod indexing;
 pub mod memory;
+pub mod mobile;
+pub mod safe_io;
 pub mod security;
 pub mod services;
 pub mod types;

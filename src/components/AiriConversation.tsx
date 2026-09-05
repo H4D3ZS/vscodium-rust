@@ -23,7 +23,6 @@ const AiriConversation: React.FC = () => {
 
   // Initialize Digital Life
   useEffect(() => {
-    console.log('[Conversation] 💬 Initializing AIRI Conversation...');
     
     // Load conversation history
     const saved = localStorage.getItem('airi_conversations');
@@ -177,7 +176,7 @@ const AiriConversation: React.FC = () => {
           }}
           title={showChat ? 'Hide chat' : 'Show chat'}
         >
-          {showChat ? '💬 Visible' : '🔇 Voice Only'}
+          {showChat ? 'Visible' : '🔇 Voice Only'}
         </button>
       </div>
 
@@ -278,7 +277,7 @@ const AiriConversation: React.FC = () => {
             }}
             title={isListening ? 'Stop listening' : 'Start voice input'}
           >
-            {isListening ? '🔴' : '🎤'}
+            {isListening ? '' : '🎤'}
           </button>
         </div>
       )}
@@ -292,7 +291,7 @@ const AiriConversation: React.FC = () => {
         display: 'flex',
         justifyContent: 'space-between',
       }}>
-        <span>🟢 AIRI is {isListening ? 'listening...' : 'present'}</span>
+        <span>AIRI is {isListening ? 'listening...' : 'present'}</span>
         <span>{messages.length} conversations</span>
       </div>
 

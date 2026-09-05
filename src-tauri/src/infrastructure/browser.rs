@@ -165,7 +165,7 @@ async fn start_sidecar() -> Result<BrowserProc, String> {
     let stdin = child.stdin.take().ok_or("sidecar: no stdin")?;
     let stdout = child.stdout.take().ok_or("sidecar: no stdout")?;
     if let Some(stderr) = child.stderr.take() {
-        tauri::async_runtime::spawn(async move {
+        tokio::spawn(async move {
             let mut reader = BufReader::new(stderr);
             let mut line = String::new();
             while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
@@ -234,7 +234,7 @@ impl BrowserState {
         }
     }
 
-    async fn stop_sidecar(&self) {
+    pub async fn stop_sidecar(&self) {
         let mut guard = self.proc.lock().await;
         if let Some(mut p) = guard.take() {
             let _ = send_cmd(&mut p, "close", json!({}), 10).await;
@@ -352,17 +352,6 @@ fn strip_html(html: &str) -> String {
     clean.trim().to_string()
 }
 
-#[allow(dead_code)]
-fn extract_title(html: &str) -> Option<String> {
-    let title_start = html.to_lowercase().find("<title>")?;
-    let title_end = html.to_lowercase().find("</title>")?;
-    if title_end > title_start {
-        Some(html[title_start + 7..title_end].trim().to_string())
-    } else {
-        None
-    }
-}
-
 fn get_dom_summary(html: &str) -> String {
     let mut summary = Vec::new();
     
@@ -475,6 +464,7 @@ fn missing_security_headers(headers: &Value) -> Vec<String> {
         .collect()
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_open(
@@ -485,7 +475,7 @@ pub async fn browser_open(
     let browser = app.state::<std::sync::Arc<BrowserState>>().inner().clone();
     let mode_headless = headless.unwrap_or(*browser.headless.lock().await);
     *browser.headless.lock().await = mode_headless;
-    tauri::async_runtime::spawn(async move {
+    tokio::spawn(async move {
         if let Err(e) = browser.ensure_started_with(mode_headless).await {
             eprintln!("[browser] open failed: {e}");
             eprintln!("[browser] Dev: pip install playwright invisible_playwright  |  Release: browser-agent.exe in binaries/");
@@ -499,6 +489,7 @@ pub async fn browser_open(
     Ok(format!("Browser launching ({mode})… first run may download Firefox."))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_set_headless(
@@ -514,6 +505,7 @@ pub async fn browser_set_headless(
     })
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_navigate(state: tauri::State<'_, std::sync::Arc<BrowserState>>, url: String) -> Result<String, String> {
@@ -526,6 +518,7 @@ pub async fn browser_navigate(state: tauri::State<'_, std::sync::Arc<BrowserStat
     Ok(format!("Navigated to {url} (HTTP {status}). Missing security headers: {missing_str}"))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_screenshot(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<String, String> {
@@ -533,6 +526,7 @@ pub async fn browser_screenshot(state: tauri::State<'_, std::sync::Arc<BrowserSt
     Ok(r.get("screenshot").and_then(|v| v.as_str()).unwrap_or("").to_string())
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_click(state: tauri::State<'_, std::sync::Arc<BrowserState>>, selector: String) -> Result<String, String> {
@@ -541,6 +535,7 @@ pub async fn browser_click(state: tauri::State<'_, std::sync::Arc<BrowserState>>
     Ok(format!("Clicked {}", selector))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_type(state: tauri::State<'_, std::sync::Arc<BrowserState>>, selector: String, text: String) -> Result<String, String> {
@@ -548,6 +543,7 @@ pub async fn browser_type(state: tauri::State<'_, std::sync::Arc<BrowserState>>,
     Ok(format!("Typed into {}", selector))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_read_dom(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<String, String> {
@@ -555,6 +551,7 @@ pub async fn browser_read_dom(state: tauri::State<'_, std::sync::Arc<BrowserStat
     Ok(r.get("html").and_then(|v| v.as_str()).unwrap_or("").to_string())
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_capture_vision_context(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<Value, String> {
@@ -574,14 +571,22 @@ pub async fn capture_vision_context_internal(state: &BrowserState) -> Result<Val
     }))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub async fn browser_get_content_summary(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<Value, String> {
-    let content = state.cmd("content", json!({}), 30).await?;
+    browser_content_summary_for(&state).await
+}
+
+/// Tauri-free variant: callable by the engine via its `Arc<BrowserState>`
+/// (no `tauri::State`), so the native shell can use it too.
+pub async fn browser_content_summary_for(bs: &std::sync::Arc<BrowserState>) -> Result<Value, String> {
+    let content = bs.cmd("content", json!({}), 30).await?;
     let html = content.get("html").and_then(|v| v.as_str()).unwrap_or("");
     let text = content.get("text").and_then(|v| v.as_str()).unwrap_or("");
     Ok(get_content_summary_internal(html, text))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub async fn browser_status(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<Value, String> {
     let running = state.proc.lock().await.is_some();
@@ -593,6 +598,7 @@ pub async fn browser_status(state: tauri::State<'_, std::sync::Arc<BrowserState>
     }))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_close(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<String, String> {

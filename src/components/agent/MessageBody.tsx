@@ -3,6 +3,50 @@ import { marked } from 'marked';
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
 import { isToolCallJson, isToolResultJson, looksLikeToolCallText, summarizeToolCallText } from '../../domain/agent/cleanAgentContent';
+import { sanitizeHtml } from '../../lib/markdown';
+
+let markedConfigured = false;
+function ensureMarkedConfig() {
+    if (markedConfigured) return;
+    marked.setOptions({ gfm: true, breaks: true });
+    markedConfigured = true;
+}
+
+const TREE_LINE_RE = /^\s*[│├└─║╔╗╚╝╠╣╦╩╬══├└│─┬┤┘┌└╔╗╚╝├┤│╔═╗║╚╝╠╣╦╩╬═║╠╣╦╩╬]\s*/;
+function isTreeBlock(text: string): boolean {
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length < 2) return false;
+    let treeCount = 0;
+    for (const line of lines) {
+        if (TREE_LINE_RE.test(line) || /[├└│─╦╩╠╣╔╗╚╝]/.test(line)) treeCount++;
+    }
+    return treeCount >= Math.ceil(lines.length * 0.4);
+}
+
+function preProcessTreeBlocks(input: string): string {
+    const lines = input.split('\n');
+    const result: string[] = [];
+    let i = 0;
+    while (i < lines.length) {
+        const line = lines[i];
+        if (/[├└│─╦╩╠╣╔╗╚╝]/.test(line) && line.trim()) {
+            const blockStart = i;
+            while (i < lines.length && (lines[i].trim() === '' || /[├└│─╦╩╠╣╔╗╚╝]/.test(lines[i]))) i++;
+            const block = lines.slice(blockStart, i).join('\n');
+            if (isTreeBlock(block)) {
+                result.push('```');
+                result.push(block);
+                result.push('```');
+            } else {
+                result.push(...lines.slice(blockStart, i));
+            }
+        } else {
+            result.push(line);
+            i++;
+        }
+    }
+    return result.join('\n');
+}
 
 // ── Custom Interactive Blocks ────────────────────────────────────────────────
 const ClarifyingQuestionBlock: React.FC<{ data: any }> = ({ data }) => {
@@ -167,20 +211,22 @@ type Segment =
 // HTML tokens which is overkill — the only structure we care about is the
 // fence boundary.
 function splitSegments(input: string): Segment[] {
+    ensureMarkedConfig();
+    const processed = preProcessTreeBlocks(input);
     const out: Segment[] = [];
     const fence = /```([^\n]*)\n?([\s\S]*?)```/g;
     let last = 0;
     let m: RegExpExecArray | null;
-    while ((m = fence.exec(input))) {
+    while ((m = fence.exec(processed))) {
         if (m.index > last) {
-            out.push({ kind: 'prose', text: input.slice(last, m.index) });
+            out.push({ kind: 'prose', text: processed.slice(last, m.index) });
         }
         const { lang, path } = parseFenceHeader(m[1] || '');
         out.push({ kind: 'code', lang, path, body: m[2] });
         last = m.index + m[0].length;
     }
-    if (last < input.length) {
-        out.push({ kind: 'prose', text: input.slice(last) });
+    if (last < processed.length) {
+        out.push({ kind: 'prose', text: processed.slice(last) });
     }
     return out;
 }
@@ -415,10 +461,16 @@ const MessageBody = React.memo(({ content, allowApply = true }: MessageBodyProps
                 if (seg.kind === 'prose') {
                     const trimmed = seg.text.replace(/^\s+|\s+$/g, '');
                     if (!trimmed) return null;
+                    let html: string;
+                    try {
+                        html = sanitizeHtml(marked.parse(trimmed, { async: false }) as string);
+                    } catch {
+                        html = trimmed.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>');
+                    }
                     return (
                         <div
                             key={i}
-                            dangerouslySetInnerHTML={{ __html: marked.parse(trimmed) as string }}
+                            dangerouslySetInnerHTML={{ __html: html }}
                         />
                     );
                 }

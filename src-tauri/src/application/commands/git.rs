@@ -1,5 +1,4 @@
 use tauri::State;
-use crate::EditorState;
 use crate::git::{self, GitManager};
 use std::process::Command;
 use crate::process_ext::CommandExtHidden;
@@ -147,28 +146,28 @@ pub async fn git_diff_file(path: String, file_path: String) -> Result<String, St
 }
 
 #[tauri::command]
-pub async fn git_revert(state: State<'_, EditorState>, hash: String) -> Result<(), String> {
+pub async fn git_revert(state: State<'_, std::sync::Arc<crate::EditorState>>, hash: String) -> Result<(), String> {
     let root_lock = state.editor.active_root.lock().await;
     let root = root_lock.clone().ok_or("No active project")?;
     GitManager::new().revert_commit(root, &hash)
 }
 
 #[tauri::command]
-pub async fn git_stash(state: State<'_, EditorState>) -> Result<(), String> {
+pub async fn git_stash(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<(), String> {
     let root_lock = state.editor.active_root.lock().await;
     let root = root_lock.clone().ok_or("No active project")?;
     GitManager::new().stash_changes(root)
 }
 
 #[tauri::command]
-pub async fn git_stash_pop(state: State<'_, EditorState>) -> Result<(), String> {
+pub async fn git_stash_pop(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<(), String> {
     let root_lock = state.editor.active_root.lock().await;
     let root = root_lock.clone().ok_or("No active project")?;
     GitManager::new().pop_stash(root)
 }
 
 #[tauri::command]
-pub async fn git_get_unmerged(state: State<'_, EditorState>) -> Result<Vec<String>, String> {
+pub async fn git_get_unmerged(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Vec<String>, String> {
     let root_lock = state.editor.active_root.lock().await;
     let root = root_lock.clone().ok_or("No active project")?;
     GitManager::new().get_unmerged_files(root)
@@ -195,7 +194,7 @@ pub async fn git_fetch(path: String) -> Result<String, String> {
 }
 #[tauri::command]
 pub async fn git_create_checkpoint(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     description: String,
     is_ai: Option<bool>,
 ) -> Result<Value, String> {
@@ -213,7 +212,7 @@ pub async fn git_create_checkpoint(
 
 #[tauri::command]
 pub async fn git_list_checkpoints(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     limit: Option<usize>,
 ) -> Result<Value, String> {
     let checkpoints = state.services.git_checkpoints
@@ -225,7 +224,7 @@ pub async fn git_list_checkpoints(
 
 #[tauri::command]
 pub async fn git_rollback_checkpoint(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     checkpoint_id: String,
 ) -> Result<String, String> {
     state.services.git_checkpoints
@@ -235,7 +234,7 @@ pub async fn git_rollback_checkpoint(
 
 #[tauri::command]
 pub async fn git_get_checkpoint_diff(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     checkpoint_id: String,
 ) -> Result<Value, String> {
     let diff = state.services.git_checkpoints
@@ -247,7 +246,7 @@ pub async fn git_get_checkpoint_diff(
 
 #[tauri::command]
 pub async fn git_delete_checkpoint(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     checkpoint_id: String,
 ) -> Result<(), String> {
     state.services.git_checkpoints
@@ -257,7 +256,7 @@ pub async fn git_delete_checkpoint(
 
 #[tauri::command]
 pub async fn git_auto_checkpoint(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     description: String,
 ) -> Result<Value, String> {
     let result = state.services.git_checkpoints

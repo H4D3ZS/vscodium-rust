@@ -11,10 +11,10 @@ export function applyOfflineCyberDefaults(): void {
     if (typeof localStorage === 'undefined') return;
     if (localStorage.getItem(MIGRATION_KEY)) return;
 
-    const cloudOnboarded = localStorage.getItem('COMMUNITYAI.cloudOnboarded') === '1';
+    const cloudOnboarded = localStorage.getItem('cyberifrit.cloudOnboarded') === '1';
     if (!cloudOnboarded && localStorage.getItem('ollamaServerMode') !== 'cloud') {
         localStorage.setItem('ollamaServerMode', 'local');
-        localStorage.setItem('inferenceBackend', 'ollama');
+        localStorage.setItem('inferenceBackend', 'lemonade');
     }
 
     localStorage.setItem('kortex.gacEnabled', '1');
@@ -66,7 +66,7 @@ async function resolveKvCacheBaseDir(): Promise<string> {
 }
 
 async function probeAimProxy(): Promise<void> {
-    const proxyUrl = 'http://127.0.0.1:1536/api/tags';
+    const proxyUrl = 'http://127.0.0.1:1536/api/v1/models';
     try {
         const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(2500) });
         if (res.ok) {
@@ -76,10 +76,10 @@ async function probeAimProxy(): Promise<void> {
     } catch { /* proxy down */ }
 
     try {
-        const direct = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(2500) });
+        const direct = await fetch('http://127.0.0.1:13305/api/v1/models', { signal: AbortSignal.timeout(2500) });
         if (direct.ok) {
             console.warn(
-                '[offline-cyber] Ollama direct (:11434) OK but AIM proxy (:1536) offline. '
+                '[offline-cyber] Ollama direct (:13305) OK but AIM proxy (:1536) offline. '
                 + 'Run `kortex/target/release/aim-proxy` for .aim context injection and KV prefix caching.',
             );
         }
@@ -163,11 +163,11 @@ export async function bootstrapOfflineCyberStack(opts?: { heavy?: boolean }): Pr
     }
 
     const currentModel = (store.agentModel || '').trim();
-    if (!currentModel && store.inferenceBackend === 'ollama' && store.ollamaServerMode === 'local') {
+    if (!currentModel && store.inferenceBackend === 'lemonade') {
         try {
             const best = await invoke<string>('detect_best_model');
             if (best) {
-                const tag = `Ollama|${best}`;
+                const tag = best;
                 store.setAgentModel?.(tag);
                 try { localStorage.setItem('agentModel', tag); } catch { /* */ }
             }
