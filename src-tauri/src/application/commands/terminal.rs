@@ -955,7 +955,7 @@ pub async fn spawn_claude_terminal(
     }
 
     // Global, load-time-only Lemonade settings. Returns expected tok/s (0.0 = unmeasured).
-    let expected_tps = super::ai::apply_lemonade_tuning(&lemonade_base, &model).await;
+    let _expected_tps = super::ai::apply_lemonade_tuning(&lemonade_base, &model).await;
 
     let (exe, args) = resolve_claude_launch(&workspace_root);
     let mut cmd = CommandBuilder::new(&exe);
