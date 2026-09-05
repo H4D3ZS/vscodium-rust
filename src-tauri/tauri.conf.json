@@ -59,18 +59,7 @@
     "resources": [
       "binaries/**/*",
       "ext-host/*",
-      "bundles/*",
-      "../third_party/free-claude-code/server.py",
-      "../third_party/free-claude-code/pyproject.toml",
-      "../third_party/free-claude-code/uv.lock",
-      "../third_party/free-claude-code/.env.example",
-      "../third_party/free-claude-code/api",
-      "../third_party/free-claude-code/cli",
-      "../third_party/free-claude-code/config",
-      "../third_party/free-claude-code/core",
-      "../third_party/free-claude-code/providers",
-      "../third_party/free-claude-code/messaging",
-      "ioscpy/device/**/*"
+      "bundles/*"
     ],
     "windows": {
       "certificateThumbprint": null,

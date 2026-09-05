@@ -1,0 +1,3 @@
+# Release binaries (LSP servers, sidecars) are fetched here by
+# scripts/fetch-lsp-binaries.ps1 / build-sidecar.ps1 before `tauri build`.
+# This keeper exists so the tauri.conf.json `binaries/**/*` resource glob resolves.
