@@ -298,12 +298,16 @@ Attached image(s) — use the Read tool to view:
     cmd.env("ANTHROPIC_AUTH_TOKEN", "lemonade");
     cmd.env("ANTHROPIC_API_KEY", "lemonade");
     // Recent Claude Code builds validate ANTHROPIC_MODEL against a known list and
-    // abort with `[claude-code:unrecognized_model]` on anything that isn't a real
-    // Claude id — a raw GGUF name like `Escha-…-ROCmFP2.gguf` never passes. The
-    // local server (llama-server, directly or via the Kortex proxy) ignores the
-    // model field and serves whatever it loaded, so we hand Claude Code a
-    // recognised alias and let the backend do the right thing.
-    const CC_MODEL_ALIAS: &str = "claude-sonnet-4-20250514";
+    // abort on anything that isn't a real Claude id (`[claude-code:unrecognized_model]`),
+    // and newer builds also *exit non-zero* on a deprecated alias. A raw GGUF name
+    // like `Escha-…-ROCmFP2.gguf` never passes either. The local server (llama-server,
+    // directly or via the Kortex proxy) ignores the model field and serves whatever
+    // it loaded, so we hand Claude Code a current, undated alias. Override with
+    // CLAUDE_CODE_LOCAL_MODEL_ALIAS if a future CLI drops this one from its list.
+    let cc_model_alias = std::env::var("CLAUDE_CODE_LOCAL_MODEL_ALIAS")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "claude-sonnet-4-5".to_string());
     for var in [
         "ANTHROPIC_MODEL",
         "ANTHROPIC_SMALL_FAST_MODEL",
@@ -311,7 +315,7 @@ Attached image(s) — use the Read tool to view:
         "ANTHROPIC_DEFAULT_SONNET_MODEL",
         "ANTHROPIC_DEFAULT_OPUS_MODEL",
     ] {
-        cmd.env(var, CC_MODEL_ALIAS);
+        cmd.env(var, &cc_model_alias);
     }
     let (ctx_size, _, _) = super::ai::lemonade_tuning(&model);
     // Small on purpose. llama.cpp requires `prompt + max_tokens <= n_ctx`, so a
@@ -467,10 +471,29 @@ Attached image(s) — use the Read tool to view:
     if !status.success() && out.ok {
         out.ok = false;
         let stderr_text = errbuf.lock().map(|b| b.clone()).unwrap_or_default();
+        // The real cause is at the END of stderr; the top is usually just the
+        // "connectors disabled" / deprecation warnings. Show the tail, and drop
+        // the pure-warning lines so a genuine error isn't buried.
+        let meaningful: Vec<&str> = stderr_text
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| {
+                !l.is_empty()
+                    && !l.contains("connectors are disabled")
+                    && !l.contains("is deprecated and will reach end-of-life")
+                    && !l.contains("Please migrate to a newer model")
+                    && !l.contains("model-deprecations")
+            })
+            .collect();
+        let tail = if meaningful.is_empty() {
+            stderr_text.trim().lines().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ")
+        } else {
+            meaningful[meaningful.len().saturating_sub(6)..].join(" | ")
+        };
         out.error = format!(
             "claude exited with {}: {}",
             status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".into()),
-            stderr_text.trim().chars().take(400).collect::<String>()
+            tail.chars().take(600).collect::<String>()
         );
     }
     Ok(out)
