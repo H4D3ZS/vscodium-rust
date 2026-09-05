@@ -88,7 +88,7 @@ Or set Tauri's `bundle.windows.certificateThumbprint` to sign during `tauri buil
 
 ## 5. Host + link on the website
 
-The IDE is **free to download** (works with local Ollama + your own API keys).
+The IDE is **free to download** (works with local Lemonade + your own API keys).
 Payment unlocks **Cyber-Ifrit Cloud** managed models (enforced in-app + at the AMD
 gateway). So the download link is public:
 
@@ -149,7 +149,7 @@ Both sidecars are built automatically by `npm run prebuild:sidecar` (runs before
 
 ## Optional services (user machine)
 
-- **Ollama** `:11434` — local models
+- **Lemonade** `:13305` — local models (real llama.cpp)
 - **aim-proxy** `:1536` — `.aim` context injection
 - Cloud keys in Settings → Providers
 

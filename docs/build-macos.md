@@ -34,7 +34,7 @@ npm run build && npx tauri build
 ## Mac specifics (vs Windows)
 - **Renderer:** macOS uses the built-in **WKWebView** — no WebView2 to install/bundle. The `webviewInstallMode` config is under `bundle.windows`, so it's ignored on Mac. (Same Chromium-vs-WebKit caveat: WKWebView is lighter than Windows' Chromium, so memory is generally lower on Mac.)
 - **Terminal:** `default_consumer_shell()` is `cfg(windows)`-gated for Git Bash; on macOS it uses `$SHELL` (zsh on modern macOS). No Git Bash bundling needed.
-- **Local AI on M1:** use **Ollama** (Metal-accelerated) or the cloud gate. `lemonade` is AMD/x86-oriented — don't expect it to run local models on Apple Silicon; point the model picker at Ollama or `ai.cyberifrit.xyz`.
+- **Local AI on M1:** Lemonade is AMD/x86-oriented and won't run local models well on Apple Silicon — on M1, point the model picker at a hosted model with your own API key, or run `llama.cpp` (Metal) directly and set it as an OpenAI-compatible endpoint.
 - **Code signing / Gatekeeper:** `tauri.conf.json` sets `macOS.signingIdentity: "Apple Development"`. For local testing that's fine; if Gatekeeper blocks the `.app`, right-click → Open, or `xattr -dr com.apple.quarantine <App>.app`. For distribution you need a real **Developer ID** cert + notarization.
 - **tree-sitter-typescript** is pinned to `=0.23.0` for a Windows/MSVC reason — it compiles fine on Mac; leave the pin.
 
