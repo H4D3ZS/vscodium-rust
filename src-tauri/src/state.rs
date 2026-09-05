@@ -239,9 +239,7 @@ pub struct EditorState {
     pub services: ServiceState,
     pub config_dir: PathBuf,
     #[cfg(feature = "tauri")]
-    pub webui_bridge: crate::infrastructure::webui_mcp_bridge::WebUiBridgeHandle,
     #[cfg(feature = "tauri")]
-    pub web_chat: std::sync::Arc<crate::infrastructure::web_chat_driver::WebChatDriver>,
     /// Renderer-agnostic UI event sink. The Tauri shell sets a `TauriSink`; a
     /// native (gpui) shell sets its own (often a no-op — the engine also exposes
     /// pollable `activity_log`/`chat_stream_buf`/`pending_proposals` buffers).
@@ -476,15 +474,6 @@ impl EditorState {
             println!("[profile] built-in MCP listener (:1537) not auto-started (opt-in via mcp_builtin.enabled)");
         }
 
-        // WebUI web-chat feature (browser-session scraping) is disabled — it never
-        // worked reliably and the frontend picker gates it off (WEBUI_MODELS_ENABLED
-        // = false). The bridge (:1538) and OpenAI shim (:1539) no longer auto-start;
-        // the handle/driver are still constructed for the (unused) webchat_* commands.
-        let webui_bridge = crate::infrastructure::webui_mcp_bridge::WebUiBridge::new(
-            sentient.ai_tools.clone(),
-        );
-        let web_chat = crate::infrastructure::web_chat_driver::WebChatDriver::new(&config_dir);
-        app.manage(std::sync::Arc::clone(&web_chat)); // State<Arc<WebChatDriver>> for webchat_login
 
         // Shared diagnostics map — owned by EditorState, borrowed by LspClient
         let shared_lsp_diags: lsp::DiagnosticsMap =
@@ -581,8 +570,6 @@ impl EditorState {
                 distiller: knowledge_distiller,
                 attachments: attachment_manager,
             },
-            webui_bridge,
-            web_chat,
             services: ServiceState {
                 browser: browser_state,
                 mcp_registry: Arc::new(McpRegistry::new(config_dir.join("mcp_servers.json"))),

@@ -48,7 +48,6 @@ pub mod vega;
 pub mod visual;
 pub mod voice;
 pub mod web;
-pub mod webui_bridge;
 pub mod window;
 pub mod workspace;
 pub mod workspace_settings;
