@@ -61,7 +61,7 @@
     "@xterm/xterm": "^6.0.0",
     "diff": "^8.0.4",
     "lucide-react": "^1.7.0",
-    "marked": "^17.0.5",
+    "marked": "^18.0.11",
     "monaco-editor": "^0.55.1",
     "ollama": "^0.6.3",
     "react": "^19.2.4",
