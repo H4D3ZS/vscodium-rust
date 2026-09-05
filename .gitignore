@@ -144,3 +144,6 @@ src/public/models/airi.vrm
 # Separate repo (Community AI portfolio/website) — has its own git, never embed here
 Community AI-Portfolio/
 /Vega/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
