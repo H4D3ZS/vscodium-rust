@@ -94,14 +94,10 @@ const App: React.FC = () => {
             import('./application/workspace/multiRootWorkspace').then(m => m.initWorkspaceFoldersFromStorage());
         }, 2_000);
 
-        scheduleDeferredInit(() => {
-            // Legacy vanilla-JS init modules (search/status_bar/specs/mobile/scm/
-            // debug_ui) were removed — they wired to getElementById() slots the
-            // React app no longer renders, so they no-op'd at boot. React panels
-            // (SearchView, StatusBar, EmulatorPanel, ScmView, DebugView, …)
-            // replaced them. Only the extension host still needs an explicit init.
-            import('./extensions').then(m => m.initExtensions());
-        });
+        // The extension host (Node sidecar) is no longer started here — it inits
+        // on first open of the Extensions view (ExtensionsView.tsx). Legacy
+        // vanilla-JS boot modules (search/status_bar/specs/mobile/scm/debug_ui)
+        // were removed; their React panels replaced them.
 
         // --- Platform Detection for Native Feel ---
         const ua = navigator.userAgent.toLowerCase();

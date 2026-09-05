@@ -461,17 +461,19 @@ impl EditorState {
 
         let vfs_bridge = Arc::new(vfs_bridge::VfsBridge::new(root.clone()));
         let mcp_server = Arc::new(mcp_server::McpServer::new(sentient.ai_tools.clone()));
-        // Potato mode: skip the MCP listener entirely; external MCP clients are
-        // rare on low-RAM machines and the Axum stack isn't free.
-        if !crate::system_profile::is_lite() {
+        // The built-in MCP listener (:1537) only matters when an *external* MCP
+        // client wants to reach this IDE's tools — uncommon. Opt-in: it auto-
+        // starts only if `<config>/mcp_builtin.enabled` exists (created by the
+        // MCP Store's "Expose IDE tools" toggle). Skipped in lite mode regardless.
+        let mcp_builtin_enabled = config_dir.join("mcp_builtin.enabled").exists();
+        if !crate::system_profile::is_lite() && mcp_builtin_enabled {
             let mcp_server_clone = mcp_server.clone();
             crate::event_sink::spawn_detached(async move {
-                // Defer MCP listener — not needed for idle shell boot.
                 tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
                 mcp_server_clone.start(1537).await;
             });
         } else {
-            println!("[profile] lite: MCP listener (:1537) not auto-started");
+            println!("[profile] built-in MCP listener (:1537) not auto-started (opt-in via mcp_builtin.enabled)");
         }
 
         // WebUI→MCP bridge (:1538). Shares the same AiTools registry as the MCP server.
