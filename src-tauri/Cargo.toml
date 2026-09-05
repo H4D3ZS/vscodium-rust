@@ -43,19 +43,18 @@ tauri = [
 boa_engine = "0.20"
 memmap2 = "0.9.10"
 tauri = { version = "2", features = ["protocol-asset"], optional = true }
-tauri-plugin-opener = { version = "2", optional = true }
 tauri-plugin-shell = { version = "2", optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
 tauri-plugin-global-shortcut = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-process = { version = "2", optional = true }
 tauri-plugin-os = { version = "2", optional = true }
 tauri-plugin-notification = { version = "2", optional = true }
-tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-clipboard-manager = { version = "2", optional = true }
 tauri-plugin-fs = { version = "2", optional = true }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.150"
-semver = "1.0"
 ropey = "1.6"
 tree-sitter = "0.26.9"
 tree-sitter-rust = "0.24.2"
@@ -66,13 +65,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-ut
 walkdir = "2"
 tauri-plugin-dialog = { version = "2", optional = true }
 portable-pty = "0.9.0"
-tokio-util = { version = "0.7.10", features = ["codec"] }
-lsp-types = "0.94.1"
 axum = "0.7"
 anyhow = "1"
 reqwest = { version = "0.11", features = ["json", "stream"] }
-ripgrep = "15.1.0"
-ripgrep-api = "0.2.0"
 sysinfo = "0.30"
 lz4_flex = "0.11"
 zip = "0.6"
@@ -84,12 +79,10 @@ regex = "1.12.3"
 ignore = "0.4"
 uuid = { version = "1.23.3", features = ["v4", "serde"] }
 futures = "0.3.32"
-async-trait = "0.1.89"
 url = "2.5"
 urlencoding = "2.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-tracing-chrome = "0.7.2"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 chrono = "0.4"
 dirs = "5"
@@ -97,7 +90,6 @@ libaim = { path = "../kortex/libaim" }
 aim-proxy = { path = "../kortex/aim-proxy" }
 daemon = { path = "../kortex/daemon", optional = true }
 candle-core = { version = "=0.7.1", optional = true }
-half = { version = "2.3", default-features = false, features = ["num-traits", "rand_distr"] }
 which = "6.0"
 diffy = "0.3"
 notify = "6.1"
@@ -108,7 +100,6 @@ tempfile = "3"
 hades-harness = { path = "../kortex/harness" }
 turbovec = { path = "../turbovec/turbovec" }
 tokio-tungstenite = "0.20"
-futures-util = "0.3"
 bytes = "1"
 lazy_static = "1.5.0"
 
@@ -159,7 +150,6 @@ rand = { git = "https://github.com/rust-random/rand", tag = "0.8.5" }
 # (SeedableRng/Distribution) don't line up. See turbovec integration.
 rand_core = { git = "https://github.com/rust-random/rand", tag = "0.8.5" }
 rand_chacha = { git = "https://github.com/rust-random/rand", tag = "0.8.5" }
-half = { git = "https://github.com/starkat99/half-rs", tag = "v2.3.1" }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

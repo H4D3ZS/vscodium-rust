@@ -1,63 +1,10 @@
 //! Security tools: scanners, entropy/secrets, vuln hunting, audits, OAST, Vega.
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Arc;
 use super::registry::AiTools;
 use super::registry::{push_activity, extract_json_loose, model_size_hint, is_security_model};
-
-/// File extensions considered source code for security scanning.
-const CODE_EXTS: &[&str] = &[
-    "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "kt", "rb", "php",
-    "c", "cpp", "cc", "h", "hpp", "cs", "swift", "zig", "lua", "sh", "bash",
-];
-
-/// Directories to skip during security scans.
-const SKIP_DIRS: &[&str] = &[
-    "node_modules", "target", "dist", "build", ".git", "vendor",
-    "third_party", "__pycache__", ".venv", "venv", "out",
-];
-
-/// Rank a severity string for sorting (lower = more critical).
-fn severity_rank(s: &str) -> u8 {
-    match s.to_uppercase().as_str() {
-        "CRITICAL" => 0,
-        "HIGH" => 1,
-        "MEDIUM" => 2,
-        "LOW" => 3,
-        _ => 4,
-    }
-}
-
-/// Sort findings by severity and count by severity level.
-fn consolidate_findings(findings: &mut [Value]) -> BTreeMap<String, u64> {
-    findings.sort_by_key(|f| {
-        let sev = f.get("severity")
-            .and_then(|v| v.as_str())
-            .unwrap_or("UNKNOWN");
-        severity_rank(sev)
-    });
-    let mut counts = BTreeMap::new();
-    for f in findings.iter() {
-        let sev = f.get("severity")
-            .and_then(|v| v.as_str())
-            .unwrap_or("UNKNOWN")
-            .to_uppercase();
-        *counts.entry(sev).or_insert(0) += 1;
-    }
-    counts
-}
-
-/// Check if a directory name should be skipped.
-fn should_skip_dir(name: &str) -> bool {
-    SKIP_DIRS.contains(&name)
-}
-
-/// Check if a file extension is a code file.
-fn is_code_ext(ext: &str) -> bool {
-    CODE_EXTS.contains(&ext)
-}
 
 impl AiTools {
     pub(crate) async fn network_port_scanner(&self, args: Value) -> Result<Value> {

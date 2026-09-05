@@ -6,7 +6,6 @@ use std::sync::Mutex;
 use std::process::Child;
 
 use serde::Serialize;
-use tauri::AppHandle;
 
 use crate::kortex_bin::resolve_aim_vfs;
 
