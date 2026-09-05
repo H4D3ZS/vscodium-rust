@@ -140,10 +140,10 @@ export const EmulatorPreview: React.FC<EmulatorPreviewProps> = ({
         <div style={styles.statusIndicator}>
           <span style={{
             ...styles.statusDot,
-            background: isConnected ? '#4ade80' : '#ef4444',
+            background: isConnected? '#4ade80': '#ef4444',
           }} />
           <span style={styles.statusText}>
-            {isConnected ? 'Live' : 'Disconnected'}
+            {isConnected? 'Live': 'Disconnected'}
           </span>
         </div>
 
@@ -166,7 +166,7 @@ export const EmulatorPreview: React.FC<EmulatorPreviewProps> = ({
         {!isConnected && (
           <div style={styles.overlay}>
             <div style={styles.overlayText}>
-              {isPaused ? 'Paused' : 'Starting stream...'}
+              {isPaused? 'Paused': 'Starting stream...'}
             </div>
           </div>
         )}
@@ -180,14 +180,14 @@ export const EmulatorPreview: React.FC<EmulatorPreviewProps> = ({
             style={styles.button}
             disabled={!isConnected}
           >
-            📸 Screenshot
+             Screenshot
           </button>
 
           <button
             onClick={toggleStream}
             style={styles.button}
           >
-            {isPaused ? 'Resume' : 'Pause'}
+            {isPaused? 'Resume': 'Pause'}
           </button>
         </div>
       )}

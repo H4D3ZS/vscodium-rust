@@ -50,17 +50,17 @@
 }
 
 .codicon-folder:empty:before {
-  content: "📁";
+  content: "";
   font-family: sans-serif !important;
 }
 
 .codicon-folder-opened:empty:before {
-  content: "📂";
+  content: "";
   font-family: sans-serif !important;
 }
 
 .codicon-file:empty:before {
-  content: "📄";
+  content: "";
   font-family: sans-serif !important;
 }
 

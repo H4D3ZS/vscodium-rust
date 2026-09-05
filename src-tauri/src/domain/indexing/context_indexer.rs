@@ -80,7 +80,7 @@ impl ContextIndexer {
 
         if let Ok(mut watcher) = watcher_res {
             if let Err(e) = watcher.watch(&root, RecursiveMode::Recursive) {
-                eprintln!("[CONTEXT] ❌ Failed to start watcher: {:?}", e);
+                eprintln!("[CONTEXT] Failed to start watcher: {:?}", e);
             } else {
                 tokio::spawn(async move {
                     println!("[CONTEXT] Starting incremental indexing loop for: {:?}", root);
@@ -152,7 +152,7 @@ impl ContextIndexer {
                 });
             }
         } else {
-            eprintln!("[CONTEXT] ❌ Failed to create file watcher.");
+            eprintln!("[CONTEXT] Failed to create file watcher.");
         }
 
         // Also run a full cycle periodically to ensure consistency

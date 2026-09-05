@@ -120,7 +120,7 @@ const TaskRow: React.FC<{ task: SupervisorTask; onSkip?: (id: string) => void }>
                         onClick={e => { e.stopPropagation(); onSkip(task.id); }}
                         style={{ fontSize: 10, color: '#8b949e', cursor: 'pointer' }}
                         title="Remove from queue"
-                    >✕</span>
+                    ></span>
                 )}
                 {!onSkip && <span style={{ fontSize: 10, color: '#8b949e', fontFamily: 'monospace' }}>{task.id}</span>}
             </div>
@@ -166,7 +166,7 @@ const BridgeStrip: React.FC<{ tabs: TabStatus[] }> = ({ tabs }) => (
             }}>
                 <span style={{
                     width: 7, height: 7, borderRadius: '50%',
-                    background: t.cooling ? '#d29922' : '#3fb950',
+                    background: t.cooling? '#d29922': '#3fb950',
                 }} />
                 {t.provider}
                 {t.cooling && <span style={{ color: '#d29922' }}>cooling</span>}
@@ -229,13 +229,13 @@ const MissionControl: React.FC = () => {
                 background: '#161b22', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0,
             }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#8b949e', letterSpacing: '0.04em' }}>
-                    🛰 MISSION CONTROL
-                    <span style={{ marginLeft: 8, fontWeight: 400, color: paused ? '#d29922' : '#3fb950' }}>
-                        {paused ? 'PAUSED' : 'ACTIVE 24/7'}
+                     MISSION CONTROL
+                    <span style={{ marginLeft: 8, fontWeight: 400, color: paused? '#d29922': '#3fb950' }}>
+                        {paused? 'PAUSED': 'ACTIVE 24/7'}
                     </span>
                 </span>
-                <button onClick={() => act(paused ? 'supervisor_resume' : 'supervisor_pause')} style={btn(false)}>
-                    {paused ? '▶ Resume' : '⏸ Pause'}
+                <button onClick={() => act(paused? 'supervisor_resume': 'supervisor_pause')} style={btn(false)}>
+                    {paused? '▶ Resume': '⏸ Pause'}
                 </button>
                 <button onClick={() => act('supervisor_clear')} style={{ ...btn(false), background: 'transparent', border: '1px solid rgba(255,255,255,0.12)', color: '#8b949e' }}>
                     Clear queue
@@ -262,7 +262,7 @@ const MissionControl: React.FC = () => {
                     }}
                 />
                 <button onClick={enqueue} disabled={busy || !prompt.trim()} style={btn(busy || !prompt.trim())}>
-                    {busy ? '…' : '+ Queue'}
+                    {busy? '…': '+ Queue'}
                 </button>
             </div>
 
@@ -278,15 +278,15 @@ const MissionControl: React.FC = () => {
                 {/* Queue */}
                 <Section label={`QUEUE (${snap?.queue.length ?? 0})`}>
                     {(snap?.queue ?? []).length === 0
-                        ? <Empty text="Queue empty. Add a task above." />
-                        : snap!.queue.map(t => <TaskRow key={t.id} task={t} onSkip={id => act('supervisor_skip', { taskId: id })} />)}
+? <Empty text="Queue empty. Add a task above." />
+: snap!.queue.map(t => <TaskRow key={t.id} task={t} onSkip={id => act('supervisor_skip', { taskId: id })} />)}
                 </Section>
 
                 {/* History */}
                 <Section label={`HISTORY (${snap?.history.length ?? 0})`}>
                     {(snap?.history ?? []).length === 0
-                        ? <Empty text="No completed tasks yet." />
-                        : snap!.history.map(t => <TaskRow key={t.id} task={t} />)}
+? <Empty text="No completed tasks yet." />
+: snap!.history.map(t => <TaskRow key={t.id} task={t} />)}
                 </Section>
             </div>
         </div>
@@ -313,10 +313,10 @@ const Empty: React.FC<{ text: string }> = ({ text }) => (
 
 const btn = (disabled: boolean): React.CSSProperties => ({
     padding: '5px 12px',
-    background: disabled ? 'rgba(255,255,255,0.04)' : '#238636',
-    color: disabled ? '#8b949e' : '#fff',
+    background: disabled? 'rgba(255,255,255,0.04)': '#238636',
+    color: disabled? '#8b949e': '#fff',
     border: 'none', borderRadius: 4, fontSize: 11, fontWeight: 600,
-    cursor: disabled ? 'not-allowed' : 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
+    cursor: disabled? 'not-allowed': 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
 });
 
 export default MissionControl;

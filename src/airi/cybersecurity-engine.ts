@@ -187,11 +187,11 @@ export class AIRICybersecurityEngine {
             // Generate recommendation
             let recommendation = 'URL appears safe';
             if (riskScore >= 70) {
-                recommendation = '⚠️ HIGH RISK - Do not click! Likely phishing attempt.';
+                recommendation = ' HIGH RISK - Do not click! Likely phishing attempt.';
             } else if (riskScore >= 50) {
-                recommendation = '⚠️ SUSPICIOUS - Verify sender before clicking.';
+                recommendation = ' SUSPICIOUS - Verify sender before clicking.';
             } else if (riskScore >= 30) {
-                recommendation = '⚠️ CAUTION - Some suspicious indicators present.';
+                recommendation = ' CAUTION - Some suspicious indicators present.';
             }
 
             return {
@@ -315,8 +315,8 @@ export class AIRICybersecurityEngine {
         
         // Alert user via safety protocol
         airiSafetyProtocol.recordThreat(
-            threat.severity === 'critical' || threat.severity === 'high' ? 'high' : 'medium',
-            `🛡️ CYBERSECURITY ALERT: ${threat.type.toUpperCase()} - ${threat.details}`
+            threat.severity === 'critical' || threat.severity === 'high'? 'high': 'medium',
+            ` CYBERSECURITY ALERT: ${threat.type.toUpperCase()} - ${threat.details}`
         );
 
  console.warn(`\n CYBERSECURITY THREAT DETECTED:`);
@@ -343,7 +343,7 @@ export class AIRICybersecurityEngine {
         if (analysis.isPhishing) {
             this.reportThreat({
                 type: 'phishing',
-                severity: analysis.riskScore >= 70 ? 'high' : 'medium',
+                severity: analysis.riskScore >= 70? 'high': 'medium',
                 source: url,
                 details: `Phishing risk score: ${analysis.riskScore}/100. Indicators: ${analysis.indicators.join(', ')}`,
                 timestamp: Date.now(),
@@ -362,7 +362,7 @@ export class AIRICybersecurityEngine {
         if (analysis.isPhishing) {
             this.reportThreat({
                 type: 'social_engineering',
-                severity: analysis.confidence >= 70 ? 'high' : 'medium',
+                severity: analysis.confidence >= 70? 'high': 'medium',
                 source: source || 'Unknown',
                 details: `Phishing confidence: ${analysis.confidence}/100. Indicators: ${analysis.indicators.join(', ')}`,
                 timestamp: Date.now(),
@@ -378,5 +378,5 @@ export const airiCybersecurity = new AIRICybersecurityEngine();
 
 // Make globally accessible
 if (typeof window !== 'undefined') {
-    (window as any).__AIRI_CYBERSECURITY__ = airiCybersecurity;
+    (window as any).__AIRI_CYBERSECURITY__= airiCybersecurity;
 }

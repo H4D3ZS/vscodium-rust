@@ -30,7 +30,7 @@ pub fn get_config_path(state: State<'_, std::sync::Arc<crate::EditorState>>) -> 
 }
 
 /// Open the login flow for a cloud provider. The frontend popover for
-/// "☁️ Login to Claude (Browser)" / "💎 Login to Gemini (Browser)" calls into
+/// " Login to Claude (Browser)" / " Login to Gemini (Browser)" calls into
 /// here.
 ///
 /// Modes:

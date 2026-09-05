@@ -63,15 +63,15 @@ const FccSettingsPanel: React.FC = () => {
         }
     };
 
-    const statusColor = fccStatus === 'running' ? '#10b981'
-        : fccStatus === 'checking' ? '#f59e0b'
-        : fccStatus === 'error' ? '#ef4444'
-        : 'rgba(255,255,255,0.4)';
+    const statusColor = fccStatus === 'running'? '#10b981'
+: fccStatus === 'checking'? '#f59e0b'
+: fccStatus === 'error'? '#ef4444'
+: 'rgba(255,255,255,0.4)';
 
-    const statusLabel = fccStatus === 'running' ? 'Running'
-        : fccStatus === 'checking' ? 'Checking...'
-        : fccStatus === 'error' ? 'Error'
-        : 'Stopped';
+    const statusLabel = fccStatus === 'running'? 'Running'
+: fccStatus === 'checking'? 'Checking...'
+: fccStatus === 'error'? 'Error'
+: 'Stopped';
 
     return (
         <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -85,7 +85,7 @@ const FccSettingsPanel: React.FC = () => {
                     <div style={{
                         width: '8px', height: '8px', borderRadius: '50%',
                         background: statusColor,
-                        boxShadow: fccStatus === 'running' ? `0 0 6px ${statusColor}` : 'none',
+                        boxShadow: fccStatus === 'running'? `0 0 6px ${statusColor}`: 'none',
                     }} />
                     <span style={{ fontSize: '11px', opacity: 0.7 }}>{statusLabel}</span>
                 </div>
@@ -102,17 +102,17 @@ const FccSettingsPanel: React.FC = () => {
             {envCheck && (
                 <div style={{
                     padding: '10px 12px', borderRadius: '4px', fontSize: '11px',
-                    background: envCheck.ready ? 'rgba(16,185,129,0.08)' : 'rgba(251,191,36,0.08)',
-                    border: `1px solid ${envCheck.ready ? 'rgba(16,185,129,0.2)' : 'rgba(251,191,36,0.2)'}`,
+                    background: envCheck.ready? 'rgba(16,185,129,0.08)': 'rgba(251,191,36,0.08)',
+                    border: `1px solid ${envCheck.ready? 'rgba(16,185,129,0.2)': 'rgba(251,191,36,0.2)'}`,
                 }}>
                     <div style={{ fontWeight: 600, marginBottom: '6px', fontSize: '12px' }}>
-                        {envCheck.ready ? '✓ Environment ready' : '⚠ Setup required'}
+                        {envCheck.ready? ' Environment ready': ' Setup required'}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', opacity: 0.8 }}>
-                        <div>uv: {envCheck.uv_available ? `✓ ${envCheck.uv_version}` : '✗ not found'}</div>
-                        <div>Python: {envCheck.python_available ? `✓ ${envCheck.python_version}` : '✗ not found'}</div>
-                        <div>FCC directory: {envCheck.fcc_dir_exists ? '✓ found' : '✗ not found'}</div>
-                        <div>Dependencies: {envCheck.fcc_deps_installed ? '✓ installed' : '✗ not installed'}</div>
+                        <div>uv: {envCheck.uv_available? ` ${envCheck.uv_version}`: ' not found'}</div>
+                        <div>Python: {envCheck.python_available? ` ${envCheck.python_version}`: ' not found'}</div>
+                        <div>FCC directory: {envCheck.fcc_dir_exists? ' found': ' not found'}</div>
+                        <div>Dependencies: {envCheck.fcc_deps_installed? ' installed': ' not installed'}</div>
                     </div>
                     {!envCheck.ready && (
                         <div style={{ marginTop: '8px', lineHeight: 1.6 }}>
@@ -134,15 +134,15 @@ const FccSettingsPanel: React.FC = () => {
                     onClick={() => setFccEnabled(!fccEnabled)}
                     style={{
                         width: '36px', height: '20px', borderRadius: '10px', cursor: 'pointer',
-                        background: fccEnabled ? 'var(--vscode-button-background)' : 'rgba(255,255,255,0.1)',
+                        background: fccEnabled? 'var(--vscode-button-background)': 'rgba(255,255,255,0.1)',
                         position: 'relative', transition: 'background 0.2s',
                     }}
                 >
                     <div style={{
                         width: '14px', height: '14px', borderRadius: '50%',
-                        background: fccEnabled ? 'var(--vscode-button-foreground)' : 'rgba(255,255,255,0.4)',
+                        background: fccEnabled? 'var(--vscode-button-foreground)': 'rgba(255,255,255,0.4)',
                         position: 'absolute', top: '3px',
-                        left: fccEnabled ? '19px' : '3px',
+                        left: fccEnabled? '19px': '3px',
                         transition: 'left 0.2s',
                     }} />
                 </div>
@@ -167,7 +167,7 @@ const FccSettingsPanel: React.FC = () => {
 
             {/* Actions */}
             <div style={{ display: 'flex', gap: '8px' }}>
-                {fccStatus !== 'running' ? (
+                {fccStatus !== 'running'? (
                     <button
                         onClick={handleStart}
                         disabled={starting || !fccEnabled}
@@ -175,13 +175,13 @@ const FccSettingsPanel: React.FC = () => {
                             flex: 1, padding: '8px', fontSize: '12px', fontWeight: 600,
                             background: 'var(--vscode-button-background)',
                             color: 'var(--vscode-button-foreground)',
-                            border: 'none', borderRadius: '4px', cursor: starting ? 'wait' : 'pointer',
-                            opacity: starting || !fccEnabled ? 0.5 : 1,
+                            border: 'none', borderRadius: '4px', cursor: starting? 'wait': 'pointer',
+                            opacity: starting || !fccEnabled? 0.5: 1,
                         }}
                     >
-                        {starting ? 'Starting...' : 'Start FCC'}
+                        {starting? 'Starting...': 'Start FCC'}
                     </button>
-                ) : (
+                ): (
                     <button
                         onClick={handleStop}
                         disabled={stopping}
@@ -190,11 +190,11 @@ const FccSettingsPanel: React.FC = () => {
                             background: 'rgba(239,68,68,0.15)',
                             color: '#f87171',
                             border: '1px solid rgba(239,68,68,0.3)',
-                            borderRadius: '4px', cursor: stopping ? 'wait' : 'pointer',
-                            opacity: stopping ? 0.5 : 1,
+                            borderRadius: '4px', cursor: stopping? 'wait': 'pointer',
+                            opacity: stopping? 0.5: 1,
                         }}
                     >
-                        {stopping ? 'Stopping...' : 'Stop FCC'}
+                        {stopping? 'Stopping...': 'Stop FCC'}
                     </button>
                 )}
                 <button
@@ -206,8 +206,8 @@ const FccSettingsPanel: React.FC = () => {
                         color: 'var(--vscode-foreground)',
                         border: '1px solid rgba(255,255,255,0.1)',
                         borderRadius: '4px',
-                        cursor: fccStatus !== 'running' ? 'not-allowed' : 'pointer',
-                        opacity: fccStatus !== 'running' ? 0.4 : 1,
+                        cursor: fccStatus !== 'running'? 'not-allowed': 'pointer',
+                        opacity: fccStatus !== 'running'? 0.4: 1,
                     }}
                 >
                     <i className="codicon codicon-globe" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', marginRight: '4px' }} />

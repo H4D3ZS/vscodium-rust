@@ -4,11 +4,11 @@ import { useStore } from '../../store';
 import { sanitizeHtml } from '../../lib/markdown';
 // Emojis for icons since heroicons are not available
 const PuzzlePieceIcon = ({ className }: { className?: string }) => <span className={className}></span>;
-const ArrowLeftIcon = ({ className }: { className?: string }) => <span className={className}>⬅</span>;
+const ArrowLeftIcon = ({ className }: { className?: string }) => <span className={className}></span>;
 const GlobeAltIcon = ({ className }: { className?: string }) => <span className={className}></span>;
 const ShieldCheckIcon = ({ className }: { className?: string }) => <span className={className}></span>;
-const ArrowDownTrayIcon = ({ className }: { className?: string }) => <span className={className}>📥</span>;
-const TrashIcon = ({ className }: { className?: string }) => <span className={className}>🗑</span>;
+const ArrowDownTrayIcon = ({ className }: { className?: string }) => <span className={className}></span>;
+const TrashIcon = ({ className }: { className?: string }) => <span className={className}></span>;
 const CheckIcon = ({ className }: { className?: string }) => <span className={className}></span>;
 const ExclamationTriangleIcon = ({ className }: { className?: string }) => <span className={className}></span>;
 
@@ -36,7 +36,7 @@ export const ExtensionDetails: React.FC = () => {
 
   const [isInstalling, setIsInstalling] = useState(false);
 
-  const extension = selectedExtensionId ? extensionDetails[selectedExtensionId] : null;
+  const extension = selectedExtensionId? extensionDetails[selectedExtensionId]: null;
   const isInstalled = installedExtensions.some(e => e.id === selectedExtensionId);
   const marketplaceExtension = useStore(s => s.marketExtensions.find(e => e.id === selectedExtensionId)) ||
     useStore(s => s.popularExtensions.find(e => e.id === selectedExtensionId));
@@ -103,9 +103,9 @@ export const ExtensionDetails: React.FC = () => {
         {/* Main Info */}
         <div className="flex gap-8 items-start mb-12">
           <div className="w-32 h-32 flex-shrink-0 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10 shadow-2xl relative group overflow-hidden">
-            {displayExtension.iconUrl ? (
+            {displayExtension.iconUrl? (
               <img src={displayExtension.iconUrl} alt="" className="w-24 h-24 object-contain group-hover:scale-110 transition-transform duration-500" />
-            ) : (
+            ): (
               <PuzzlePieceIcon className="w-16 h-16 text-zinc-600 group-hover:text-zinc-400 transition-colors duration-500" />
             )}
             <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -131,7 +131,7 @@ export const ExtensionDetails: React.FC = () => {
             </p>
 
             <div className="flex items-center gap-3 pt-2">
-              {isInstalled ? (
+              {isInstalled? (
                 <>
                   <button
                     onClick={handleUninstall}
@@ -145,7 +145,7 @@ export const ExtensionDetails: React.FC = () => {
                     Installed
                   </button>
                 </>
-              ) : (
+              ): (
                 <button
                   onClick={handleInstall}
                   className="px-8 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-all shadow-lg shadow-blue-500/30 flex items-center gap-2 group"
@@ -161,7 +161,7 @@ export const ExtensionDetails: React.FC = () => {
         {/* Categories/Stats grid */}
         <div className="grid grid-cols-4 gap-4 mb-12">
           {[
-            { label: 'Rating', value: `${displayExtension.averageRating?.toFixed(1) || '0.0'} ★`, color: 'text-amber-400' },
+            { label: 'Rating', value: `${displayExtension.averageRating?.toFixed(1) || '0.0'} `, color: 'text-amber-400' },
             { label: 'Installs', value: displayExtension.downloadCount?.toLocaleString() || '0', color: 'text-zinc-300' },
             { label: 'Version', value: displayExtension.version || '1.0.0', color: 'text-zinc-300' },
             { label: 'Type', value: 'Extension', color: 'text-zinc-300' },
@@ -181,9 +181,9 @@ export const ExtensionDetails: React.FC = () => {
               <h2 className="text-xl font-bold text-white">Overview</h2>
             </div>
             <div className="prose prose-invert max-w-none text-zinc-400 leading-7">
-              {extension?.readme ? (
+              {extension?.readme? (
                 <div className="markdown-body bg-transparent p-0" dangerouslySetInnerHTML={{ __html: sanitizeHtml(extension.readme) }} />
-              ) : (
+              ): (
                 <div className="bg-zinc-900/50 p-6 rounded-2xl border border-white/5 italic flex items-center gap-3">
                   <PuzzlePieceIcon className="w-5 h-5 opacity-50" />
                   Detailed overview not available for this extension.
@@ -205,7 +205,7 @@ export const ExtensionDetails: React.FC = () => {
                 { label: 'Repository', value: displayExtension.repository || 'N/A' },
                 { label: 'License', value: displayExtension.license || 'N/A' },
               ].map((row, i) => (
-                <div key={i} className={`flex items-center p-4 ${i !== 0 ? 'border-t border-white/5' : ''}`}>
+                <div key={i} className={`flex items-center p-4 ${i !== 0? 'border-t border-white/5': ''}`}>
                   <div className="w-1/3 text-sm text-zinc-500 font-medium">{row.label}</div>
                   <div className="w-2/3 text-sm text-zinc-300">{row.value}</div>
                 </div>

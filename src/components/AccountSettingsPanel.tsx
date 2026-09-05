@@ -99,7 +99,7 @@ const AccountSettingsPanel: React.FC = () => {
 
     const doSignIn = (signup: boolean) => {
         setAuthMsg('…'); setBusy(true);
-        invoke<{ signed_in?: boolean; needs_confirmation?: boolean }>(signup ? 'auth_sign_up' : 'auth_sign_in', { email, password: pw })
+        invoke<{ signed_in?: boolean; needs_confirmation?: boolean }>(signup? 'auth_sign_up': 'auth_sign_in', { email, password: pw })
             .then((r) => {
                 setBusy(false); setPw('');
                 if (r.needs_confirmation) { setAuthMsg('Check your email to confirm, then sign in.'); return; }
@@ -132,10 +132,10 @@ const AccountSettingsPanel: React.FC = () => {
     const sync = () => { setMsg('Syncing…'); invoke('account_sync').then(() => { setMsg(''); refresh(); }).catch((e) => setMsg(String(e))); };
     const startTrial = () => { setMsg('Starting trial…'); invoke('account_start_trial').then(() => { setMsg(''); refresh(); }).catch((e) => setMsg(String(e))); };
 
-    const trialHoursLeft = data?.trial_ends_at ? Math.max(0, Math.ceil((data.trial_ends_at * 1000 - Date.now()) / 3_600_000)) : 0;
+    const trialHoursLeft = data?.trial_ends_at? Math.max(0, Math.ceil((data.trial_ends_at * 1000 - Date.now()) / 3_600_000)): 0;
 
     const status = data?.status || 'local';
-    const statusColor = status === 'active' ? '#9ece6a' : status === 'past_due' ? '#e0af68' : status === 'unpaid' ? '#f7768e' : '#8a8a8a';
+    const statusColor = status === 'active'? '#9ece6a': status === 'past_due'? '#e0af68': status === 'unpaid'? '#f7768e': '#8a8a8a';
 
     return (
         <div style={{ padding: '4px 4px 40px', color: 'var(--vscode-foreground)' }}>
@@ -146,7 +146,7 @@ const AccountSettingsPanel: React.FC = () => {
 
             {/* Auth */}
             <SectionLabel>Sign in</SectionLabel>
-            {signedIn ? (
+            {signedIn? (
                 <div style={{ marginBottom: 22, padding: '12px 16px', borderRadius: 10, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))', display: 'flex', alignItems: 'center', gap: 10 }}>
                     <i className="codicon codicon-verified-filled" style={{ fontSize: 18, color: '#9ece6a' }} />
                     <div style={{ flex: 1 }}>
@@ -156,7 +156,7 @@ const AccountSettingsPanel: React.FC = () => {
                     <button onClick={sync} style={btnGhost}>Sync</button>
                     <button onClick={signOut} style={btnGhost}>Sign out</button>
                 </div>
-            ) : (
+            ): (
                 <div style={{ marginBottom: 22, padding: '14px 16px', borderRadius: 10, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" type="email" style={inp} />
@@ -177,9 +177,9 @@ const AccountSettingsPanel: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <i className="codicon codicon-account" style={{ fontSize: 18, opacity: 0.8 }} />
                         <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 14, fontWeight: 600 }}>{data.tier_label} {data.tier_price_usd > 0 ? `· $${data.tier_price_usd}/mo` : '· Free'}</div>
+                            <div style={{ fontSize: 14, fontWeight: 600 }}>{data.tier_label} {data.tier_price_usd > 0? `· $${data.tier_price_usd}/mo`: '· Free'}</div>
                             <div style={{ fontSize: 11, opacity: 0.55 }}>
-                                {data.entitlements.daily_requests > 0 ? `${data.entitlements.daily_requests} requests/day` : `${data.entitlements.monthly_requests || 'Custom'} requests/mo`}
+                                {data.entitlements.daily_requests > 0? `${data.entitlements.daily_requests} requests/day`: `${data.entitlements.monthly_requests || 'Custom'} requests/mo`}
                             </div>
                         </div>
                         <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 10, background: `${statusColor}22`, color: statusColor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{status}</span>
@@ -203,7 +203,7 @@ const AccountSettingsPanel: React.FC = () => {
             )}
 
             {/* 1-day free trial */}
-            {data?.trial_active ? (
+            {data?.trial_active? (
                 <div style={{ marginBottom: 22, padding: '14px 16px', borderRadius: 10, border: '1px solid rgba(158,206,106,0.5)', background: 'linear-gradient(135deg, rgba(158,206,106,0.15), rgba(158,206,106,0.03))' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <i className="codicon codicon-rocket" style={{ fontSize: 20, color: '#9ece6a' }} />
@@ -215,7 +215,7 @@ const AccountSettingsPanel: React.FC = () => {
                         </div>
                     </div>
                 </div>
-            ) : !data?.trial_used ? (
+            ): !data?.trial_used? (
                 <div style={{ marginBottom: 22, padding: '16px', borderRadius: 10, border: '1px solid rgba(77,170,252,0.5)', background: 'linear-gradient(135deg, rgba(77,170,252,0.14), rgba(187,154,247,0.06))' }}>
                     <div style={{ fontSize: 15, fontWeight: 700 }}>Start your 1-day free trial</div>
                     <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4, marginBottom: 12 }}>
@@ -223,7 +223,7 @@ const AccountSettingsPanel: React.FC = () => {
                     </div>
                     <button onClick={startTrial} style={{ ...btnPrimary, padding: '9px 18px', fontSize: 13 }}>Activate free trial</button>
                 </div>
-            ) : (
+            ): (
                 <div style={{ marginBottom: 22, padding: '12px 16px', borderRadius: 10, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))', opacity: 0.75 }}>
                     <div style={{ fontSize: 12 }}>Your free trial has ended. Subscribe below to keep unlimited access.</div>
                 </div>
@@ -237,15 +237,15 @@ const AccountSettingsPanel: React.FC = () => {
                     const isCommunity = t.id === 'community';
                     return (
                         <div key={t.id} onClick={() => { if (!isCommunity && !active) subscribe(t.sub); }} style={{
-                            cursor: isCommunity || active ? 'default' : 'pointer', padding: '12px 14px', borderRadius: 8,
-                            border: `1px solid ${active ? t.accent : 'var(--vscode-panel-border, rgba(255,255,255,0.12))'}`,
-                            background: active ? `${t.accent}22` : 'var(--vscode-editorWidget-background, rgba(255,255,255,0.02))',
-                            opacity: isCommunity && !active ? 0.7 : 1,
+                            cursor: isCommunity || active? 'default': 'pointer', padding: '12px 14px', borderRadius: 8,
+                            border: `1px solid ${active? t.accent: 'var(--vscode-panel-border, rgba(255,255,255,0.12))'}`,
+                            background: active? `${t.accent}22`: 'var(--vscode-editorWidget-background, rgba(255,255,255,0.02))',
+                            opacity: isCommunity && !active? 0.7: 1,
                         }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color: t.accent }}>{t.label}</div>
                             <div style={{ fontSize: 18, fontWeight: 700, margin: '4px 0' }}>{t.price}</div>
                             <div style={{ fontSize: 11, opacity: 0.55 }}>{t.quota} AI requests</div>
-                            {active && <div style={{ fontSize: 10, color: t.accent, marginTop: 4, fontWeight: 700 }}>✓ Current</div>}
+                            {active && <div style={{ fontSize: 10, color: t.accent, marginTop: 4, fontWeight: 700 }}> Current</div>}
                             {!active && !isCommunity && <div style={{ fontSize: 10, opacity: 0.55, marginTop: 4 }}>Subscribe →</div>}
                         </div>
                     );
@@ -256,7 +256,7 @@ const AccountSettingsPanel: React.FC = () => {
 
             {/* Limited Premium add-on */}
             <SectionLabel>Add-ons</SectionLabel>
-            <div className={`settings-premium-card${hasMimo ? ' settings-premium-card--owned' : ''}`}>
+            <div className={`settings-premium-card${hasMimo? ' settings-premium-card--owned': ''}`}>
                 <div className="settings-premium-badge">Limited · 7 days</div>
                 <div className="settings-premium-layout">
                     <div className="settings-premium-icon-wrap">
@@ -285,7 +285,7 @@ const AccountSettingsPanel: React.FC = () => {
                             onClick={openBilling}
                             disabled={hasMimo}
                         >
-                            {hasMimo ? '✓ Active' : 'Get Premium Access'}
+                            {hasMimo? ' Active': 'Get Premium Access'}
                         </button>
                     </div>
                 </div>
@@ -294,19 +294,19 @@ const AccountSettingsPanel: React.FC = () => {
 
             {/* Bug Bounty ToS */}
             <SectionLabel>Bug Bounty — Terms of Service</SectionLabel>
-            <div style={{ padding: '14px 16px', borderRadius: 10, border: `1px solid ${tosAccepted ? 'rgba(158,206,106,0.35)' : 'rgba(247,118,142,0.4)'}`, background: 'var(--vscode-editorWidget-background, rgba(255,255,255,0.02))' }}>
+            <div style={{ padding: '14px 16px', borderRadius: 10, border: `1px solid ${tosAccepted? 'rgba(158,206,106,0.35)': 'rgba(247,118,142,0.4)'}`, background: 'var(--vscode-editorWidget-background, rgba(255,255,255,0.02))' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <i className={`codicon ${tosAccepted ? 'codicon-verified-filled' : 'codicon-warning'}`} style={{ fontSize: 18, color: tosAccepted ? '#9ece6a' : '#f7768e' }} />
+                    <i className={`codicon ${tosAccepted? 'codicon-verified-filled': 'codicon-warning'}`} style={{ fontSize: 18, color: tosAccepted? '#9ece6a': '#f7768e' }} />
                     <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>
-                            {tosAccepted ? 'Accepted — Bug Bounty features unlocked' : 'Not accepted — required before using Bug Bounty'}
+                            {tosAccepted? 'Accepted — Bug Bounty features unlocked': 'Not accepted — required before using Bug Bounty'}
                         </div>
                         <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>
                             Offensive-security tooling requires accepting authorized-use terms, recorded on your account.
                         </div>
                     </div>
                     <button onClick={() => setShowTos((s) => !s)} style={btnGhost}>
-                        {showTos ? 'Hide' : 'Review'}
+                        {showTos? 'Hide': 'Review'}
                     </button>
                 </div>
                 {showTos && (
@@ -339,17 +339,17 @@ const btnGhost: React.CSSProperties = {
     background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 12,
 };
 
-const fmtK = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+const fmtK = (n: number) => (n >= 1_000_000? `${(n / 1_000_000).toFixed(2)}M`: n >= 1000? `${(n / 1000).toFixed(1)}k`: `${n}`);
 
 const UsageBar: React.FC<{ label: string; used: number; limit: number; fmt: (n: number) => string }> = ({ label, used, limit, fmt }) => {
     const unlimited = !limit || limit <= 0;
-    const pct = unlimited ? 100 : Math.min(100, Math.round((used / limit) * 100));
-    const color = unlimited ? '#9ece6a' : pct > 90 ? '#f7768e' : pct > 70 ? '#e0af68' : '#4daafc';
+    const pct = unlimited? 100: Math.min(100, Math.round((used / limit) * 100));
+    const color = unlimited? '#9ece6a': pct > 90? '#f7768e': pct > 70? '#e0af68': '#4daafc';
     return (
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: 0.75, marginBottom: 4 }}>
                 <span>{label}</span>
-                <span>{fmt(used)}{unlimited ? ' · ∞' : ` / ${fmt(limit)}`}</span>
+                <span>{fmt(used)}{unlimited? ' · ∞': ` / ${fmt(limit)}`}</span>
             </div>
             <div style={{ height: 6, borderRadius: 4, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
                 <div style={{ width: `${pct}%`, height: '100%', background: color, transition: 'width 0.3s' }} />

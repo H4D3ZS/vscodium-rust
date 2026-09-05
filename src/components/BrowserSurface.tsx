@@ -111,7 +111,7 @@ const BrowserSurface: React.FC = () => {
                     <button style={navButtonStyle}><ChevronLeft size={16} /></button>
                     <button style={navButtonStyle}><ChevronRight size={16} /></button>
                     <button style={navButtonStyle} onClick={() => handleNavigate(url)} disabled={isNavigating}>
-                        <RefreshCw size={16} className={isNavigating ? 'animate-spin' : ''} />
+                        <RefreshCw size={16} className={isNavigating? 'animate-spin': ''} />
                     </button>
                 </div>
 
@@ -176,10 +176,10 @@ const BrowserSurface: React.FC = () => {
                                 textTransform: 'uppercase',
                                 letterSpacing: '0.4px',
                                 opacity: 1,
-                                background: mode === m ? 'var(--vscode-button-background, #0e639c)' : 'transparent',
-                                color: mode === m ? 'var(--vscode-button-foreground, #fff)' : 'var(--vscode-foreground)',
+                                background: mode === m? 'var(--vscode-button-background, #0e639c)': 'transparent',
+                                color: mode === m? 'var(--vscode-button-foreground, #fff)': 'var(--vscode-foreground)',
                             }}
-                            title={m === 'live' ? 'Live preview (interactive iframe)' : 'Agent vision (stealth browser screenshot)'}
+                            title={m === 'live'? 'Live preview (interactive iframe)': 'Agent vision (stealth browser screenshot)'}
                         >
                             {m}
                         </button>
@@ -189,9 +189,9 @@ const BrowserSurface: React.FC = () => {
                     onClick={() => setIsDesignMode(!isDesignMode)}
                     style={{
                         ...navButtonStyle,
-                        background: isDesignMode ? 'rgba(168, 85, 247, 0.2)' : 'transparent',
-                        color: isDesignMode ? '#c084fc' : 'inherit',
-                        border: isDesignMode ? '1px solid rgba(168, 85, 247, 0.5)' : 'none'
+                        background: isDesignMode? 'rgba(168, 85, 247, 0.2)': 'transparent',
+                        color: isDesignMode? '#c084fc': 'inherit',
+                        border: isDesignMode? '1px solid rgba(168, 85, 247, 0.5)': 'none'
                     }}
                     title="Toggle Design Mode"
                 >
@@ -214,12 +214,12 @@ const BrowserSurface: React.FC = () => {
                 background: '#f1f5f9',
                 position: 'relative'
             }}>
-                {mode === 'live' ? (
-                    !url ? (
+                {mode === 'live'? (
+                    !url? (
                         <BrowserStart onPick={(u) => { setUrl(u); setIframeKey(k => k + 1); }} />
-                    ) : isSelfOrigin(url) ? (
+                    ): isSelfOrigin(url)? (
                         <BrowserSelfWarning url={url} onClear={() => setUrl('')} />
-                    ) : (
+                    ): (
                         <iframe
                             key={iframeKey}
                             src={url}
@@ -228,7 +228,7 @@ const BrowserSurface: React.FC = () => {
                             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
                         />
                     )
-                ) : screenshot ? (
+                ): screenshot? (
                     <div style={{ position: 'relative', width: '100%', display: 'flex', justifyContent: 'center' }}>
                         <img
                             src={screenshot}
@@ -237,7 +237,7 @@ const BrowserSurface: React.FC = () => {
                                 height: 'auto',
                                 objectFit: 'contain',
                                 background: '#fff',
-                                cursor: isDesignMode ? 'crosshair' : 'default'
+                                cursor: isDesignMode? 'crosshair': 'default'
                             }}
                             alt="Agent Vision"
                             onClick={(e) => {
@@ -310,7 +310,7 @@ const BrowserSurface: React.FC = () => {
                             </div>
                         )}
                     </div>
-                ) : (
+                ): (
                     <BrowserStart onPick={(u) => void handleNavigate(u)} />
                 )}
             </div>
@@ -377,7 +377,7 @@ const BrowserStart: React.FC<{ onPick: (u: string) => void }> = ({ onPick }) => 
 const BrowserSelfWarning: React.FC<{ url: string; onClear: () => void }> = ({ url, onClear }) => (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff7ed' }}>
         <div style={{ textAlign: 'center', maxWidth: 460, padding: 24 }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>♾</div>
+            <div style={{ fontSize: 40, marginBottom: 12 }}></div>
             <h2 style={{ color: '#9a3412', margin: '0 0 6px', fontSize: 18 }}>That's this IDE</h2>
             <p style={{ color: '#7c2d12', fontSize: 13, lineHeight: 1.5, margin: '0 0 18px' }}>
                 <code>{url}</code> is this IDE's own dev server — loading it here would just

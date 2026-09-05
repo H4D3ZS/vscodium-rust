@@ -94,11 +94,11 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
         audio.play();
     };
 
-    const filteredVoices = filter === 'all' ? voices : voices.filter(v => v.category === filter);
+    const filteredVoices = filter === 'all'? voices: voices.filter(v => v.category === filter);
 
     const genderIcon = (gender: string | null) => {
-        if (gender === 'male') return '♂';
-        if (gender === 'female') return '♀';
+        if (gender === 'male') return '';
+        if (gender === 'female') return '';
         return '';
     };
 
@@ -153,17 +153,17 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                         background: 'transparent',
                         border: 'none',
                         color: 'var(--vscode-foreground)',
-                        cursor: loading ? 'wait' : 'pointer',
+                        cursor: loading? 'wait': 'pointer',
                         padding: '4px',
                         borderRadius: '2px',
                     }}
                     title="Refresh voices"
                 >
-                    <i className={`codicon codicon-${loading ? 'loading' : 'refresh'}`} style={{
+                    <i className={`codicon codicon-${loading? 'loading': 'refresh'}`} style={{
                         fontSize: '14px',
                         fontFamily: 'codicon',
                         fontStyle: 'normal',
-                        animation: loading ? 'spin 1s linear infinite' : 'none',
+                        animation: loading? 'spin 1s linear infinite': 'none',
                     }}></i>
                 </button>
             </div>
@@ -192,8 +192,8 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                         key={f}
                         onClick={() => setFilter(f)}
                         style={{
-                            background: filter === f ? 'var(--vscode-button-background)' : 'transparent',
-                            color: filter === f ? 'var(--vscode-button-foreground)' : 'var(--vscode-foreground)',
+                            background: filter === f? 'var(--vscode-button-background)': 'transparent',
+                            color: filter === f? 'var(--vscode-button-foreground)': 'var(--vscode-foreground)',
                             border: '1px solid var(--vscode-button-background)',
                             padding: '2px 8px',
                             fontSize: '10px',
@@ -213,7 +213,7 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                 overflowY: 'auto',
                 padding: '4px 0',
             }}>
-                {loading && voices.length === 0 ? (
+                {loading && voices.length === 0? (
                     <div style={{
                         padding: '20px',
                         textAlign: 'center',
@@ -228,7 +228,7 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                         }}></i>
                         Loading voices...
                     </div>
-                ) : filteredVoices.length === 0 ? (
+                ): filteredVoices.length === 0? (
                     <div style={{
                         padding: '20px',
                         textAlign: 'center',
@@ -237,7 +237,7 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                     }}>
                         No voices found
                     </div>
-                ) : (
+                ): (
                     filteredVoices.map(voice => (
                         <div
                             key={voice.voice_id}
@@ -245,11 +245,11 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                                 padding: '8px 12px',
                                 cursor: 'pointer',
                                 background: selectedVoiceId === voice.voice_id
-                                    ? 'var(--vscode-list-activeSelectionBackground)'
-                                    : 'transparent',
+? 'var(--vscode-list-activeSelectionBackground)'
+: 'transparent',
                                 color: selectedVoiceId === voice.voice_id
-                                    ? 'var(--vscode-list-activeSelectionForeground)'
-                                    : 'var(--vscode-foreground)',
+? 'var(--vscode-list-activeSelectionForeground)'
+: 'var(--vscode-foreground)',
                                 borderBottom: '1px solid var(--vscode-panel-border)',
                                 display: 'flex',
                                 alignItems: 'center',
@@ -272,7 +272,7 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                                 onClick={() => onVoiceSelect(voice.voice_id)}
                                 style={{ flex: 1 }}
                             >
-                                <span style={{ fontWeight: selectedVoiceId === voice.voice_id ? 600 : 400 }}>
+                                <span style={{ fontWeight: selectedVoiceId === voice.voice_id? 600: 400 }}>
                                     {voice.name}
                                 </span>
                                 {selectedVoiceId === voice.voice_id && (
@@ -281,7 +281,7 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                                         fontSize: '9px',
                                         color: '#4ade80',
                                         fontWeight: 600,
-                                    }}>✓ SELECTED</span>
+                                    }}> SELECTED</span>
                                 )}
                                 {/* Metadata chips */}
                                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '3px' }}>
@@ -318,7 +318,7 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                                     style={{
                                         background: 'transparent',
                                         border: 'none',
-                                        color: playingId === voice.voice_id ? 'var(--vscode-button-background)' : 'var(--vscode-foreground)',
+                                        color: playingId === voice.voice_id? 'var(--vscode-button-background)': 'var(--vscode-foreground)',
                                         cursor: 'pointer',
                                         padding: '4px',
                                         display: 'flex',
@@ -326,11 +326,11 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                                         borderRadius: '3px',
                                     }}
                                 >
-                                    <i className={`codicon codicon-${playingId === voice.voice_id ? 'loading' : 'play-circle'}`} style={{
+                                    <i className={`codicon codicon-${playingId === voice.voice_id? 'loading': 'play-circle'}`} style={{
                                         fontSize: '16px',
                                         fontFamily: 'codicon',
                                         fontStyle: 'normal',
-                                        animation: playingId === voice.voice_id ? 'spin 1s linear infinite' : 'none',
+                                        animation: playingId === voice.voice_id? 'spin 1s linear infinite': 'none',
                                     }}></i>
                                 </button>
                             )}
@@ -338,24 +338,24 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                             {/* Save voice button */}
                             <button
                                 onClick={(e) => handleSaveVoice(voice.voice_id, e)}
-                                title={selectedVoiceId === voice.voice_id ? 'Selected voice' : 'Select and save this voice'}
+                                title={selectedVoiceId === voice.voice_id? 'Selected voice': 'Select and save this voice'}
                                 disabled={saveStatus === 'saving'}
                                 style={{
                                     background: selectedVoiceId === voice.voice_id
-                                        ? 'var(--vscode-button-background)'
-                                        : saveStatus === 'saving' && selectedVoiceId !== voice.voice_id
-                                        ? 'rgba(255,255,255,0.1)'
-                                        : 'rgba(255,255,255,0.05)',
+? 'var(--vscode-button-background)'
+: saveStatus === 'saving' && selectedVoiceId !== voice.voice_id
+? 'rgba(255,255,255,0.1)'
+: 'rgba(255,255,255,0.05)',
                                     color: selectedVoiceId === voice.voice_id
-                                        ? 'var(--vscode-button-foreground)'
-                                        : 'var(--vscode-foreground)',
+? 'var(--vscode-button-foreground)'
+: 'var(--vscode-foreground)',
                                     border: selectedVoiceId === voice.voice_id
-                                        ? 'none'
-                                        : '1px solid var(--vscode-button-background)',
+? 'none'
+: '1px solid var(--vscode-button-background)',
                                     padding: '4px 10px',
                                     fontSize: '9px',
                                     borderRadius: '3px',
-                                    cursor: saveStatus === 'saving' ? 'wait' : 'pointer',
+                                    cursor: saveStatus === 'saving'? 'wait': 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '4px',
@@ -363,7 +363,7 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                                     justifyContent: 'center',
                                 }}
                             >
-                                {saveStatus === 'saving' && selectedVoiceId !== voice.voice_id ? (
+                                {saveStatus === 'saving' && selectedVoiceId !== voice.voice_id? (
                                     <>
                                         <i className="codicon codicon-loading" style={{
                                             fontSize: '12px',
@@ -373,12 +373,12 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                                         }}></i>
                                         Saving...
                                     </>
-                                ) : selectedVoiceId === voice.voice_id ? (
+                                ): selectedVoiceId === voice.voice_id? (
                                     <>
                                         <i className="codicon codicon-check" style={{ fontSize: '12px', fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                                         Saved
                                     </>
-                                ) : (
+                                ): (
                                     <>
                                         <i className="codicon codicon-save" style={{ fontSize: '12px', fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                                         Save

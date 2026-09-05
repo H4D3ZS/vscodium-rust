@@ -45,7 +45,7 @@ const BackgroundAgentsTray: React.FC = memo(() => {
         }}>
             {/* Header with spawn button */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <i className="codicon codicon-pulse" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 12, color: running > 0 ? '#60a5fa' : 'rgba(255,255,255,0.4)' }} />
+                <i className="codicon codicon-pulse" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 12, color: running > 0? '#60a5fa': 'rgba(255,255,255,0.4)' }} />
                 <span style={{ fontWeight: 600, flex: 1, opacity: 0.7, fontSize: 11 }}>
                     Background Agents
                     {running > 0 && <span style={{ marginLeft: 4, color: '#60a5fa', fontSize: 9, fontWeight: 500 }}>{running} running</span>}
@@ -57,7 +57,7 @@ const BackgroundAgentsTray: React.FC = memo(() => {
                     onClick={() => setShowMission(true)}
                     style={{ cursor: 'pointer', fontSize: 12, lineHeight: 1, marginRight: 2 }}
                     title="Open Mission Control (24/7 autonomous supervisor)"
-                >🛰</span>
+                ></span>
                 <span
                     onClick={() => setShowSpawn(v => !v)}
                     style={{
@@ -89,7 +89,7 @@ const BackgroundAgentsTray: React.FC = memo(() => {
                         disabled={spawning || !spawnPrompt.trim()}
                         onClick={handleSpawn}
                         style={{ padding: '3px 8px', fontSize: 10, fontWeight: 700, background: '#1e3a5f', border: '1px solid #2563eb', borderRadius: 3, color: '#60a5fa', cursor: 'pointer' }}
-                    >{spawning ? '…' : ''}</button>
+                    >{spawning? '…': ''}</button>
                 </div>
             )}
             {bgAgents.length === 0 && !showSpawn && (
@@ -103,34 +103,34 @@ const BackgroundAgentsTray: React.FC = memo(() => {
                     const isRunning = bg.status === 'running';
                     const isError = bg.status === 'error';
                     const isDone = bg.status === 'done';
-                    const color = isDone ? '#22c55e' : isError ? '#f87171' : '#60a5fa';
+                    const color = isDone? '#22c55e': isError? '#f87171': '#60a5fa';
                     return (
                         <div key={bg.id} style={{
                             display: 'flex', flexDirection: 'column', gap: 2,
                             padding: '5px 8px', background: 'rgba(0,0,0,0.2)', borderRadius: 6,
-                            border: isRunning ? '1px solid rgba(96,165,250,0.2)' : '1px solid transparent',
+                            border: isRunning? '1px solid rgba(96,165,250,0.2)': '1px solid transparent',
                         }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <span style={{
                                     width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0,
-                                    ...(isRunning ? { animation: 'hubPulse 1s infinite' } : {}),
+                                    ...(isRunning? { animation: 'hubPulse 1s infinite' }: {}),
                                 }} />
                                 <span style={{
                                     flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                    fontSize: 11, fontWeight: isRunning ? 500 : 400,
+                                    fontSize: 11, fontWeight: isRunning? 500: 400,
                                 }} title={bg.prompt}>
-                                    {bg.prompt.length > 45 ? bg.prompt.slice(0, 45) + '...' : bg.prompt}
+                                    {bg.prompt.length > 45? bg.prompt.slice(0, 45) + '...': bg.prompt}
                                 </span>
                                 {(() => {
                                     const end = bg.finishedAt ?? Date.now();
                                     const secs = Math.max(0, Math.round((end - bg.startedAt) / 1000));
                                     const mins = Math.floor(secs / 60);
-                                    const display = mins > 0 ? `${mins}m ${secs % 60}s` : `${secs}s`;
+                                    const display = mins > 0? `${mins}m ${secs % 60}s`: `${secs}s`;
                                     return <span style={{ opacity: 0.4, fontSize: 9, fontVariantNumeric: 'tabular-nums' }}>{display}</span>;
                                 })()}
                                 <i
-                                    className={`codicon codicon-${open ? 'chevron-up' : 'chevron-down'}`}
-                                    onClick={() => setExpandedId(open ? null : bg.id)}
+                                    className={`codicon codicon-${open? 'chevron-up': 'chevron-down'}`}
+                                    onClick={() => setExpandedId(open? null: bg.id)}
                                     style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', fontSize: 10, opacity: 0.5 }}
                                 />
                                 <i
@@ -156,9 +156,9 @@ const BackgroundAgentsTray: React.FC = memo(() => {
                                 <pre style={{
                                     margin: 0, marginTop: 2, fontSize: 10, lineHeight: 1.4,
                                     fontFamily: 'var(--font-mono)',
-                                    opacity: isError ? 0.9 : 0.7, maxHeight: 160, overflow: 'auto',
+                                    opacity: isError? 0.9: 0.7, maxHeight: 160, overflow: 'auto',
                                     whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                                    color: isError ? '#f87171' : 'rgba(255,255,255,0.65)',
+                                    color: isError? '#f87171': 'rgba(255,255,255,0.65)',
                                 }}>
                                     {bg.result.slice(0, 4000)}
                                 </pre>
@@ -186,7 +186,7 @@ const BackgroundAgentsTray: React.FC = memo(() => {
                             onClick={() => setShowMission(false)}
                             style={{ position: 'absolute', top: 8, right: 12, zIndex: 10000, cursor: 'pointer', color: '#8b949e', fontSize: 16 }}
                             title="Close"
-                        >✕</span>
+                        ></span>
                         <MissionControl />
                     </div>
                 </div>

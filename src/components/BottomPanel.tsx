@@ -47,7 +47,7 @@ const BottomPanel: React.FC = () => {
         // Also capture console-style agent step messages
         const unlisten2 = listen<any>('agent-step', (e) => {
             const { name, status } = e.payload ?? {};
-            if (name) setOutputLogs(prev => [...prev.slice(-500), `[agent] ${status === 'running' ? '' : status === 'success' ? '✓' : '✗'} ${name}`]);
+            if (name) setOutputLogs(prev => [...prev.slice(-500), `[agent] ${status === 'running'? '': status === 'success'? '': ''} ${name}`]);
         });
         return () => { unlisten.then(f => f()); unlisten2.then(f => f()); };
     }, []);
@@ -174,13 +174,13 @@ const BottomPanel: React.FC = () => {
                     {['Problems', 'Output', 'Debug Console', 'Logcat', 'Terminal', 'Ports', 'Jobs'].map(tab => (
                         <div
                             key={tab}
-                            className={`panel-tab ${activeTab === tab.toUpperCase() ? 'active' : ''}`}
+                            className={`panel-tab ${activeTab === tab.toUpperCase()? 'active': ''}`}
                             onClick={() => setActiveTab(tab.toUpperCase() as any)}
                         >
                             {tab}
                             {tab === 'Problems' && (() => {
                                 const total = Object.values(diagnosticsMap).reduce((s, d) => s + d.length, 0);
-                                return total > 0 ? (
+                                return total > 0? (
                                     <span style={{
                                         background: 'var(--terminator-accent)',
                                         color: 'var(--vscode-editor-foreground, #ffffff)',
@@ -194,7 +194,7 @@ const BottomPanel: React.FC = () => {
                                         justifyContent: 'center',
                                         marginLeft: '6px'
                                     }}>{total}</span>
-                                ) : null;
+                                ): null;
                             })()}
                         </div>
                     ))}
@@ -212,11 +212,11 @@ const BottomPanel: React.FC = () => {
                                         display: 'flex', alignItems: 'center', gap: '6px',
                                         padding: '3px 8px', borderRadius: '6px',
                                         border: '1px solid ' + (shellDropdownOpen
-                                            ? 'rgba(122,162,247,0.5)'
-                                            : 'var(--vscode-panel-border, rgba(255,255,255,0.12))'),
+? 'rgba(122,162,247,0.5)'
+: 'var(--vscode-panel-border, rgba(255,255,255,0.12))'),
                                         background: shellDropdownOpen
-                                            ? 'rgba(122,162,247,0.18)'
-                                            : 'rgba(255,255,255,0.04)',
+? 'rgba(122,162,247,0.18)'
+: 'rgba(255,255,255,0.04)',
                                         // The panel-header sets text-transform:uppercase + letter-spacing,
                                         // which cascades here and mangles the shell name — reset it.
                                         textTransform: 'none', letterSpacing: 'normal',
@@ -229,7 +229,7 @@ const BottomPanel: React.FC = () => {
                                     title="Select shell"
                                 >
                                     <i className="codicon codicon-terminal" style={{ fontSize: '13px', opacity: 0.75, color: '#7aa2f7' }} />
-                                    <span>{selectedShell ? shellLabel(selectedShell) : 'Shell'}</span>
+                                    <span>{selectedShell? shellLabel(selectedShell): 'Shell'}</span>
                                     <i className="codicon codicon-chevron-down" style={{ fontSize: '10px', opacity: 0.5 }} />
                                 </div>
                                 {shellDropdownOpen && availableShells.length > 0 && (
@@ -263,8 +263,8 @@ const BottomPanel: React.FC = () => {
                                                     }}
                                                     style={{
                                                         padding: '5px 12px', fontSize: '12px', cursor: 'pointer',
-                                                        color: shell === selectedShell ? 'var(--vscode-list-activeSelectionForeground, #fff)' : 'var(--vscode-menu-foreground, #cccccc)',
-                                                        background: shell === selectedShell ? 'var(--vscode-list-activeSelectionBackground, #04395e)' : 'transparent',
+                                                        color: shell === selectedShell? 'var(--vscode-list-activeSelectionForeground, #fff)': 'var(--vscode-menu-foreground, #cccccc)',
+                                                        background: shell === selectedShell? 'var(--vscode-list-activeSelectionBackground, #04395e)': 'transparent',
                                                         display: 'flex', alignItems: 'center', gap: '8px',
                                                     }}
                                                     onMouseEnter={e => { if (shell !== selectedShell) (e.currentTarget as HTMLElement).style.background = 'var(--vscode-menu-selectionBackground, rgba(255,255,255,0.08))'; }}
@@ -296,7 +296,7 @@ const BottomPanel: React.FC = () => {
                             <div
                                 className="toolbar-icon"
                                 onClick={() => {
-                                    const next = getActiveTerminalThemeMode() === 'native' ? 'vscode' : 'native';
+                                    const next = getActiveTerminalThemeMode() === 'native'? 'vscode': 'native';
                                     void setActiveTerminalThemeMode(next);
                                 }}
                                 title="Toggle terminal theme (IDE / native)"
@@ -335,10 +335,10 @@ const BottomPanel: React.FC = () => {
                         </div>
                         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 16px', fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: '18px' }}>
                             {outputLogs.map((line, i) => {
-                                const color = line.startsWith('[error]') ? '#f87171'
-                                    : line.startsWith('[warn]') ? '#fbbf24'
-                                    : line.startsWith('[agent]') ? '#60a5fa'
-                                    : '#888';
+                                const color = line.startsWith('[error]')? '#f87171'
+: line.startsWith('[warn]')? '#fbbf24'
+: line.startsWith('[agent]')? '#60a5fa'
+: '#888';
                                 return <div key={i} style={{ color, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line}</div>;
                             })}
                             <div ref={outputEndRef} />
@@ -382,7 +382,7 @@ const BottomPanel: React.FC = () => {
                                                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)')}
                                                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                                             >
-                                                <i className={`codicon codicon-${isError ? 'error' : isWarn ? 'warning' : 'info'}`} style={{ color: isError ? '#f87171' : isWarn ? '#fbbf24' : '#60a5fa', fontSize: '12px', marginTop: '2px', flexShrink: 0 }} />
+                                                <i className={`codicon codicon-${isError? 'error': isWarn? 'warning': 'info'}`} style={{ color: isError? '#f87171': isWarn? '#fbbf24': '#60a5fa', fontSize: '12px', marginTop: '2px', flexShrink: 0 }} />
                                                 <span style={{ flex: 1 }}>{d.message}</span>
                                                 <span style={{ opacity: 0.4, flexShrink: 0, fontSize: '10px' }}>{d.startLine}:{d.startCol}</span>
                                                 {d.source && <span style={{ opacity: 0.35, flexShrink: 0, fontSize: '10px' }}>[{d.source}]</span>}
@@ -409,11 +409,11 @@ const BottomPanel: React.FC = () => {
                             </div>
                         </div>
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {backgroundJobs.length === 0 ? (
+                            {backgroundJobs.length === 0? (
                                 <div style={{ opacity: 0.5, fontStyle: 'italic', padding: '8px' }}>No active background jobs</div>
-                            ) : backgroundJobs.map(job => (
+                            ): backgroundJobs.map(job => (
                                 <div key={job.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--vscode-list-hoverBackground)', padding: '8px 12px', borderRadius: '4px' }}>
-                                    <div className={job.status === 'running' ? 'animate-spin' : ''} style={{ width: '12px', height: '12px', border: '2px solid var(--terminator-accent)', borderTopColor: 'transparent', borderRadius: '50%' }}></div>
+                                    <div className={job.status === 'running'? 'animate-spin': ''} style={{ width: '12px', height: '12px', border: '2px solid var(--terminator-accent)', borderTopColor: 'transparent', borderRadius: '50%' }}></div>
                                     <div style={{ flex: 1 }}>
                                         <div style={{ fontWeight: 500 }}>{job.name}</div>
                                         <div style={{ opacity: 0.5, fontSize: '10px' }}>{job.status}... {job.progress}%</div>

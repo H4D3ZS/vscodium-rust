@@ -54,7 +54,7 @@ const ModelSelectorPanel: React.FC = () => {
             // Fallback: try the other backend if the primary fails
             try {
                 const backend = localStorage.getItem('inferenceBackend') || 'lemonade';
-                const fallback = backend === 'lemonade' ? 'llama-cpp' : 'lemonade';
+                const fallback = backend === 'lemonade'? 'llama-cpp': 'lemonade';
                 const ids = await invoke<string[]>('list_provider_models', { provider: fallback });
                 if (ids?.length) {
                     setModels(ids.map((id) => ({
@@ -173,18 +173,18 @@ const ModelSelectorPanel: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {models.length === 0 ? (
+                    {models.length === 0? (
                         <div style={{ opacity: 0.5, fontSize: 12, padding: 8 }}>
                             No models found. Run: <code>ollama pull qwen3.5:12b</code>
                         </div>
-                    ) : (
+                    ): (
                         models.map((model) => (
                             <div
                                 key={model.name}
                                 style={{
                                     padding: 12,
-                                    background: currentModel === model.name ? '#9ece6a20' : '#ffffff05',
-                                    border: `1px solid ${currentModel === model.name ? '#9ece6a' : '#ffffff10'}`,
+                                    background: currentModel === model.name? '#9ece6a20': '#ffffff05',
+                                    border: `1px solid ${currentModel === model.name? '#9ece6a': '#ffffff10'}`,
                                     borderRadius: 4,
                                     cursor: 'pointer',
                                     transition: 'all 0.2s',
@@ -195,11 +195,11 @@ const ModelSelectorPanel: React.FC = () => {
                                     <div style={{ fontWeight: 500, fontSize: 12 }}>
                                         {model.name}
                                         {model.recommended && <span style={{ marginLeft: 8, color: '#9ece6a' }}>Recommended</span>}
-                                        {currentModel === model.name && <span style={{ marginLeft: 8, color: '#9ece6a' }}>✓ Active</span>}
+                                        {currentModel === model.name && <span style={{ marginLeft: 8, color: '#9ece6a' }}> Active</span>}
                                     </div>
                                 </div>
                                 <div style={{ fontSize: 11, opacity: 0.6 }}>
-                                    Context: {model.context_window / 1024}K tokens • Offline: {model.supports_12b_and_below ? '✓' : '✗'}
+                                    Context: {model.context_window / 1024}K tokens • Offline: {model.supports_12b_and_below? '': ''}
                                 </div>
                             </div>
                         ))

@@ -27,7 +27,7 @@ try:
     from qwen_tts import QwenTTS
     HAS_QWEN = True
 except ImportError:
-    print("⚠️ Qwen3-TTS not installed. Using mock TTS.")
+    print(" Qwen3-TTS not installed. Using mock TTS.")
     HAS_QWEN = False
 
 PORT = 8081  # Changed from 8080 (conflict with PostgreSQL/Redis)
@@ -79,7 +79,7 @@ class QwenTTSHandler(http.server.SimpleHTTPRequestHandler):
                 speed = data.get('speed', 1.0)
                 pitch = data.get('pitch', 1.0)
                 
-                print(f"🎤 TTS Request: '{text[:50]}...' (emotion={emotion})")
+                print(f" TTS Request: '{text[:50]}...' (emotion={emotion})")
                 
                 # Generate speech
                 if HAS_QWEN and QwenTTSHandler.tts_engine:
@@ -92,7 +92,7 @@ class QwenTTSHandler(http.server.SimpleHTTPRequestHandler):
                     )
                 else:
                     # Mock audio (silence) for testing
-                    print("⚠️ Using mock TTS (Qwen3-TTS not available)")
+                    print(" Using mock TTS (Qwen3-TTS not available)")
                     audio_data = self.generate_mock_audio()
                 
                 # Send audio response
@@ -110,10 +110,10 @@ class QwenTTSHandler(http.server.SimpleHTTPRequestHandler):
                     
                     self.wfile.write(wav_buffer.getvalue())
                 
-                print(f"✅ Sent {len(audio_data)} bytes of audio")
+                print(f" Sent {len(audio_data)} bytes of audio")
                 
             except Exception as e:
-                print(f"❌ TTS Error: {e}")
+                print(f" TTS Error: {e}")
                 self.send_response(500)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
@@ -139,8 +139,8 @@ def run_server():
     print(f"╚══════════════════════════════════════════════════════════╝")
     print(f"")
     print(f" Port: {PORT}")
-    print(f"📍 URL: http://localhost:{PORT}")
-    print(f"🧠 Qwen3-TTS: {'✅ Available' if HAS_QWEN else '⚠️ Not installed'}")
+    print(f" URL: http://localhost:{PORT}")
+    print(f" Qwen3-TTS: {' Available' if HAS_QWEN else ' Not installed'}")
     print(f"")
     print(f"Endpoints:")
     print(f"  GET  /tts   - Generate speech (POST with JSON body)")
@@ -158,8 +158,8 @@ def run_server():
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
-            print("\n\n👋 Shutting down server...")
+            print("\n\n Shutting down server...")
             httpd.shutdown()
 
-if __name__ == "__main__":
+if __name__== "__main__":
     run_server()

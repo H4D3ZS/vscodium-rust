@@ -78,7 +78,7 @@ const IPhoneAcheronPanel: React.FC = () => {
             const root = await resolveEmulatorProjectPath();
             setAchronPath(root);
             const bin = await probeEmulatorBinary(root);
-            setBinaryStatus(bin ? `Found: ${bin.split(/[\\/]/).pop()}` : 'Build acheron first: cmake -B build && cmake --build build --config Release');
+            setBinaryStatus(bin? `Found: ${bin.split(/[\\/]/).pop()}`: 'Build acheron first: cmake -B build && cmake --build build --config Release');
         }).catch(console.error);
     }, []);
 
@@ -124,7 +124,7 @@ const IPhoneAcheronPanel: React.FC = () => {
     }, []);
 
     const handleCreateStubRamdisk = async () => {
-        const sep = isWindowsHost() ? '\\' : '/';
+        const sep = isWindowsHost()? '\\': '/';
         const root = achronPath.trim() || await resolveEmulatorProjectPath();
         const outPath = `${root}${sep}out${sep}raw${sep}initrd.bin`;
         try {
@@ -222,13 +222,13 @@ const IPhoneAcheronPanel: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
                     {isRunning
-                        ? <i className="codicon codicon-debug-stop" title="Stop" onClick={handleStop} style={{ ...toolbarIcon, color: '#ff5f57', opacity: 0.9 }} />
-                        : <i className="codicon codicon-play" title="Launch" onClick={status === 'launching' ? undefined : handleLaunch} style={{ ...toolbarIcon, color: '#28c840', opacity: status === 'launching' ? 0.4 : 0.9 }} />}
+? <i className="codicon codicon-debug-stop" title="Stop" onClick={handleStop} style={{ ...toolbarIcon, color: '#ff5f57', opacity: 0.9 }} />
+: <i className="codicon codicon-play" title="Launch" onClick={status === 'launching'? undefined: handleLaunch} style={{ ...toolbarIcon, color: '#28c840', opacity: status === 'launching'? 0.4: 0.9 }} />}
                     <i className="codicon codicon-home" title="Home" onClick={handleHome} style={toolbarIcon} />
                     <i className="codicon codicon-device-camera" title="Screenshot" onClick={handleScreenshot} style={toolbarIcon} />
                     <i className="codicon codicon-screen-normal" title="Rotate" onClick={handleRotate} style={toolbarIcon} />
-                    <i className="codicon codicon-terminal" title="Serial console" onClick={() => setShowConsole(v => !v)} style={{ ...toolbarIcon, color: showConsole ? '#63b3ed' : toolbarIcon.color }} />
-                    <i className="codicon codicon-settings-gear" title="Advanced setup" onClick={() => setShowAdvanced(v => !v)} style={{ ...toolbarIcon, color: showAdvanced ? '#63b3ed' : toolbarIcon.color }} />
+                    <i className="codicon codicon-terminal" title="Serial console" onClick={() => setShowConsole(v => !v)} style={{ ...toolbarIcon, color: showConsole? '#63b3ed': toolbarIcon.color }} />
+                    <i className="codicon codicon-settings-gear" title="Advanced setup" onClick={() => setShowAdvanced(v => !v)} style={{ ...toolbarIcon, color: showAdvanced? '#63b3ed': toolbarIcon.color }} />
                 </div>
             </div>
 
@@ -239,7 +239,7 @@ const IPhoneAcheronPanel: React.FC = () => {
                     background: '#0b0b0d', borderRadius: '14% / 6.5%', padding: '2.2%',
                     boxShadow: '0 0 0 2px #2a2a2e, 0 18px 50px rgba(0,0,0,0.7)', boxSizing: 'border-box',
                 }}>
-                    {frameDataUrl ? (
+                    {frameDataUrl? (
                         <img
                             ref={displayImgRef}
                             src={frameDataUrl}
@@ -250,12 +250,12 @@ const IPhoneAcheronPanel: React.FC = () => {
                             onMouseUp={handleDisplayPointerUp}
                             style={{ width: '100%', height: '100%', objectFit: 'fill', borderRadius: '12% / 5.6%', cursor: 'pointer', userSelect: 'none', display: 'block' }}
                         />
-                    ) : (
+                    ): (
                         <div
-                            onClick={status === 'launching' ? undefined : handleLaunch}
-                            style={{ width: '100%', height: '100%', borderRadius: '12% / 5.6%', background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, cursor: status === 'launching' ? 'default' : 'pointer' }}
+                            onClick={status === 'launching'? undefined: handleLaunch}
+                            style={{ width: '100%', height: '100%', borderRadius: '12% / 5.6%', background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, cursor: status === 'launching'? 'default': 'pointer' }}
                         >
-                            {status === 'launching' ? (
+                            {status === 'launching'? (
                                 <>
                                     {/* Real iPhone boot screen — black + Apple logo + boot bar.
                                         Once the emulator streams real frames, iOS renders its own
@@ -268,9 +268,9 @@ const IPhoneAcheronPanel: React.FC = () => {
                                         <div style={{ height: '100%', background: '#fff', borderRadius: 2, animation: 'ios-boot 2.4s ease-in-out infinite' }} />
                                     </div>
                                 </>
-                            ) : isRunning ? (
+                            ): isRunning? (
                                 <div style={{ color: '#94a3b8', fontSize: 12 }}>⟳ Waiting for first frame…</div>
-                            ) : (
+                            ): (
                                 <>
                                     <i className="codicon codicon-play-circle" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 46, color: '#3b82f6' }} />
                                     <div style={{ color: '#cbd5e1', fontSize: 13, fontWeight: 600 }}>Tap to launch {deviceDisplayName}</div>
@@ -307,8 +307,8 @@ const IPhoneAcheronPanel: React.FC = () => {
                         <input value={ipswPath} onChange={e => setIpswPath(e.target.value)} placeholder="Path to .ipsw" style={inputStyle} />
                     </div>
                     <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-                        <button onClick={handlePrepareFirmware} disabled={preparing} style={{ flex: 2, padding: '5px 0', fontSize: 10, fontWeight: 600, background: preparing ? '#3a2f1e' : '#1e3a2f', color: preparing ? '#fbbf24' : '#4ade80', border: '1px solid #2b6c4f', borderRadius: 4, cursor: preparing ? 'wait' : 'pointer' }}>
-                            {preparing ? '⟳ Preparing IPSW…' : 'Prepare Firmware'}
+                        <button onClick={handlePrepareFirmware} disabled={preparing} style={{ flex: 2, padding: '5px 0', fontSize: 10, fontWeight: 600, background: preparing? '#3a2f1e': '#1e3a2f', color: preparing? '#fbbf24': '#4ade80', border: '1px solid #2b6c4f', borderRadius: 4, cursor: preparing? 'wait': 'pointer' }}>
+                            {preparing? '⟳ Preparing IPSW…': 'Prepare Firmware'}
                         </button>
                         <button onClick={handleCreateStubRamdisk} style={{ flex: 1, padding: '5px 0', fontSize: 10, fontWeight: 600, background: '#1e3a5f', color: '#63b3ed', border: '1px solid #2b6cb0', borderRadius: 4, cursor: 'pointer' }}>
                             Stub Ramdisk
@@ -323,9 +323,9 @@ const IPhoneAcheronPanel: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 12px', background: '#0f172a', borderBottom: '1px solid #1e293b' }}>
                         <span style={{ fontSize: 10, fontWeight: 600, color: '#64748b' }}>DARWIN SERIAL CONSOLE</span>
                         <div style={{ display: 'flex', gap: 8 }}>
-                            <button onClick={() => setAutoScroll(v => !v)} style={{ fontSize: 9, padding: '1px 6px', background: autoScroll ? '#1e3a5f' : 'transparent', border: '1px solid #334155', borderRadius: 2, color: '#94a3b8', cursor: 'pointer' }}>{autoScroll ? '⬇ Auto' : 'Manual'}</button>
+                            <button onClick={() => setAutoScroll(v => !v)} style={{ fontSize: 9, padding: '1px 6px', background: autoScroll? '#1e3a5f': 'transparent', border: '1px solid #334155', borderRadius: 2, color: '#94a3b8', cursor: 'pointer' }}>{autoScroll? ' Auto': 'Manual'}</button>
                             <button onClick={() => setConsoleLines([])} style={{ fontSize: 9, padding: '1px 6px', background: 'transparent', border: '1px solid #334155', borderRadius: 2, color: '#94a3b8', cursor: 'pointer' }}>Clear</button>
-                            <button onClick={() => setShowConsole(false)} style={{ fontSize: 9, padding: '1px 6px', background: 'transparent', border: '1px solid #334155', borderRadius: 2, color: '#94a3b8', cursor: 'pointer' }}>✕</button>
+                            <button onClick={() => setShowConsole(false)} style={{ fontSize: 9, padding: '1px 6px', background: 'transparent', border: '1px solid #334155', borderRadius: 2, color: '#94a3b8', cursor: 'pointer' }}></button>
                         </div>
                     </div>
                     <div style={{ flex: 1, overflowY: 'auto', padding: '6px 12px', lineHeight: '1.5', fontSize: 10, fontFamily: 'var(--font-mono, monospace)' }}>

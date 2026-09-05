@@ -117,7 +117,7 @@ import { invoke } from '../tauri_bridge';
 export interface AIRIConfig {
   workspacePath: string;
   ollamaHost: string;
-  /** Optional headers for the browser Ollama client (e.g. `Authorization: Bearer …` behind nginx). */
+  /**Optional headers for the browser Ollama client (e.g. `Authorization: Bearer …` behind nginx). */
   ollamaHeaders?: Record<string, string>;
   consciousnessEnabled: boolean;
   biologyEnabled: boolean;
@@ -247,11 +247,11 @@ export class AIRICore {
 
   constructor(config: Partial<AIRIConfig> = {}) {
     const browserActiveRoot =
-      typeof window !== 'undefined' ? localStorage.getItem('activeRoot') : null;
+      typeof window !== 'undefined'? localStorage.getItem('activeRoot'): null;
     const resolvedWorkspacePath =
       config.workspacePath ||
       browserActiveRoot ||
-      (typeof process !== 'undefined' ? process.cwd() : '/');
+      (typeof process !== 'undefined'? process.cwd(): '/');
     this.config = {
       workspacePath: resolvedWorkspacePath,
       ollamaHost: config.ollamaHost || 'http://localhost:13305',
@@ -274,7 +274,7 @@ export class AIRICore {
 
     this.ollama = new Ollama({
       host: this.config.ollamaHost,
-      ...(this.config.ollamaHeaders ? { headers: this.config.ollamaHeaders } : {}),
+      ...(this.config.ollamaHeaders? { headers: this.config.ollamaHeaders }: {}),
     });
     this.selfHealing = createSelfHealing(this.config.workspacePath);
     this.selfEvolution = createSelfEvolution(this.config.workspacePath);
@@ -293,7 +293,7 @@ export class AIRICore {
     }
     if (Object.keys(configOverride).length > 0) {
       const browserActiveRoot =
-        typeof window !== 'undefined' ? localStorage.getItem('activeRoot') : null;
+        typeof window !== 'undefined'? localStorage.getItem('activeRoot'): null;
       const resolvedWorkspacePath =
         configOverride.workspacePath ||
         browserActiveRoot ||
@@ -312,7 +312,7 @@ export class AIRICore {
       this.autonomousDev = createAIRIAutonomousDevelopment(this.config.workspacePath);
       this.ollama = new Ollama({
         host: this.config.ollamaHost,
-        ...(this.config.ollamaHeaders ? { headers: this.config.ollamaHeaders } : {}),
+        ...(this.config.ollamaHeaders? { headers: this.config.ollamaHeaders }: {}),
       });
     }
 
@@ -696,7 +696,7 @@ export class AIRICore {
       this.emitStatus('tick');
     }, 300000);
 
-    console.log('[AIRI] 🧠 Autonomous operation started');
+    console.log('[AIRI] Autonomous operation started');
   }
 
   /**
@@ -841,7 +841,7 @@ export class AIRICore {
    */
   getVoiceStatus(): void {
     const ready = isVoiceReady();
-    const queueStatus = (window as any).airiTts ? (window as any).airiTts.getQueueStatus() : { queueLength: 0, isSpeaking: false };
+    const queueStatus = (window as any).airiTts? (window as any).airiTts.getQueueStatus(): { queueLength: 0, isSpeaking: false };
 
   }
 
@@ -872,7 +872,7 @@ export class AIRICore {
       healing: this.selfHealing.getStatus(),
       decision: airiAutonomousDecision.getStats(),
       memory: airiMemory.getStats(),
-      voice: isVoiceReady() ? 'ready' : 'not_initialized',
+      voice: isVoiceReady()? 'ready': 'not_initialized',
       ollama: { host: this.config.ollamaHost, connected: this.isRunning },
       evolution: this.selfEvolution?.getStats() || { enabled: false },
     };
@@ -1002,7 +1002,7 @@ export class AIRICore {
  */
 export async function initializeAIRI(): Promise<AIRICore> {
   const browserActiveRoot =
-    typeof window !== 'undefined' ? localStorage.getItem('activeRoot') : null;
+    typeof window !== 'undefined'? localStorage.getItem('activeRoot'): null;
   const airi = new AIRICore({
     workspacePath: browserActiveRoot || process.cwd(),
     consciousnessEnabled: true,

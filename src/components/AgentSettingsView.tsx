@@ -25,12 +25,12 @@ export type AgentSettingsCategory =
 
 interface AgentSettingsViewProps {
     category?: AgentSettingsCategory;
-    /** Hide the banner / header card; useful when rendered inside a
+    /**Hide the banner / header card; useful when rendered inside a
      *  category page that already has its own title. */
     hideHeader?: boolean;
 }
 
-/** Decide whether a section keyed `data-cat="X"` should render in a given
+/**Decide whether a section keyed `data-cat="X"` should render in a given
  *  category page. Returning true from a render path is harmless; we use it
  *  to short-circuit hidden categories so heavy children don't mount. */
 function visibleInCategory(cat: AgentSettingsCategory | undefined, sectionCat: AgentSettingsCategory): boolean {
@@ -81,7 +81,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
     const showVrmAvatar = useStore(state => state.showVrmAvatar);
     const setShowVrmAvatar = useStore(state => state.setShowVrmAvatar);
     const [pullInput, setPullInput] = useState('');
-    /** Raw bearer for nginx-proxied Ollama; persisted in api_keys.json as `ollama`. */
+    /**Raw bearer for nginx-proxied Ollama; persisted in api_keys.json as `ollama`. */
     const [ollamaBearerDraft, setOllamaBearerDraft] = useState('');
     const [ollamaBearerSaved, setOllamaBearerSaved] = useState(false);
     const [ollamaBearerStatus, setOllamaBearerStatus] = useState<'idle' | 'saving' | 'ok' | 'error'>('idle');
@@ -184,22 +184,22 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
 
                 setApiKeys(prev => {
                     const newKeys = {
-                        anthropic: keys.anthropic ? '••••••••' + (keys.anthropic.slice(-4)) : '',
-                        google: keys.google ? '••••••••' + (keys.google.slice(-4)) : '',
-                        openai: keys.openai ? '••••••••' + (keys.openai.slice(-4)) : '',
-                        groq: (keys as any).groq ? '••••••••' + ((keys as any).groq.slice(-4)) : '',
-                        openrouter: (keys as any).openrouter ? '••••••••' + ((keys as any).openrouter.slice(-4)) : '',
-                        deepseek: (keys as any).deepseek ? '••••••••' + String((keys as any).deepseek).slice(-4) : '',
-                        mimo: (keys as any).mimo ? '••••••••' + String((keys as any).mimo).slice(-4) : '',
-                        cyberifrit: (keys as any).cyberifrit ? '••••••••' + String((keys as any).cyberifrit).slice(-4) : '',
-                        highwayapi: (keys as any).highwayapi ? '••••••••' + String((keys as any).highwayapi).slice(-4) : '',
-                        mistral: (keys as any).mistral ? '********' + String((keys as any).mistral).slice(-4) : '',
-                        xai: (keys as any).xai ? '********' + String((keys as any).xai).slice(-4) : '',
-                        cerebras: (keys as any).cerebras ? '********' + String((keys as any).cerebras).slice(-4) : '',
-                        alibaba: (keys as any).alibaba ? '********' + String((keys as any).alibaba).slice(-4) : '',
-                        nvidia: (keys as any).nvidia ? '********' + String((keys as any).nvidia).slice(-4) : '',
-                        elevenlabs: (keys as any).elevenlabs_api_key ? '••••••••' + ((keys as any).elevenlabs_api_key.slice(-4)) : '',
-                        ollama: (keys as any).ollama ? '••••••••' + String((keys as any).ollama).slice(-4) : '',
+                        anthropic: keys.anthropic? '••••••••' + (keys.anthropic.slice(-4)): '',
+                        google: keys.google? '••••••••' + (keys.google.slice(-4)): '',
+                        openai: keys.openai? '••••••••' + (keys.openai.slice(-4)): '',
+                        groq: (keys as any).groq? '••••••••' + ((keys as any).groq.slice(-4)): '',
+                        openrouter: (keys as any).openrouter? '••••••••' + ((keys as any).openrouter.slice(-4)): '',
+                        deepseek: (keys as any).deepseek? '••••••••' + String((keys as any).deepseek).slice(-4): '',
+                        mimo: (keys as any).mimo? '••••••••' + String((keys as any).mimo).slice(-4): '',
+                        cyberifrit: (keys as any).cyberifrit? '••••••••' + String((keys as any).cyberifrit).slice(-4): '',
+                        highwayapi: (keys as any).highwayapi? '••••••••' + String((keys as any).highwayapi).slice(-4): '',
+                        mistral: (keys as any).mistral? '********' + String((keys as any).mistral).slice(-4): '',
+                        xai: (keys as any).xai? '********' + String((keys as any).xai).slice(-4): '',
+                        cerebras: (keys as any).cerebras? '********' + String((keys as any).cerebras).slice(-4): '',
+                        alibaba: (keys as any).alibaba? '********' + String((keys as any).alibaba).slice(-4): '',
+                        nvidia: (keys as any).nvidia? '********' + String((keys as any).nvidia).slice(-4): '',
+                        elevenlabs: (keys as any).elevenlabs_api_key? '••••••••' + ((keys as any).elevenlabs_api_key.slice(-4)): '',
+                        ollama: (keys as any).ollama? '••••••••' + String((keys as any).ollama).slice(-4): '',
                         openai_base_url: (keys as any).openai_base_url || '',
                         anthropic_base_url: (keys as any).anthropic_base_url || '',
                         google_base_url: (keys as any).google_base_url || '',
@@ -406,7 +406,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             fontSize: '9px',
                             fontWeight: 700,
                             border: '1px solid rgba(255,255,255,0.1)',
-                            color: ollamaStatus === 'running' ? '#4ade80' : 'rgba(255,255,255,0.6)'
+                            color: ollamaStatus === 'running'? '#4ade80': 'rgba(255,255,255,0.6)'
                         }}>
                             {(agentModel.split('|').pop() || '').split(':')[0].toUpperCase()}
                         </div>
@@ -428,13 +428,13 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                 onClick={() => setAvatarCharacter(char.id)}
                                 style={{
                                     padding: '10px 8px',
-                                    background: avatarCharacter === char.id ? `${char.color}20` : 'rgba(255,255,255,0.02)',
-                                    border: `1px solid ${avatarCharacter === char.id ? char.color : 'rgba(255,255,255,0.08)'}`,
+                                    background: avatarCharacter === char.id? `${char.color}20`: 'rgba(255,255,255,0.02)',
+                                    border: `1px solid ${avatarCharacter === char.id? char.color: 'rgba(255,255,255,0.08)'}`,
                                     borderRadius: '8px',
                                     cursor: 'pointer',
                                     textAlign: 'center',
                                     transition: 'all 0.2s',
-                                    opacity: avatarCharacter === char.id ? 1 : 0.7,
+                                    opacity: avatarCharacter === char.id? 1: 0.7,
                                 }}
                             >
                                 <div style={{
@@ -518,7 +518,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                         padding: '6px 10px',
                                         fontSize: '11px',
                                         borderRadius: '4px',
-                                        opacity: isCustomAvatarEnabled ? 1 : 0.5,
+                                        opacity: isCustomAvatarEnabled? 1: 0.5,
                                     }}
                                 />
                             </div>
@@ -541,7 +541,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                         padding: '6px 10px',
                                         fontSize: '11px',
                                         borderRadius: '4px',
-                                        opacity: isCustomAvatarEnabled ? 1 : 0.5,
+                                        opacity: isCustomAvatarEnabled? 1: 0.5,
                                     }}
                                 />
                             </div>
@@ -557,16 +557,16 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                 disabled={!isCustomAvatarEnabled || (!customStickerUrl && !customWallpaperUrl)}
                                 style={{
                                     background: isCustomAvatarEnabled && (customStickerUrl || customWallpaperUrl)
-                                        ? 'var(--vscode-button-background)'
-                                        : 'rgba(255,255,255,0.1)',
+? 'var(--vscode-button-background)'
+: 'rgba(255,255,255,0.1)',
                                     color: isCustomAvatarEnabled && (customStickerUrl || customWallpaperUrl)
-                                        ? 'var(--vscode-button-foreground)'
-                                        : 'rgba(255,255,255,0.3)',
+? 'var(--vscode-button-foreground)'
+: 'rgba(255,255,255,0.3)',
                                     border: 'none',
                                     padding: '6px 12px',
                                     fontSize: '10px',
                                     borderRadius: '4px',
-                                    cursor: isCustomAvatarEnabled && (customStickerUrl || customWallpaperUrl) ? 'pointer' : 'not-allowed',
+                                    cursor: isCustomAvatarEnabled && (customStickerUrl || customWallpaperUrl)? 'pointer': 'not-allowed',
                                     alignSelf: 'flex-start',
                                     marginTop: '4px',
                                 }}
@@ -629,11 +629,11 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                         padding: '4px 12px',
                                         fontSize: '9px',
                                         fontWeight: 600,
-                                        background: showVrmAvatar ? 'linear-gradient(135deg, #c084fc 0%, #a855f7 100%)' : 'rgba(255,255,255,0.05)',
-                                        color: showVrmAvatar ? '#fff' : 'rgba(255,255,255,0.3)',
+                                        background: showVrmAvatar? 'linear-gradient(135deg, #c084fc 0%, #a855f7 100%)': 'rgba(255,255,255,0.05)',
+                                        color: showVrmAvatar? '#fff': 'rgba(255,255,255,0.3)',
                                         border: 'none',
                                         borderRadius: '4px',
-                                        cursor: showVrmAvatar ? 'pointer' : 'not-allowed',
+                                        cursor: showVrmAvatar? 'pointer': 'not-allowed',
                                         textTransform: 'uppercase',
                                     }}
                                 >
@@ -646,7 +646,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             Configure the 3D anime avatar that appears in the AIRI panel. Supports VRM 0.x/1.0 models.
                         </div>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', opacity: showVrmAvatar ? 1 : 0.4, pointerEvents: showVrmAvatar ? 'auto' : 'none', transition: 'all 0.2s' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', opacity: showVrmAvatar? 1: 0.4, pointerEvents: showVrmAvatar? 'auto': 'none', transition: 'all 0.2s' }}>
                             {/* Pre-loaded Models */}
                             <div>
                                 <label style={{ fontSize: '9px', opacity: 0.7, display: 'block', marginBottom: '6px' }}>
@@ -676,9 +676,9 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                             }}
                                             style={{
                                                 background: vrmModelId === model.id && !vrmModelUrl
-                                                    ? 'rgba(168,85,247,0.3)'
-                                                    : 'rgba(255,255,255,0.05)',
-                                                border: `1px solid ${vrmModelId === model.id && !vrmModelUrl ? '#c084fc' : 'rgba(255,255,255,0.1)'}`,
+? 'rgba(168,85,247,0.3)'
+: 'rgba(255,255,255,0.05)',
+                                                border: `1px solid ${vrmModelId === model.id && !vrmModelUrl? '#c084fc': 'rgba(255,255,255,0.1)'}`,
                                                 padding: '6px 8px',
                                                 borderRadius: '4px',
                                                 color: 'var(--vscode-foreground)',
@@ -739,9 +739,9 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                                     alignItems: 'center',
                                                     padding: '6px 8px',
                                                     background: vrmModelUrl === model.url
-                                                        ? 'rgba(168,85,247,0.2)'
-                                                        : 'rgba(255,255,255,0.02)',
-                                                    border: `1px solid ${vrmModelUrl === model.url ? '#c084fc' : 'rgba(255,255,255,0.1)'}`,
+? 'rgba(168,85,247,0.2)'
+: 'rgba(255,255,255,0.02)',
+                                                    border: `1px solid ${vrmModelUrl === model.url? '#c084fc': 'rgba(255,255,255,0.1)'}`,
                                                     borderRadius: '4px',
                                                 }}
                                             >
@@ -758,8 +758,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                                         }}
                                                         style={{
                                                             background: vrmModelUrl === model.url
-                                                                ? 'var(--vscode-button-background)'
-                                                                : 'rgba(255,255,255,0.1)',
+? 'var(--vscode-button-background)'
+: 'rgba(255,255,255,0.1)',
                                                             color: 'var(--vscode-button-foreground)',
                                                             border: 'none',
                                                             padding: '3px 8px',
@@ -768,7 +768,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                                             cursor: 'pointer',
                                                         }}
                                                     >
-                                                        {vrmModelUrl === model.url ? '✓ Active' : 'Use'}
+                                                        {vrmModelUrl === model.url? ' Active': 'Use'}
                                                     </button>
                                                     <button
                                                         onClick={() => {
@@ -902,8 +902,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         </select>
 
                         {/* ── Hybrid deep-reasoning planner ── */}
-                        <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--vscode-dropdown-border)', opacity: ollamaServerMode === 'local' ? 0.55 : 1 }}>
-                            <label style={{ fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', cursor: ollamaServerMode === 'local' ? 'not-allowed' : 'pointer' }}>
+                        <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--vscode-dropdown-border)', opacity: ollamaServerMode === 'local'? 0.55: 1 }}>
+                            <label style={{ fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', cursor: ollamaServerMode === 'local'? 'not-allowed': 'pointer' }}>
                                 <input
                                     type="checkbox"
                                     checked={plannerEnabled && ollamaServerMode !== 'local'}
@@ -914,8 +914,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             </label>
                             <div style={{ fontSize: '10px', opacity: 0.6, margin: '4px 0 8px 22px' }}>
                                 {ollamaServerMode === 'local'
-                                    ? 'Off for Local Ollama — single-model agent on your picked 4b–14b model (fastest on a desk PC). Enable Cloud or Self-Hosted GPU for hybrid plan→act.'
-                                    : 'A stronger model plans & reasons (iteration 0), then the executor above carries out the plan and self-verifies with cargo check / typecheck.'}
+? 'Off for Local Ollama — single-model agent on your picked 4b–14b model (fastest on a desk PC). Enable Cloud or Self-Hosted GPU for hybrid plan→act.'
+: 'A stronger model plans & reasons (iteration 0), then the executor above carries out the plan and self-verifies with cargo check / typecheck.'}
                             </div>
                             {plannerEnabled && ollamaServerMode !== 'local' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginLeft: '22px' }}>
@@ -923,17 +923,17 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                         <input type="checkbox" checked={hybridAuto} onChange={(e) => setHybridAuto(e.target.checked)} />
                                         Auto-detect best planner
                                     </label>
-                                    {hybridAuto ? (
+                                    {hybridAuto? (
                                         <div style={{ fontSize: '10px', opacity: 0.7 }}>
                                             {(() => {
                                                 const pick = classifyModels(availableModels as any);
                                                 if (!pick.planner) return 'No models available — add a key or pull an Ollama model.';
                                                 const plan = pick.planner.id;
-                                                const exec = pick.executor ? pick.executor.id : agentModel.split('|').pop();
+                                                const exec = pick.executor? pick.executor.id: agentModel.split('|').pop();
                                                 return `Auto: planner → ${plan}  ·  executor → ${exec}`;
                                             })()}
                                         </div>
-                                    ) : (
+                                    ): (
                                         <select
                                             value={plannerModel}
                                             onChange={(e) => setPlannerModel(e.target.value)}
@@ -1012,15 +1012,15 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                     {keyStatus[key] && (
                                         <span style={{
                                             fontSize: '10px', fontWeight: 600,
-                                            color: keyStatus[key].startsWith('Dead') ? '#f87171' : '#4ade80'
+                                            color: keyStatus[key].startsWith('Dead')? '#f87171': '#4ade80'
                                         }}>
-                                            {keyStatus[key].startsWith('Dead') ? 'Invalid' : 'Valid'}
+                                            {keyStatus[key].startsWith('Dead')? 'Invalid': 'Valid'}
                                         </span>
                                     )}
                                 </div>
                                 <div style={{ display: 'flex', gap: '4px' }}>
                                     <input
-                                        type={showKeys[key] ? 'text' : 'password'}
+                                        type={showKeys[key]? 'text': 'password'}
                                         value={(apiKeys as any)[key]}
                                         onChange={e => setApiKeys(prev => ({ ...prev, [key]: e.target.value }))}
                                         placeholder={placeholder}
@@ -1028,16 +1028,16 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                             flex: 1,
                                             background: 'var(--vscode-input-background)',
                                             color: 'var(--vscode-input-foreground)',
-                                            border: `1px solid ${keyStatus[key]?.startsWith('Dead') ? '#f87171' : keyStatus[key] ? '#4ade80' : 'var(--vscode-input-border)'}`,
+                                            border: `1px solid ${keyStatus[key]?.startsWith('Dead')? '#f87171': keyStatus[key]? '#4ade80': 'var(--vscode-input-border)'}`,
                                             padding: '4px 8px', fontSize: '11px', borderRadius: '2px', fontFamily: 'monospace'
                                         }}
                                     />
                                     <button
                                         onClick={() => setShowKeys(prev => ({ ...prev, [key]: !prev[key] }))}
                                         style={{ background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '4px 6px', fontSize: '11px', cursor: 'pointer', borderRadius: '2px' }}
-                                        title={showKeys[key] ? 'Hide' : 'Show'}
+                                        title={showKeys[key]? 'Hide': 'Show'}
                                     >
-                                        <i className={`codicon codicon-${showKeys[key] ? 'eye-closed' : 'eye'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
+                                        <i className={`codicon codicon-${showKeys[key]? 'eye-closed': 'eye'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                                     </button>
                                 </div>
 
@@ -1066,15 +1066,15 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             disabled={savingKeys || isDetectingModels}
                             style={{
                                 marginTop: '6px',
-                                background: savingKeys || isDetectingModels ? 'var(--vscode-button-secondaryBackground)' : 'var(--vscode-button-background)',
+                                background: savingKeys || isDetectingModels? 'var(--vscode-button-secondaryBackground)': 'var(--vscode-button-background)',
                                 color: 'var(--vscode-button-foreground)',
                                 border: 'none', padding: '6px 12px', fontSize: '12px',
-                                cursor: savingKeys || isDetectingModels ? 'wait' : 'pointer', borderRadius: '4px',
+                                cursor: savingKeys || isDetectingModels? 'wait': 'pointer', borderRadius: '4px',
                                 fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center'
                             }}
                         >
                             <i className="codicon codicon-save" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
-                            {savingKeys ? 'Saving...' : isDetectingModels ? 'Detecting models...' : 'Save & Auto-Detect Models'}
+                            {savingKeys? 'Saving...': isDetectingModels? 'Detecting models...': 'Save & Auto-Detect Models'}
                         </button>
 
                         {/* Model detection status */}
@@ -1094,16 +1094,16 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: '6px',
                                 padding: '6px 10px', borderRadius: '6px',
-                                background: detectedModelCount > 0 ? 'rgba(34,197,94,0.10)' : 'rgba(239,68,68,0.10)',
-                                border: `1px solid ${detectedModelCount > 0 ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                                background: detectedModelCount > 0? 'rgba(34,197,94,0.10)': 'rgba(239,68,68,0.10)',
+                                border: `1px solid ${detectedModelCount > 0? 'rgba(34,197,94,0.3)': 'rgba(239,68,68,0.3)'}`,
                                 fontSize: '11px',
-                                color: detectedModelCount > 0 ? '#4ade80' : '#f87171',
+                                color: detectedModelCount > 0? '#4ade80': '#f87171',
                                 fontWeight: 600
                             }}>
-                                <i className={`codicon codicon-${detectedModelCount > 0 ? 'check-all' : 'warning'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                                <i className={`codicon codicon-${detectedModelCount > 0? 'check-all': 'warning'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
                                 {detectedModelCount > 0
-                                    ? `✓ ${detectedModelCount} cloud model${detectedModelCount !== 1 ? 's' : ''} detected — pick one in the AI panel`
-                                    : 'No cloud models detected — check your API keys'}
+? ` ${detectedModelCount} cloud model${detectedModelCount !== 1? 's': ''} detected — pick one in the AI panel`
+: 'No cloud models detected — check your API keys'}
                             </div>
                         )}
                         {keyStatus.error && (
@@ -1147,8 +1147,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             </select>
                             <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '2px' }}>
                                 {ttsStrategy === 'qwen-native'
-                                    ? 'Requires Qwen3-TTS Python server running on port 8080'
-                                    : 'Select the primary voice synthesis engine.'}
+? 'Requires Qwen3-TTS Python server running on port 8080'
+: 'Select the primary voice synthesis engine.'}
                             </div>
                         </div>
 
@@ -1156,15 +1156,15 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <label style={{ fontSize: '11px', opacity: 0.8 }}>ElevenLabs API Key</label>
                                 {keyStatus['elevenlabs'] && (
-                                    <span style={{ fontSize: '10px', fontWeight: 600, color: keyStatus['elevenlabs'].startsWith('Dead') ? '#f87171' : '#4ade80' }}>
-                                        {keyStatus['elevenlabs'].startsWith('Dead') ? 'Invalid' : 'Valid'}
+                                    <span style={{ fontSize: '10px', fontWeight: 600, color: keyStatus['elevenlabs'].startsWith('Dead')? '#f87171': '#4ade80' }}>
+                                        {keyStatus['elevenlabs'].startsWith('Dead')? 'Invalid': 'Valid'}
                                     </span>
                                 )}
                             </div>
                             <div style={{ display: 'flex', gap: '4px' }}>
                                 <input
                                     key={`elevenlabs-input-${apiKeys.elevenlabs?.length || 0}`}
-                                    type={showKeys['elevenlabs'] ? 'text' : 'password'}
+                                    type={showKeys['elevenlabs']? 'text': 'password'}
                                     value={apiKeys.elevenlabs}
                                     onChange={e => setApiKeys(prev => ({ ...prev, elevenlabs: e.target.value }))}
                                     placeholder="sk_... (from elevenlabs.io)"
@@ -1172,16 +1172,16 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                         flex: 1,
                                         background: 'var(--vscode-input-background)',
                                         color: 'var(--vscode-input-foreground)',
-                                        border: `1px solid ${keyStatus['elevenlabs']?.startsWith('Dead') ? '#f87171' : keyStatus['elevenlabs'] ? '#4ade80' : 'var(--vscode-input-border)'}`,
+                                        border: `1px solid ${keyStatus['elevenlabs']?.startsWith('Dead')? '#f87171': keyStatus['elevenlabs']? '#4ade80': 'var(--vscode-input-border)'}`,
                                         padding: '6px 10px', fontSize: '12px', borderRadius: '4px', fontFamily: 'monospace'
                                     }}
                                 />
                                 <button
                                     onClick={() => setShowKeys(prev => ({ ...prev, elevenlabs: !prev.elevenlabs }))}
                                     style={{ background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '6px 8px', fontSize: '11px', cursor: 'pointer', borderRadius: '4px' }}
-                                    title={showKeys['elevenlabs'] ? 'Hide' : 'Show'}
+                                    title={showKeys['elevenlabs']? 'Hide': 'Show'}
                                 >
-                                    <i className={`codicon codicon-${showKeys['elevenlabs'] ? 'eye-closed' : 'eye'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
+                                    <i className={`codicon codicon-${showKeys['elevenlabs']? 'eye-closed': 'eye'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                                 </button>
                                 <button
                                     onClick={async () => {
@@ -1252,13 +1252,13 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <label style={{ fontSize: '11px', opacity: 0.8 }}>OpenAI API Key (for TTS)</label>
                                 {keyStatus['openai'] && (
-                                    <span style={{ fontSize: '10px', fontWeight: 600, color: keyStatus['openai'].startsWith('Dead') ? '#f87171' : '#4ade80' }}>
-                                        {keyStatus['openai'].startsWith('Dead') ? 'Invalid' : 'Valid'}
+                                    <span style={{ fontSize: '10px', fontWeight: 600, color: keyStatus['openai'].startsWith('Dead')? '#f87171': '#4ade80' }}>
+                                        {keyStatus['openai'].startsWith('Dead')? 'Invalid': 'Valid'}
                                     </span>
                                 )}
                             </div>
                             <input
-                                type={showKeys['openai_tts'] ? 'text' : 'password'}
+                                type={showKeys['openai_tts']? 'text': 'password'}
                                 value={apiKeys.openai}
                                 onChange={e => setApiKeys(prev => ({ ...prev, openai: e.target.value }))}
                                 placeholder="sk-... (also used for GPT-4o TTS)"
@@ -1303,7 +1303,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             onClick={() => setIsAddingMcp(!isAddingMcp)}
                             style={{ background: 'transparent', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '10px' }}
                         >
-                            {isAddingMcp ? 'Cancel' : '+ Add Server'}
+                            {isAddingMcp? 'Cancel': '+ Add Server'}
                         </button>
                         </span>
                     </div>
@@ -1324,7 +1324,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                 <option value="command">Stdio Command</option>
                                 <option value="http">HTTP Transport</option>
                             </select>
-                            {newMcpType === 'command' ? (
+                            {newMcpType === 'command'? (
                                 <>
                                     <input
                                         placeholder="Command (e.g. npx)"
@@ -1352,7 +1352,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                         style={{ background: 'rgba(0,0,0,0.2)', color: 'var(--vscode-editor-foreground, #fff)', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }}
                                     />
                                 </>
-                            ) : (
+                            ): (
                                 <input
                                     placeholder="URL (e.g. http://localhost:3000/sse)"
                                     value={newMcpUrl}
@@ -1406,11 +1406,11 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             const cfg = (server as any).config || {};
                             const isHttp = !!cfg.serverUrl || cfg.type === 'http';
                             const enabled = cfg.enabled !== false; // default true
-                            const argsList: string[] = Array.isArray(cfg.args) ? cfg.args : [];
+                            const argsList: string[] = Array.isArray(cfg.args)? cfg.args: [];
                             const subtitle = isHttp
-                                ? cfg.serverUrl
-                                : `${cfg.command || ''} ${argsList.join(' ')}`.trim();
-                            const envCount = cfg.env ? Object.keys(cfg.env).length : 0;
+? cfg.serverUrl
+: `${cfg.command || ''} ${argsList.join(' ')}`.trim();
+                            const envCount = cfg.env? Object.keys(cfg.env).length: 0;
                             return (
                                 <div key={server.name} style={{
                                     display: 'flex', alignItems: 'center', gap: '8px',
@@ -1418,14 +1418,14 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                     background: 'var(--vscode-sideBar-background)',
                                     border: '1px solid var(--vscode-panel-border)',
                                     borderRadius: '2px',
-                                    opacity: enabled ? 1 : 0.55,
+                                    opacity: enabled? 1: 0.55,
                                 }}>
-                                    <i className="codicon codicon-server" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', color: enabled ? '#89d185' : 'rgba(255,255,255,0.4)', opacity: 0.8 }}></i>
+                                    <i className="codicon codicon-server" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', color: enabled? '#89d185': 'rgba(255,255,255,0.4)', opacity: 0.8 }}></i>
                                     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
                                         <span style={{ fontSize: '12px', fontWeight: 600 }}>
                                             {server.name}
                                             <span style={{ marginLeft: 6, padding: '0 4px', fontSize: 9, opacity: 0.55, border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2 }}>
-                                                {isHttp ? 'http' : 'stdio'}
+                                                {isHttp? 'http': 'stdio'}
                                             </span>
                                             {envCount > 0 && (
                                                 <span style={{ marginLeft: 4, padding: '0 4px', fontSize: 9, opacity: 0.55, border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2 }} title="environment variables set">
@@ -1449,11 +1449,11 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                     </div>
                                     <button
                                         onClick={() => setMcpServerEnabled(server.name, !enabled)}
-                                        title={enabled ? 'Disable server (keeps config, stops the process)' : 'Enable server'}
+                                        title={enabled? 'Disable server (keeps config, stops the process)': 'Enable server'}
                                         style={{
-                                            background: enabled ? '#89d185' : 'transparent',
-                                            color: enabled ? '#000' : '#fff',
-                                            border: '1px solid ' + (enabled ? '#89d185' : 'rgba(255,255,255,0.2)'),
+                                            background: enabled? '#89d185': 'transparent',
+                                            color: enabled? '#000': '#fff',
+                                            border: '1px solid ' + (enabled? '#89d185': 'rgba(255,255,255,0.2)'),
                                             padding: '1px 8px',
                                             fontSize: 10,
                                             borderRadius: 10,
@@ -1461,7 +1461,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                             fontWeight: 600,
                                         }}
                                     >
-                                        {enabled ? 'on' : 'off'}
+                                        {enabled? 'on': 'off'}
                                     </button>
                                     <i
                                         className="codicon codicon-trash"

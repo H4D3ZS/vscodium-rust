@@ -204,7 +204,7 @@ pub async fn git_create_checkpoint(
         .map_err(|e| format!("Failed to create checkpoint: {}", e))?;
 
     if is_ai {
-        println!("[CHECKPOINT] ✅ AI checkpoint created: {}", checkpoint.id);
+        println!("[CHECKPOINT] AI checkpoint created: {}", checkpoint.id);
     }
 
     Ok(json!(checkpoint))

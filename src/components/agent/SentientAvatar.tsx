@@ -21,10 +21,10 @@ const STATE_CONFIG: Record<AvatarState, {
     idle:      { img: idleImg,     animation: 'sa-float 3s ease-in-out infinite',     glow: 'rgba(59,130,246,0.2)',   border: 'rgba(255,255,255,0.1)' },
     thinking:  { img: thinkingImg, animation: 'sa-pulse 1s ease-in-out infinite',     glow: 'rgba(167,139,250,0.4)', border: 'rgba(167,139,250,0.5)', badge: '◎' },
     coding:    { img: codingImg,   animation: 'sa-spin 10s linear infinite',          glow: 'rgba(52,211,153,0.35)', border: 'rgba(52,211,153,0.4)',  badge: '⌨' },
-    executing: { img: codingImg,   animation: 'sa-flash 0.6s ease-in-out infinite',   glow: 'rgba(245,158,11,0.4)',  border: 'rgba(245,158,11,0.6)',  badge: '⚡' },
-    browsing:  { img: thinkingImg, animation: 'sa-float 2s ease-in-out infinite',     glow: 'rgba(56,189,248,0.35)', border: 'rgba(56,189,248,0.4)',  badge: '🌐' },
-    success:   { img: idleImg,     animation: 'sa-bounce 0.4s ease-out 2',            glow: 'rgba(16,185,129,0.45)', border: 'rgba(16,185,129,0.6)',  badge: '✓' },
-    error:     { img: errorImg,    animation: 'sa-shake 0.5s linear infinite',        glow: 'rgba(239,68,68,0.4)',   border: '#ef4444',               badge: '✗' },
+    executing: { img: codingImg, animation: 'sa-flash 0.6s ease-in-out infinite', glow: 'rgba(245,158,11,0.4)', border: 'rgba(245,158,11,0.6)', badge: '' },
+    browsing: { img: thinkingImg, animation: 'sa-float 2s ease-in-out infinite', glow: 'rgba(56,189,248,0.35)', border: 'rgba(56,189,248,0.4)', badge: '' },
+    success: { img: idleImg, animation: 'sa-bounce 0.4s ease-out 2', glow: 'rgba(16,185,129,0.45)', border: 'rgba(16,185,129,0.6)', badge: '' },
+    error: { img: errorImg, animation: 'sa-shake 0.5s linear infinite', glow: 'rgba(239,68,68,0.4)', border: '#ef4444', badge: '' },
 };
 
 const SentientAvatar: React.FC<SentientAvatarProps> = ({ state, size = 32 }) => {

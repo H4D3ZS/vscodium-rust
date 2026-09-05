@@ -461,7 +461,7 @@ FIX: [the fix]
       });
       
       const fixMatch = response.response.match(/FIX:\s*(.+)/is);
-      return fixMatch ? fixMatch[1].trim() : null;
+      return fixMatch? fixMatch[1].trim(): null;
     } catch (error) {
       return null;
     }
@@ -520,10 +520,10 @@ FIX: [the fix]
     const { overall, codeHealth, activeIssues } = this.state;
     
     return `
-🏥 Health Report:
-  ❤️  Overall: ${overall}%
-  💻 Code: ${codeHealth}%
-  🐛 Active Issues: ${activeIssues.length}
+ Health Report:
+    Overall: ${overall}%
+   Code: ${codeHealth}%
+   Active Issues: ${activeIssues.length}
     - Critical: ${activeIssues.filter(i => i.severity === 'critical').length}
     - Serious: ${activeIssues.filter(i => i.severity === 'serious').length}
     - Moderate: ${activeIssues.filter(i => i.severity === 'moderate').length}

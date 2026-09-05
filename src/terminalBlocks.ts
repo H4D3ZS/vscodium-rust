@@ -17,11 +17,11 @@ import type { Terminal, IMarker, IDecoration, IDisposable } from '@xterm/xterm';
 
 export interface CommandBlock {
   id: number;
-  /** Marker on the prompt/command line — anchors the gutter decoration. */
+  /**Marker on the prompt/command line — anchors the gutter decoration. */
   promptMarker?: IMarker;
-  /** Marker at output start (OSC 133;C). */
+  /**Marker at output start (OSC 133;C). */
   outputStartMarker?: IMarker;
-  /** Marker at output end (OSC 133;D). */
+  /**Marker at output end (OSC 133;D). */
   outputEndMarker?: IMarker;
   commandLine: string;
   exitCode: number | null;
@@ -30,7 +30,7 @@ export interface CommandBlock {
   cwd: string;
   running: boolean;
   decoration?: IDecoration;
-  /** Full-width Warp-style header band at the command line. */
+  /**Full-width Warp-style header band at the command line. */
   bandDecoration?: IDecoration;
 }
 
@@ -121,8 +121,8 @@ export class CommandBlockTracker {
   // ── OSC 133 dispatch ──────────────────────────────────────────────────────
   private onOsc(data: string): boolean {
     const semi = data.indexOf(';');
-    const kind = semi === -1 ? data : data.slice(0, semi);
-    const rest = semi === -1 ? '' : data.slice(semi + 1);
+    const kind = semi === -1? data: data.slice(0, semi);
+    const rest = semi === -1? '': data.slice(semi + 1);
 
     switch (kind) {
       case 'A':
@@ -185,7 +185,7 @@ export class CommandBlockTracker {
       return;
     }
     const exit = parseInt(exitRaw, 10);
-    block.exitCode = Number.isFinite(exit) ? exit : 0;
+    block.exitCode = Number.isFinite(exit)? exit: 0;
     block.endTime = Date.now();
     block.running = false;
     block.outputEndMarker = this.term.registerMarker(0) || undefined;
@@ -238,13 +238,13 @@ export class CommandBlockTracker {
     });
   }
 
-  /** Render a block as portable Markdown (command + output + exit) for sharing. */
+  /**Render a block as portable Markdown (command + output + exit) for sharing. */
   private blockAsMarkdown(block: CommandBlock): string {
     const out = this.readOutput(block);
-    const code = block.exitCode === 0 ? 'exit 0' : `exit ${block.exitCode}`;
+    const code = block.exitCode === 0? 'exit 0': `exit ${block.exitCode}`;
     const dur = block.startTime && block.endTime
-      ? ` · ${formatDuration(block.endTime - block.startTime)}`
-      : '';
+? ` · ${formatDuration(block.endTime - block.startTime)}`
+: '';
     let md = '```sh\n' + (block.commandLine || '') + '\n```\n';
     if (out) md += '\n```\n' + out + '\n```\n';
     md += `\n_(${code}${dur})_\n`;
@@ -253,9 +253,9 @@ export class CommandBlockTracker {
 
   private blockSummary(block: CommandBlock): string {
     const dur = block.startTime && block.endTime
-      ? ` · ${formatDuration(block.endTime - block.startTime)}`
-      : '';
-    const code = block.exitCode === 0 ? 'exit 0' : `exit ${block.exitCode}`;
+? ` · ${formatDuration(block.endTime - block.startTime)}`
+: '';
+    const code = block.exitCode === 0? 'exit 0': `exit ${block.exitCode}`;
     const cmd = block.commandLine || '(command)';
     return `${cmd}\n${code}${dur}`;
   }
@@ -292,11 +292,11 @@ export class CommandBlockTracker {
     const bar = this.ensureToolbar();
     bar.innerHTML = '';
 
-    const okMark = block.exitCode === 0 ? '✓' : '✗';
-    const dur = block.startTime && block.endTime ? formatDuration(block.endTime - block.startTime) : '';
+    const okMark = block.exitCode === 0? '': '';
+    const dur = block.startTime && block.endTime? formatDuration(block.endTime - block.startTime): '';
     const status = document.createElement('span');
-    status.className = `vscr-tb-status ${block.exitCode === 0 ? 'ok' : 'fail'}`;
-    status.textContent = `${okMark} exit ${block.exitCode}${dur ? ' · ' + dur : ''}`;
+    status.className = `vscr-tb-status ${block.exitCode === 0? 'ok': 'fail'}`;
+    status.textContent = `${okMark} exit ${block.exitCode}${dur? ' · ' + dur: ''}`;
     bar.appendChild(status);
 
     const addBtn = (label: string, fn: () => void) => {
@@ -329,8 +329,8 @@ export class CommandBlockTracker {
     const hostRect = host?.getBoundingClientRect();
     const aRect = anchor.getBoundingClientRect();
     bar.style.display = 'flex';
-    const top = (hostRect ? aRect.top - hostRect.top : aRect.top) + anchor.offsetHeight + 2;
-    let left = hostRect ? aRect.left - hostRect.left : aRect.left;
+    const top = (hostRect? aRect.top - hostRect.top: aRect.top) + anchor.offsetHeight + 2;
+    let left = hostRect? aRect.left - hostRect.left: aRect.left;
     left = Math.max(4, left);
     bar.style.top = `${top}px`;
     bar.style.left = `${left}px`;
@@ -349,7 +349,7 @@ export class CommandBlockTracker {
     setTimeout(() => btn.classList.remove('vscr-tb-flash'), 350);
   }
 
-  /** Scroll the viewport so the line above this block's prompt is at the top. */
+  /**Scroll the viewport so the line above this block's prompt is at the top. */
   private clearToBlock(block: CommandBlock): void {
     const line = block.promptMarker?.line;
     if (typeof line === 'number') this.term.scrollToLine(Math.max(0, line));
@@ -377,13 +377,13 @@ export class CommandBlockTracker {
     if (target !== null) this.term.scrollToLine(target);
   }
 
-  /** Re-run the most recent command (Warp's ⌘↑↵ feel). */
+  /**Re-run the most recent command (Warp's ⌘↑↵ feel). */
   rerunLastCommand(): void {
     const last = this.blocks[this.blocks.length - 1];
     if (last?.commandLine) this.sendInput(last.commandLine + '\r');
   }
 
-  /** Recent unique command lines (most recent first) — feeds the palette. */
+  /**Recent unique command lines (most recent first) — feeds the palette. */
   getCommandHistory(): string[] {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -472,7 +472,7 @@ export class CommandBlockTracker {
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
+  if (s < 60) return `${s.toFixed(s < 10? 1: 0)}s`;
   const m = Math.floor(s / 60);
   return `${m}m ${Math.round(s % 60)}s`;
 }

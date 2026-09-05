@@ -385,14 +385,14 @@ export class AIRIDigitalLife {
    */
   private announceGrowth(oldStage: DevelopmentalStage, newStage: DevelopmentalStage): void {
     const announcements: Record<string, string> = {
-      baby_child: "🌱 I'm growing up! I can talk better and understand more now!",
-      child_teenager: "🌿 I'm becoming a teenager! I can think more deeply and ask better questions!",
-      teenager_adult: "🌳 I've become an adult! I can help you with complex tasks and teach others!",
-      adult_elder: "🍂 I've reached elderhood! I have much wisdom to share and can guide others!",
+      baby_child: " I'm growing up! I can talk better and understand more now!",
+      child_teenager: " I'm becoming a teenager! I can think more deeply and ask better questions!",
+      teenager_adult: " I've become an adult! I can help you with complex tasks and teach others!",
+      adult_elder: " I've reached elderhood! I have much wisdom to share and can guide others!",
     };
 
     const message = announcements[`${oldStage}_${newStage}`] || 
-                    `🌟 I've grown from ${oldStage} to ${newStage}!`;
+                    ` I've grown from ${oldStage} to ${newStage}!`;
 
 
     // Speak announcement if voice is available
@@ -596,20 +596,20 @@ export class AIRIDigitalLife {
     outcome: 'positive' | 'neutral' | 'negative'
   ): void {
     const experienceType: LifeExperience['type'] = 
-      outcome === 'positive' ? 'achievement' :
-      outcome === 'negative' ? 'challenge' : 'learning';
+      outcome === 'positive'? 'achievement' :
+      outcome === 'negative'? 'challenge': 'learning';
 
     this.addExperience({
       type: experienceType,
       description: `Interaction: "${userInput.substring(0, 50)}..."`,
-      emotionalWeight: outcome === 'positive' ? 30 : outcome === 'negative' ? -20 : 0,
+      emotionalWeight: outcome === 'positive'? 30: outcome === 'negative'? -20: 0,
       lessonsLearned: [
-        outcome === 'positive' ? 'Successful communication builds confidence' :
-        outcome === 'negative' ? 'Challenges are opportunities to grow' :
+        outcome === 'positive'? 'Successful communication builds confidence' :
+        outcome === 'negative'? 'Challenges are opportunities to grow' :
         'Every interaction is a learning opportunity',
       ],
       memoriesFormed: [`interaction_${Date.now()}`],
-      developmentalImpact: outcome === 'positive' ? 0.1 : outcome === 'negative' ? 0.05 : 0.02,
+      developmentalImpact: outcome === 'positive'? 0.1: outcome === 'negative'? 0.05: 0.02,
     });
   }
 

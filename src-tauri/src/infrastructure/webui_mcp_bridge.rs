@@ -129,11 +129,11 @@ impl WebUiBridge {
         let listener = match TcpListener::bind(&addr).await {
             Ok(l) => l,
             Err(e) => {
-                eprintln!("[webui-bridge] ⚠️ bind {addr} failed: {e} — trying random port");
+                eprintln!("[webui-bridge] bind {addr} failed: {e} — trying random port");
                 match TcpListener::bind("127.0.0.1:0").await {
                     Ok(l) => l,
                     Err(e2) => {
-                        eprintln!("[webui-bridge] ❌ could not bind any port: {e2}");
+                        eprintln!("[webui-bridge] could not bind any port: {e2}");
                         return;
                     }
                 }
@@ -143,7 +143,7 @@ impl WebUiBridge {
             .local_addr()
             .map(|a| a.to_string())
             .unwrap_or_else(|_| addr.clone());
-        println!("[webui-bridge] ✅ listening at ws://{local}");
+        println!("[webui-bridge] listening at ws://{local}");
 
         loop {
             match listener.accept().await {

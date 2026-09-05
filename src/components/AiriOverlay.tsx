@@ -25,19 +25,19 @@ interface LiveAction {
 }
 
 const TOOL_ICONS: Record<string, string> = {
-    write_to_file: '📝',
-    search_replace_edit: '✂️',
-    apply_shadow_patch: '💾',
-    view_file: '👁️',
-    run_command: '⚡',
-    verify_implementation: '🔬',
-    ghost_test: '👻',
-    list_files: '📁',
-    grep: '🔍',
-    git_commit: '📦',
-    git_add: '➕',
-    save_knowledge_brief: '🧠',
-    create_mission_plan: '🗺️',
+    write_to_file: '',
+    search_replace_edit: '',
+    apply_shadow_patch: '',
+    view_file: '',
+    run_command: '',
+    verify_implementation: '',
+    ghost_test: '',
+    list_files: '',
+    grep: '',
+    git_commit: '',
+    git_add: '',
+    save_knowledge_brief: '',
+    create_mission_plan: '',
 };
 
 const TOOL_LABELS: Record<string, string> = {
@@ -97,7 +97,7 @@ export const AiriOverlay: React.FC = () => {
                 setMood('error');
                 addThought({
                     id: `vision-err-${Date.now()}`,
-                    text: `👁️ Vision: ${analysis.code.errors[0].substring(0, 60)}`,
+                    text: ` Vision: ${analysis.code.errors[0].substring(0, 60)}`,
                     type: 'warning',
                     ttl: 4000
                 });
@@ -109,7 +109,7 @@ export const AiriOverlay: React.FC = () => {
             if (reports.length > 0) {
                 addThought({
                     id: `phase-${Date.now()}`,
-                    text: `💭 Phase-Wrap: ${reports[0].summary?.substring(0, 60) || 'Reflection complete'}`,
+                    text: ` Phase-Wrap: ${reports[0].summary?.substring(0, 60) || 'Reflection complete'}`,
                     type: 'action',
                     ttl: 3000
                 });
@@ -120,7 +120,7 @@ export const AiriOverlay: React.FC = () => {
             const { file, description } = e.payload;
             addThought({
                 id: `edit-prop-${Date.now()}`,
-                text: `✏️ Edit proposed: ${description?.substring(0, 50)}`,
+                text: ` Edit proposed: ${description?.substring(0, 50)}`,
                 type: 'suggestion',
                 ttl: 5000
             });
@@ -132,7 +132,7 @@ export const AiriOverlay: React.FC = () => {
                 setMood('success');
                 addThought({
                     id: `edit-ok-${Date.now()}`,
-                    text: `✅ Edit applied to ${file?.split('/').pop()}`,
+                    text: ` Edit applied to ${file?.split('/').pop()}`,
                     type: 'success',
                     ttl: 3000
                 });
@@ -145,7 +145,7 @@ export const AiriOverlay: React.FC = () => {
                 setMood('error');
                 addThought({
                     id: `err-${Date.now()}`,
-                    text: `⚠️ Detected: ${errors[0].substring(0, 60)}`,
+                    text: ` Detected: ${errors[0].substring(0, 60)}`,
                     type: 'warning',
                     ttl: 5000,
                     actionLabel: 'Fix',
@@ -159,14 +159,14 @@ export const AiriOverlay: React.FC = () => {
         listen<any>('airi:thought', (e) => {
             // Dedupe frequent thoughts — only show significant ones
             const t = e.payload;
-            if (t?.type === 'observation' && t.content?.includes('👁️ Vision:')) {
+            if (t?.type === 'observation' && t.content?.includes(' Vision:')) {
                 // Low-priority visual observation, don't clutter overlay
                 return;
             }
             addThought({
                 id: `thought-${Date.now()}`,
                 text: t.content?.substring(0, 80) || 'Thinking...',
-                type: t.type === 'warning' ? 'warning' : 'action',
+                type: t.type === 'warning'? 'warning': 'action',
                 ttl: 4000
             });
         }).then(u => subs.push(u)).catch(() => { });
@@ -175,8 +175,8 @@ export const AiriOverlay: React.FC = () => {
             const name = e.payload?.name;
             setLiveActions(prev => prev.map(a =>
                 a.tool === name && a.status === 'running'
-                    ? { ...a, status: 'done' }
-                    : a
+? { ...a, status: 'done' }
+: a
             ));
         }).then(u => subs.push(u)).catch(() => { });
 
@@ -192,7 +192,7 @@ export const AiriOverlay: React.FC = () => {
                     ttl: 4000
                 });
             } else {
-                setMood(prev => prev === 'coding' ? 'success' : prev);
+                setMood(prev => prev === 'coding'? 'success': prev);
                 setTimeout(() => setMood('idle'), 2000);
             }
         }).then(u => subs.push(u)).catch(() => { });
@@ -203,7 +203,7 @@ export const AiriOverlay: React.FC = () => {
                 setMood('success');
                 addThought({
                     id: `done-${Date.now()}`,
-                    text: 'Mission accomplished ✓',
+                    text: 'Mission accomplished ',
                     type: 'success',
                     ttl: 5000
                 });
@@ -277,7 +277,7 @@ export const AiriOverlay: React.FC = () => {
             wasThinking.current = false;
             setThinkingText('');
             // Mark all running actions as done, then fade out after 2.5s
-            setLiveActions(prev => prev.map(a => a.status === 'running' ? { ...a, status: 'done' as const } : a));
+            setLiveActions(prev => prev.map(a => a.status === 'running'? { ...a, status: 'done' as const }: a));
             clearActionsTimer.current = setTimeout(() => {
                 setLiveActions([]);
                 setMood('idle');
@@ -335,7 +335,7 @@ export const AiriOverlay: React.FC = () => {
         <div style={{
             position: 'fixed',
             bottom: '48px',
-            right: isExpanded ? '320px' : '12px',
+            right: isExpanded? '320px': '12px',
             zIndex: 9000,
             display: 'flex',
             flexDirection: 'column',
@@ -380,14 +380,14 @@ export const AiriOverlay: React.FC = () => {
             {thoughts.map(thought => (
                 <div key={thought.id} style={{
                     pointerEvents: 'auto',
-                    background: thought.type === 'success' ? 'rgba(16,185,129,0.12)'
-                        : thought.type === 'warning' ? 'rgba(239,68,68,0.12)'
-                            : thought.type === 'suggestion' ? 'rgba(59,130,246,0.12)'
-                                : 'rgba(30,30,40,0.85)',
-                    border: `1px solid ${thought.type === 'success' ? 'rgba(16,185,129,0.3)'
-                        : thought.type === 'warning' ? 'rgba(239,68,68,0.3)'
-                            : thought.type === 'suggestion' ? 'rgba(59,130,246,0.3)'
-                                : 'rgba(255,255,255,0.08)'}`,
+                    background: thought.type === 'success'? 'rgba(16,185,129,0.12)'
+: thought.type === 'warning'? 'rgba(239,68,68,0.12)'
+: thought.type === 'suggestion'? 'rgba(59,130,246,0.12)'
+: 'rgba(30,30,40,0.85)',
+                    border: `1px solid ${thought.type === 'success'? 'rgba(16,185,129,0.3)'
+: thought.type === 'warning'? 'rgba(239,68,68,0.3)'
+: thought.type === 'suggestion'? 'rgba(59,130,246,0.3)'
+: 'rgba(255,255,255,0.08)'}`,
                     borderRadius: '10px',
                     padding: '8px 12px',
                     maxWidth: '260px',
@@ -409,7 +409,7 @@ export const AiriOverlay: React.FC = () => {
                         }}>{thought.actionLabel}</button>
                     )}
                     <span onClick={() => dismissThought(thought.id)}
-                        style={{ cursor: 'pointer', opacity: 0.4, fontSize: '10px' }}>✕</span>
+                        style={{ cursor: 'pointer', opacity: 0.4, fontSize: '10px' }}></span>
                 </div>
             ))}
 

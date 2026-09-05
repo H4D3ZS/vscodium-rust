@@ -48,7 +48,7 @@ export class AIRIPhaseWrap {
       this.executeWrap();
     }, 5 * 60 * 1000);
 
-    console.log('[PhaseWrap] ✅ Autonomic loop started (5 min intervals)');
+    console.log('[PhaseWrap] Autonomic loop started (5 min intervals)');
   }
 
   /**
@@ -109,7 +109,7 @@ export class AIRIPhaseWrap {
       this.recordReport('signal', `Avatar state: ${signalResult.avatarState}, strength: ${signalResult.pulseStrength}`);
 
       const duration = Date.now() - start;
-      console.log(`[PhaseWrap] ✅ Complete in ${duration}ms`);
+      console.log(`[PhaseWrap] Complete in ${duration}ms`);
     } catch (error) {
  console.error('[PhaseWrap] Cycle failed:', error);
     }
@@ -231,7 +231,7 @@ NEXT_ATTENTION: [what to focus on next]
       if (existsSync(aimPath)) {
         // Touch the file to trigger re-index (or call kortex directly)
         // In full implementation: call kortex daemon to recalc embeddings
-        console.log('[PhaseWrap] 🔄 Syncing .aim neural weights for workspace');
+        console.log('[PhaseWrap] Syncing .aim neural weights for workspace');
 
         return {
           aimUpdated: true,

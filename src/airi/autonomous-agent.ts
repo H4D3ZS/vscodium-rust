@@ -384,7 +384,7 @@ export class AIRIAutonomousAgent {
   private async executeTask(task: AutonomousTask): Promise<string> {
     const prompt = `BACKGROUND AUTONOMOUS MISSION: [${task.type.toUpperCase()}]\n\n${task.description}\n\nYou are operating in Sentient background mode. You must use your tools (write_to_file, run_command, etc.) to complete this mission. Do not simply explain what to do — ACTUALLY do it. When you are finished, declare MISSION_ACCOMPLISHED.`;
 
-    console.log(`[AutonomousAgent] 🤖 Dispatching task to Sentient Core:`, task.description);
+    console.log(`[AutonomousAgent] Dispatching task to Sentient Core:`, task.description);
 
     try {
       const store = (window as any).useStore?.getState();
@@ -439,7 +439,7 @@ export class AIRIAutonomousAgent {
    */
   getStatus(): string {
     return `
-💼 Autonomous Work Status:
+ Autonomous Work Status:
   Working: ${this.isWorking}
   Queue: ${this.taskQueue.length} tasks
   Model: ${this.getModelName()}

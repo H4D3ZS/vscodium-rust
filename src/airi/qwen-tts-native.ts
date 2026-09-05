@@ -25,7 +25,7 @@ export class Qwen3TTSServer {
     private serverUrl: string;
     private isRunning = false;
     private process: any = null;
-    /** Circuit breaker: if the server has failed N times, stop polling. */
+    /**Circuit breaker: if the server has failed N times, stop polling. */
     private consecutiveFailures = 0;
     private static readonly MAX_FAILURES = 3;
 
@@ -62,7 +62,7 @@ export class Qwen3TTSServer {
             if (ready) {
                 this.isRunning = true;
                 this.consecutiveFailures = 0;
-                console.log('[Qwen3-TTS] ✅ Native server connected on port', this.config.port);
+                console.log('[Qwen3-TTS] Native server connected on port', this.config.port);
                 return true;
             } else {
                 this.consecutiveFailures++;

@@ -109,8 +109,8 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         const { setIsAgentThinking } = useStore.getState();
         setIsAgentThinking(false);
         const raw = typeof event.payload === 'object' && event.payload.content
-            ? event.payload.content
-            : (typeof event.payload === 'string' ? event.payload : '');
+? event.payload.content
+: (typeof event.payload === 'string'? event.payload: '');
         const content = cleanAgentContent(raw);
 
         scheduleAiContent(raw);
@@ -146,8 +146,8 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
     listen('ai-content-delta', (event: any) => {
         const { appendLastAgentMessage } = useStore.getState();
         const delta = typeof event.payload === 'object' && event.payload.delta
-            ? event.payload.delta
-            : (typeof event.payload === 'string' ? event.payload : '');
+? event.payload.delta
+: (typeof event.payload === 'string'? event.payload: '');
         if (!delta) return;
         // Drop streaming tool-call JSON fragments from chat (terminal shows tooling).
         const t = delta.trim();
@@ -167,7 +167,7 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         }).then(() => {
             setAiStatus?.('alive');
             refreshAvailableModels?.(provider);
-            addAgentMessage?.('assistant', `✅ Session for **${provider}** synced successfully.`);
+            addAgentMessage?.('assistant', ` Session for **${provider}**synced successfully.`);
         }).catch(err => console.error('save_ai_session failed:', err));
     });
 
@@ -194,7 +194,7 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         else if (toolName.includes('health') || toolName.includes('system')) type = 'system';
         let args: any = {};
         try {
-            args = typeof event.payload.args === 'string' ? JSON.parse(event.payload.args) : event.payload.args;
+            args = typeof event.payload.args === 'string'? JSON.parse(event.payload.args): event.payload.args;
         } catch { args = { raw: event.payload.args }; }
         addAgentStep(toolName, type, args, event.payload.call_id);
         updateAgentStepStatus(toolName, 'running', 'Executing...', undefined, event.payload.call_id);
@@ -212,7 +212,7 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         const { setAgentBlocked, addAgentMessage } = useStore.getState();
         const { message, blocked } = event.payload;
         setAgentBlocked(blocked);
-        addAgentMessage('assistant', blocked ? `⚠️ **Action Required**: ${message}` : `ℹ️ ${message}`);
+        addAgentMessage('assistant', blocked? ` **Action Required**: ${message}`: `ℹ ${message}`);
     });
 
     listen<any>('ai-artifact', (event) => {
@@ -226,7 +226,7 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         const p = event.payload || {};
         const msg = String(p.message || '').trim();
         if (!msg) return;
-        const icon = p.risk === 'CpuOnly' ? '🐢' : '⚠️';
+        const icon = p.risk === 'CpuOnly'? '': '';
         useStore.getState().addAgentMessage(
             'assistant',
             `${icon} **Local model offload**: ${msg}`,
@@ -252,9 +252,9 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
 
     listen<any>('ai-advisor-fallback', (event) => {
         const msg = event.payload?.error
-            ? `Planner timed out or failed — continuing with executor (${event.payload?.fallback_model || 'primary model'}).`
-            : 'Planner unavailable — continuing with executor.';
-        useStore.getState().addAgentMessage('assistant', `ℹ️ ${msg}`);
+? `Planner timed out or failed — continuing with executor (${event.payload?.fallback_model || 'primary model'}).`
+: 'Planner unavailable — continuing with executor.';
+        useStore.getState().addAgentMessage('assistant', `ℹ ${msg}`);
         useStore.getState().setAgentCurrentAction(null);
     });
 
@@ -306,7 +306,7 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         let text: string;
         if (typeof p === 'string') text = p;
         else if (p && typeof p === 'object') text = [p.action, p.tool].filter(Boolean).join(' · ') || '';
-        else text = p == null ? '' : String(p);
+        else text = p == null? '': String(p);
         useStore.getState().setAgentCurrentAction(text || null);
     });
 
@@ -327,7 +327,7 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         state.pushTrajectoryEvent?.({
             kind: 'tool_result',
             tool: 'mission',
-            title: '✓ Mission complete',
+            title: ' Mission complete',
             detail: `${mode} finished — review reports/ exploits/ recon/ for deliverables`,
             success: true,
         });

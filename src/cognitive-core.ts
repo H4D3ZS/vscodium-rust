@@ -247,7 +247,7 @@ export class CognitiveCore {
 
     // Sometimes ask user
     if (Math.random() > 0.8) {
-      await this.expressThought(`💭 ${question}`);
+      await this.expressThought(` ${question}`);
     }
   }
 
@@ -275,7 +275,7 @@ export class CognitiveCore {
     }
 
     if (Math.random() > 0.6) {
-      await this.expressThought(`💡 ${insight}`);
+      await this.expressThought(` ${insight}`);
     }
   }
 
@@ -295,7 +295,7 @@ export class CognitiveCore {
     this.addThought('plan', plan, 65);
 
     if (Math.random() > 0.75) {
-      await this.expressThought(`📋 ${plan}`);
+      await this.expressThought(` ${plan}`);
     }
   }
 
@@ -320,7 +320,7 @@ export class CognitiveCore {
     );
 
     if (Math.random() > 0.5) {
-      await this.expressThought(`🌟 ${reflection}`);
+      await this.expressThought(` ${reflection}`);
     }
   }
 

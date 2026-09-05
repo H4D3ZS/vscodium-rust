@@ -169,9 +169,9 @@ const Composer: React.FC = () => {
         // the global pendingChanges store, so Composer just streams the
         // assistant text into its local message list.
         const modePrefix =
-            workflowMode === 'create'   ? '[Workflow: CREATE] '   :
-            workflowMode === 'refactor' ? '[Workflow: REFACTOR] ' :
-            workflowMode === 'debug'    ? '[Workflow: DEBUG] '    :
+            workflowMode === 'create'? '[Workflow: CREATE] '   :
+            workflowMode === 'refactor'? '[Workflow: REFACTOR] ' :
+            workflowMode === 'debug'? '[Workflow: DEBUG] '    :
                                           '';
         const prompt = modePrefix + enhancedPrompt;
 
@@ -179,18 +179,18 @@ const Composer: React.FC = () => {
             const { sendAgentMessage } = await import('../agent');
             await sendAgentMessage(prompt, (msg: string) => {
                 setMessages(prev => prev.map(m =>
-                    m.id === assistantId ? { ...m, content: msg, isRunning: true } : m
+                    m.id === assistantId? { ...m, content: msg, isRunning: true }: m
                 ));
             });
         } catch (err: any) {
             setMessages(prev => prev.map(m =>
                 m.id === assistantId
-                    ? { ...m, content: `Error: ${err?.message ?? String(err)}`, isRunning: false }
-                    : m
+? { ...m, content: `Error: ${err?.message ?? String(err)}`, isRunning: false }
+: m
             ));
         } finally {
             setMessages(prev => prev.map(m =>
-                m.id === assistantId ? { ...m, isRunning: false } : m
+                m.id === assistantId? { ...m, isRunning: false }: m
             ));
             setIsProcessing(false);
             // Save session to history
@@ -314,8 +314,8 @@ const Composer: React.FC = () => {
                                 onClick={() => setWorkflowMode(mode)}
                                 title={modeLabels[mode]}
                                 style={{
-                                    background: workflowMode === mode ? 'var(--vscode-button-background)' : 'transparent',
-                                    color: workflowMode === mode ? 'var(--vscode-button-foreground)' : 'var(--vscode-foreground)',
+                                    background: workflowMode === mode? 'var(--vscode-button-background)': 'transparent',
+                                    color: workflowMode === mode? 'var(--vscode-button-foreground)': 'var(--vscode-foreground)',
                                     border: 'none',
                                     padding: '4px 8px',
                                     borderRadius: '2px',
@@ -370,7 +370,7 @@ const Composer: React.FC = () => {
                                 cursor: 'pointer',
                                 fontSize: '11px',
                                 fontWeight: 600,
-                                color: isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.4)',
+                                color: isSpecModeActive? 'var(--terminator-accent, #00c6ff)': 'rgba(255,255,255,0.4)',
                                 transition: 'all 0.2s',
                                 userSelect: 'none'
                             }}
@@ -378,20 +378,20 @@ const Composer: React.FC = () => {
                             <span style={{
                                 width: '28px',
                                 height: '14px',
-                                background: isSpecModeActive ? 'rgba(0, 198, 255, 0.2)' : 'rgba(255,255,255,0.1)',
+                                background: isSpecModeActive? 'rgba(0, 198, 255, 0.2)': 'rgba(255,255,255,0.1)',
                                 borderRadius: '10px',
                                 position: 'relative',
                                 display: 'inline-block',
-                                border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.15)'}`
+                                border: `1px solid ${isSpecModeActive? 'var(--terminator-accent, #00c6ff)': 'rgba(255,255,255,0.15)'}`
                             }}>
                                 <span style={{
                                     width: '10px',
                                     height: '10px',
-                                    background: isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.4)',
+                                    background: isSpecModeActive? 'var(--terminator-accent, #00c6ff)': 'rgba(255,255,255,0.4)',
                                     borderRadius: '50%',
                                     position: 'absolute',
                                     top: '1px',
-                                    left: isSpecModeActive ? '15px' : '2px',
+                                    left: isSpecModeActive? '15px': '2px',
                                     transition: 'all 0.2s'
                                 }} />
                             </span>
@@ -403,15 +403,15 @@ const Composer: React.FC = () => {
                         value={input}
                         onChange={e => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder={isSpecModeActive ? 'Describe the feature to auto-generate requirements & tasks...' : `Describe what you want to ${workflowMode}...`}
+                        placeholder={isSpecModeActive? 'Describe the feature to auto-generate requirements & tasks...': `Describe what you want to ${workflowMode}...`}
                         rows={3}
                         style={{
                             width: '100%',
                             padding: '8px 12px',
                             background: 'var(--vscode-input-background)',
                             color: 'var(--vscode-input-foreground)',
-                            border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'var(--vscode-input-border)'}`,
-                            boxShadow: isSpecModeActive ? '0 0 10px rgba(0, 198, 255, 0.2)' : 'none',
+                            border: `1px solid ${isSpecModeActive? 'var(--terminator-accent, #00c6ff)': 'var(--vscode-input-border)'}`,
+                            boxShadow: isSpecModeActive? '0 0 10px rgba(0, 198, 255, 0.2)': 'none',
                             borderRadius: '4px',
                             fontSize: '13px',
                             resize: 'vertical',
@@ -461,8 +461,8 @@ const Composer: React.FC = () => {
                                 onClick={() => setWorkflowMode(mode)}
                                 title={modeLabels[mode]}
                                 style={{
-                                    background: workflowMode === mode ? 'var(--vscode-button-background)' : 'transparent',
-                                    color: workflowMode === mode ? 'var(--vscode-button-foreground)' : 'var(--vscode-foreground)',
+                                    background: workflowMode === mode? 'var(--vscode-button-background)': 'transparent',
+                                    color: workflowMode === mode? 'var(--vscode-button-foreground)': 'var(--vscode-foreground)',
                                     border: 'none',
                                     padding: '4px 8px',
                                     borderRadius: '2px',
@@ -504,10 +504,10 @@ const Composer: React.FC = () => {
                                 key={pane}
                                 onClick={() => setActivePane(pane)}
                                 style={{
-                                    background: activePane === pane ? 'var(--vscode-tab-activeBackground)' : 'transparent',
-                                    color: activePane === pane ? 'var(--vscode-tab-activeForeground)' : 'var(--vscode-foreground)',
+                                    background: activePane === pane? 'var(--vscode-tab-activeBackground)': 'transparent',
+                                    color: activePane === pane? 'var(--vscode-tab-activeForeground)': 'var(--vscode-foreground)',
                                     border: 'none',
-                                    borderBottom: activePane === pane ? '2px solid var(--vscode-tab-activeBorder)' : '2px solid transparent',
+                                    borderBottom: activePane === pane? '2px solid var(--vscode-tab-activeBorder)': '2px solid transparent',
                                     padding: '4px 12px',
                                     fontSize: '11px',
                                     cursor: 'pointer',
@@ -653,12 +653,12 @@ const Composer: React.FC = () => {
                                     marginBottom: '16px',
                                     padding: '12px',
                                     background: msg.role === 'user' 
-                                        ? 'var(--vscode-input-background)' 
-                                        : 'var(--vscode-textBlockQuote-background)',
+? 'var(--vscode-input-background)' 
+: 'var(--vscode-textBlockQuote-background)',
                                     borderRadius: '4px',
                                     borderLeft: msg.role === 'user' 
-                                        ? '3px solid var(--vscode-button-background)' 
-                                        : '3px solid var(--vscode-testing-iconPassed)',
+? '3px solid var(--vscode-button-background)' 
+: '3px solid var(--vscode-testing-iconPassed)',
                                 }}>
                                     <div style={{
                                         fontSize: '10px',
@@ -675,8 +675,8 @@ const Composer: React.FC = () => {
                                         }}
                                         dangerouslySetInnerHTML={{
                                             __html: msg.role === 'assistant'
-                                                ? sanitizeHtml(marked.parse(msg.content || '', { async: false }) as string)
-                                                : msg.content
+? sanitizeHtml(marked.parse(msg.content || '', { async: false }) as string)
+: msg.content
                                         }}
                                     />
                                     {msg.isRunning && (
@@ -713,7 +713,7 @@ const Composer: React.FC = () => {
                                         cursor: 'pointer',
                                         fontSize: '11px',
                                         fontWeight: 600,
-                                        color: isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.4)',
+                                        color: isSpecModeActive? 'var(--terminator-accent, #00c6ff)': 'rgba(255,255,255,0.4)',
                                         transition: 'all 0.2s',
                                         userSelect: 'none'
                                     }}
@@ -721,20 +721,20 @@ const Composer: React.FC = () => {
                                     <span style={{
                                         width: '28px',
                                         height: '14px',
-                                        background: isSpecModeActive ? 'rgba(0, 198, 255, 0.2)' : 'rgba(255,255,255,0.1)',
+                                        background: isSpecModeActive? 'rgba(0, 198, 255, 0.2)': 'rgba(255,255,255,0.1)',
                                         borderRadius: '10px',
                                         position: 'relative',
                                         display: 'inline-block',
-                                        border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.15)'}`
+                                        border: `1px solid ${isSpecModeActive? 'var(--terminator-accent, #00c6ff)': 'rgba(255,255,255,0.15)'}`
                                     }}>
                                         <span style={{
                                             width: '10px',
                                             height: '10px',
-                                            background: isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.4)',
+                                            background: isSpecModeActive? 'var(--terminator-accent, #00c6ff)': 'rgba(255,255,255,0.4)',
                                             borderRadius: '50%',
                                             position: 'absolute',
                                             top: '1px',
-                                            left: isSpecModeActive ? '15px' : '2px',
+                                            left: isSpecModeActive? '15px': '2px',
                                             transition: 'all 0.2s'
                                         }} />
                                     </span>
@@ -820,15 +820,15 @@ const Composer: React.FC = () => {
                                 value={input}
                                 onChange={e => setInput(e.target.value)}
                                 onKeyDown={handleKeyDown}
-                                placeholder={isSpecModeActive ? 'Describe the feature to auto-generate requirements & tasks...' : 'Continue refining...'}
+                                placeholder={isSpecModeActive? 'Describe the feature to auto-generate requirements & tasks...': 'Continue refining...'}
                                 rows={3}
                                 style={{
                                     width: '100%',
                                     padding: '8px 12px',
                                     background: 'var(--vscode-input-background)',
                                     color: 'var(--vscode-input-foreground)',
-                                    border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'var(--vscode-input-border)'}`,
-                                    boxShadow: isSpecModeActive ? '0 0 10px rgba(0, 198, 255, 0.2)' : 'none',
+                                    border: `1px solid ${isSpecModeActive? 'var(--terminator-accent, #00c6ff)': 'var(--vscode-input-border)'}`,
+                                    boxShadow: isSpecModeActive? '0 0 10px rgba(0, 198, 255, 0.2)': 'none',
                                     borderRadius: '4px',
                                     fontSize: '13px',
                                     resize: 'vertical',
@@ -869,8 +869,8 @@ const Composer: React.FC = () => {
                                             border: '1px solid rgba(96,165,250,0.3)',
                                             padding: '4px 10px',
                                             borderRadius: '2px',
-                                            cursor: isProcessing ? 'wait' : 'pointer',
-                                            opacity: isProcessing || !input.trim() ? 0.4 : 0.8,
+                                            cursor: isProcessing? 'wait': 'pointer',
+                                            opacity: isProcessing || !input.trim()? 0.4: 0.8,
                                             fontSize: '11px',
                                         }}
                                     >
@@ -886,11 +886,11 @@ const Composer: React.FC = () => {
                                             border: 'none',
                                             padding: '4px 12px',
                                             borderRadius: '2px',
-                                            cursor: isProcessing ? 'wait' : 'pointer',
-                                            opacity: isProcessing || !input.trim() ? 0.5 : 1,
+                                            cursor: isProcessing? 'wait': 'pointer',
+                                            opacity: isProcessing || !input.trim()? 0.5: 1,
                                         }}
                                     >
-                                        {isProcessing ? 'Processing...' : 'Send'}
+                                        {isProcessing? 'Processing...': 'Send'}
                                     </button>
                                 </div>
                             </div>
@@ -929,11 +929,11 @@ const Composer: React.FC = () => {
                                         cursor: 'pointer',
                                         borderRadius: '2px',
                                         background: selectedFile === change.id 
-                                            ? 'var(--vscode-list-activeSelectionBackground)' 
-                                            : 'transparent',
+? 'var(--vscode-list-activeSelectionBackground)' 
+: 'transparent',
                                         color: selectedFile === change.id 
-                                            ? 'var(--vscode-list-activeSelectionForeground)' 
-                                            : 'var(--vscode-foreground)',
+? 'var(--vscode-list-activeSelectionForeground)' 
+: 'var(--vscode-foreground)',
                                         fontSize: '12px',
                                         marginBottom: '2px',
                                         display: 'flex',
@@ -955,7 +955,7 @@ const Composer: React.FC = () => {
                             overflow: 'auto',
                             padding: '12px',
                         }}>
-                            {selectedFile ? (
+                            {selectedFile? (
                                 <>
                                     <div style={{
                                         fontSize: '12px',
@@ -968,7 +968,7 @@ const Composer: React.FC = () => {
                                         <FileDiff change={pendingChanges.find(c => c.id === selectedFile)!} />
                                     </div>
                                 </>
-                            ) : (
+                            ): (
                                 <div style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1018,7 +1018,7 @@ const Composer: React.FC = () => {
                                                 cursor: 'pointer',
                                             }}
                                         >
-                                            ✓ Accept
+                                             Accept
                                         </button>
                                         <button
                                             onClick={() => rejectChange(change.id)}
@@ -1032,7 +1032,7 @@ const Composer: React.FC = () => {
                                                 cursor: 'pointer',
                                             }}
                                         >
-                                            ✗ Reject
+                                             Reject
                                         </button>
                                     </div>
                                 </div>
@@ -1057,11 +1057,11 @@ const Composer: React.FC = () => {
                 {/* Preview Pane */}
                 {activePane === 'preview' && (
                     <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
-                        {pendingChanges.length === 0 ? (
+                        {pendingChanges.length === 0? (
                             <div style={{ textAlign: 'center', opacity: 0.5, padding: 40, fontSize: 12 }}>
                                 No pending changes to preview. Send a composer prompt first.
                             </div>
-                        ) : (
+                        ): (
                             pendingChanges.map((change) => (
                                 <div key={change.id} style={{ marginBottom: 20 }}>
                                     <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>

@@ -41,7 +41,7 @@ export function getToolLabel(name: string): string {
     return name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Heuristic: model tool JSON even when truncated / invalid JSON (e.g. huge file_write body). */
+/**Heuristic: model tool JSON even when truncated / invalid JSON (e.g. huge file_write body). */
 export function looksLikeToolCallText(text: string): boolean {
     const t = text.trim();
     if (!t.startsWith('{')) return false;
@@ -51,7 +51,7 @@ export function looksLikeToolCallText(text: string): boolean {
     ) || /"tool_calls"\s*:/.test(t) || /"function_call"\s*:/.test(t);
 }
 
-/** One-line human label for inline tool JSON shown in chat. */
+/**One-line human label for inline tool JSON shown in chat. */
 export function summarizeToolCallText(text: string): string {
     const name = text.match(/"(?:name|tool)"\s*:\s*"([^"]+)"/)?.[1] || 'tool';
     const label = getToolLabel(name);
@@ -60,11 +60,11 @@ export function summarizeToolCallText(text: string): string {
     const path = text.match(/"(?:path|file_path|filename)"\s*:\s*"([^"\\]+)"/)?.[1];
     if (path) return `${label} · ${path.replace(/\\/g, '/')}`;
     const cmd = text.match(/"command"\s*:\s*"([^"]{0,80})/)?.[1];
-    if (cmd) return `${label} · ${cmd}${cmd.length >= 80 ? '…' : ''}`;
+    if (cmd) return `${label} · ${cmd}${cmd.length >= 80? '…': ''}`;
     return label;
 }
 
-/** Returns true if a JSON string looks like a tool call object */
+/**Returns true if a JSON string looks like a tool call object */
 export function isToolCallJson(text: string): boolean {
     if (looksLikeToolCallText(text)) return true;
     try {
@@ -81,7 +81,7 @@ export function isToolCallJson(text: string): boolean {
     return false;
 }
 
-/** True if a line looks like a raw tool result blob (not prose). */
+/**True if a line looks like a raw tool result blob (not prose). */
 export function isToolResultJson(text: string): boolean {
     const t = text.trim();
     if (!t.startsWith('{') && !t.startsWith('[')) return false;
@@ -121,7 +121,7 @@ export function formatCursorActivityLine(
     if (name.includes('grep') || name.includes('search_codebase') || name.includes('semantic_search')) {
         const pattern = String(args.pattern || args.query || title || 'pattern');
         const path = args.path || args.file_path;
-        return path ? `Grepped \`${pattern}\` in ${basename(String(path))}` : `Grepped \`${pattern}\``;
+        return path? `Grepped \`${pattern}\` in ${basename(String(path))}`: `Grepped \`${pattern}\``;
     }
     if (name.includes('list_files') || name.includes('list_directory') || name === 'glob') {
         const path = args.path || args.directory_path || args.pattern || 'workspace';
@@ -135,11 +135,11 @@ export function formatCursorActivityLine(
     }
     if (name.includes('run_command') || name === 'bash') {
         const cmd = String(args.command || detail || '').slice(0, 60);
-        return cmd ? `Ran \`${cmd}\`` : 'Ran shell command';
+        return cmd? `Ran \`${cmd}\``: 'Ran shell command';
     }
     if (name.includes('web_security_audit') || name.includes('apex_scan')) {
         const url = args.url || args.target;
-        return url ? `Audited ${String(url)}` : 'Web security audit';
+        return url? `Audited ${String(url)}`: 'Web security audit';
     }
     if (name.includes('browser_navigate')) {
         return `Navigated to ${args.url || title}`;
@@ -152,7 +152,7 @@ export function formatCursorActivityLine(
     }
 
     const base = title || getToolLabel(tool || 'tool');
-    if (success === false) return `✗ ${base}`;
+    if (success === false) return ` ${base}`;
     if (success === true) return base;
     return base;
 }
@@ -164,11 +164,11 @@ function basename(p: string): string {
 
 export function formatToolSummary(name: string, args: any, result: any): string {
     try {
-        const data = typeof result === 'string' ? JSON.parse(result) : result;
+        const data = typeof result === 'string'? JSON.parse(result): result;
         const toolName = name.toLowerCase();
 
         if (toolName.includes('list_files') || toolName.includes('list_directory') || toolName.includes('ls')) {
-            const count = Array.isArray(data) ? data.length : (data.filenames ? data.filenames.length : 0);
+            const count = Array.isArray(data)? data.length: (data.filenames? data.filenames.length: 0);
             return `Listed ${count} items in ${args.path || args.directory_path || 'root'}`;
         }
         if (toolName.includes('view_file') || toolName.includes('file_read') || toolName.includes('cat')) {
@@ -176,11 +176,11 @@ export function formatToolSummary(name: string, args: any, result: any): string 
         }
         if (toolName.includes('run_command') || toolName.includes('bash') || toolName.includes('sh')) {
             const cmd = args.command || '';
-            const shortCmd = cmd.length > 40 ? cmd.substring(0, 40) + '…' : cmd;
-            return shortCmd ? `Ran \`${shortCmd}\`` : 'Ran command';
+            const shortCmd = cmd.length > 40? cmd.substring(0, 40) + '…': cmd;
+            return shortCmd? `Ran \`${shortCmd}\``: 'Ran command';
         }
         if (toolName.includes('grep') || toolName.includes('search')) {
-            const count = Array.isArray(data) ? data.length : 0;
+            const count = Array.isArray(data)? data.length: 0;
             return `Found ${count} matches for "${args.pattern || args.query}"`;
         }
         if (toolName.includes('write_to_file') || toolName.includes('file_write')) {
@@ -219,15 +219,15 @@ export function cleanAgentContent(raw: string): string {
 
     s = s.replace(/```[a-z0-9_:.-]*\s*\n?([\s\S]*?)```/gi, (match, inner) => {
         const trimmed = inner.trim();
-        return isToolCallJson(trimmed) || isToolResultJson(trimmed) ? '' : match;
+        return isToolCallJson(trimmed) || isToolResultJson(trimmed)? '': match;
     });
     s = s.replace(/```\s*(\{[\s\S]*?\})\s*```/g, (match, inner) => {
-        return isToolCallJson(inner) || isToolResultJson(inner) ? '' : match;
+        return isToolCallJson(inner) || isToolResultJson(inner)? '': match;
     });
 
     // Unclosed streaming fences that are clearly tool JSON
     s = s.replace(/```(?:json)?\s*\n(\{\s*"name"\s*:[\s\S]*)$/gi, (match, inner) => {
-        return looksLikeToolCallText(inner) || isToolResultJson(inner) ? '' : match;
+        return looksLikeToolCallText(inner) || isToolResultJson(inner)? '': match;
     });
 
     s = s.split('\n').filter((line) => {
@@ -253,7 +253,7 @@ export function cleanAgentContent(raw: string): string {
     return s;
 }
 
-/** Avoid wiping streamed markdown when the final payload is empty or tool-only. */
+/**Avoid wiping streamed markdown when the final payload is empty or tool-only. */
 export function shouldReplaceAgentContent(existing: string, incoming: string): boolean {
     const ex = (existing || '').trim();
     const inc = (incoming || '').trim();
@@ -263,7 +263,7 @@ export function shouldReplaceAgentContent(existing: string, incoming: string): b
     return true;
 }
 
-/** One-line summary for activity terminal tool results. */
+/**One-line summary for activity terminal tool results. */
 export function summarizeToolResult(name: string, result: string, args?: any): string {
     let parsedArgs = args;
     if (!parsedArgs) {
@@ -273,7 +273,7 @@ export function summarizeToolResult(name: string, result: string, args?: any): s
     if (summary !== getToolLabel(name)) return summary;
 
     try {
-        const data = typeof result === 'string' ? JSON.parse(result) : result;
+        const data = typeof result === 'string'? JSON.parse(result): result;
         if (data && typeof data === 'object') {
             if (typeof data.message === 'string' && data.message.trim()) {
                 return data.message.trim().slice(0, 200);

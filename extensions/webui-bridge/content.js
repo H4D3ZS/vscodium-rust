@@ -15,11 +15,11 @@
   // ── Provider + selectors (ported from auth.rs) ──────────────────────────────
   const HOST = location.hostname;
   const PROVIDER =
-    HOST.includes('claude.ai') ? 'claude' :
-    (HOST.includes('chatgpt.com') || HOST.includes('openai.com')) ? 'openai' :
-    HOST.includes('gemini.google.com') ? 'gemini' :
-    HOST.includes('chat.deepseek.com') ? 'deepseek' :
-    HOST.includes('chat.qwen.ai') ? 'qwen' : null;
+    HOST.includes('claude.ai')? 'claude' :
+    (HOST.includes('chatgpt.com') || HOST.includes('openai.com'))? 'openai' :
+    HOST.includes('gemini.google.com')? 'gemini' :
+    HOST.includes('chat.deepseek.com')? 'deepseek' :
+    HOST.includes('chat.qwen.ai')? 'qwen': null;
 
   if (!PROVIDER) return;
 
@@ -125,7 +125,7 @@
   // ── DOM: inject text into composer + submit ─────────────────────────────────
   function setNativeValue(el, value) {
     const proto =
-      el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      el.tagName === 'TEXTAREA'? HTMLTextAreaElement.prototype: HTMLInputElement.prototype;
     const desc = Object.getOwnPropertyDescriptor(proto, 'value');
     if (desc && desc.set) desc.set.call(el, value);
     else el.value = value;
@@ -134,7 +134,7 @@
   function inject(text) {
     const input = document.querySelector(SEL.input);
     if (!input) {
-      setStatus('⚠ composer not found');
+      setStatus(' composer not found');
       return false;
     }
     input.focus();
@@ -228,9 +228,9 @@
 
   function renderPanel() {
     if (!dot) return;
-    dot.style.background = connected ? (sessionActive ? '#3fb950' : '#d29922') : '#8b949e';
-    startBtn.textContent = sessionActive ? '■ Stop' : '▶ Start';
-    startBtn.style.background = sessionActive ? '#7d2d2d' : '#238636';
+    dot.style.background = connected? (sessionActive? '#3fb950': '#d29922'): '#8b949e';
+    startBtn.textContent = sessionActive? '■ Stop': '▶ Start';
+    startBtn.style.background = sessionActive? '#7d2d2d': '#238636';
   }
 
   if (document.body) buildPanel();

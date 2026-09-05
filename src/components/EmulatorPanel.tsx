@@ -118,7 +118,7 @@ const EmulatorPanel: React.FC = () => {
                     deviceId = activeDevice;
                 } else {
                     const updated = await invoke<RunningEmulator[]>('list_running_emulators');
-                    deviceId = updated.length > 0 ? updated[0].device_id : 'emulator-5554';
+                    deviceId = updated.length > 0? updated[0].device_id: 'emulator-5554';
                 }
                 
                 setActiveDevice(deviceId);
@@ -184,7 +184,7 @@ const EmulatorPanel: React.FC = () => {
                 setSpawnStatus('Emulator still booting — select it from Running when online.');
             }
         } catch (err: unknown) {
-            setSpawnStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+            setSpawnStatus(`Error: ${err instanceof Error? err.message: String(err)}`);
         } finally {
             setIsLoading(false);
         }
@@ -196,8 +196,8 @@ const EmulatorPanel: React.FC = () => {
     };
 
     const togglePosition = () => {
-        const newPosition = emulatorPosition === 'left' ? 'right' : 
-                           emulatorPosition === 'right' ? 'hidden' : 'left';
+        const newPosition = emulatorPosition === 'left'? 'right': 
+                           emulatorPosition === 'right'? 'hidden': 'left';
         setEmulatorPosition(newPosition);
     };
 
@@ -275,9 +275,9 @@ const EmulatorPanel: React.FC = () => {
                             borderRadius: '3px',
                             cursor: 'pointer'
                         }}
-                        title={`Move panel to ${emulatorPosition === 'left' ? 'right' : 'hide'}`}
+                        title={`Move panel to ${emulatorPosition === 'left'? 'right': 'hide'}`}
                     >
-                        {emulatorPosition === 'left' ? '➡ Right' : emulatorPosition === 'right' ? 'Hide' : 'Show'}
+                        {emulatorPosition === 'left'? ' Right': emulatorPosition === 'right'? 'Hide': 'Show'}
                     </button>
                 </div>
 
@@ -296,7 +296,7 @@ const EmulatorPanel: React.FC = () => {
                         Available Virtual Devices
                     </h4>
 
-                    {availableAvds.length === 0 ? (
+                    {availableAvds.length === 0? (
                         <div style={{
                             fontSize: '11px',
                             opacity: 0.5,
@@ -310,7 +310,7 @@ const EmulatorPanel: React.FC = () => {
                                 avdmanager create avd -n "Pixel_4" -k "system-images;android-34;google_apis_playstore;x86_64" -d "pixel_4"
                             </code>
                         </div>
-                    ) : (
+                    ): (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             {availableAvds.map((avd) => (
                                 <div key={avd.name} style={{
@@ -332,16 +332,16 @@ const EmulatorPanel: React.FC = () => {
                                                 padding: '6px 10px',
                                                 fontSize: '11px',
                                                 fontWeight: 600,
-                                                background: isLoading ? 'var(--vscode-button-secondaryBackground)' : '#0e639c',
+                                                background: isLoading? 'var(--vscode-button-secondaryBackground)': '#0e639c',
                                                 color: 'white',
                                                 border: 'none',
                                                 borderRadius: '3px',
-                                                cursor: isLoading ? 'not-allowed' : 'pointer',
-                                                opacity: isLoading ? 0.6 : 1
+                                                cursor: isLoading? 'not-allowed': 'pointer',
+                                                opacity: isLoading? 0.6: 1
                                             }}
                                             title="Launch emulator and embed in IDE"
                                         >
-                                            {isLoading ? 'Launching...' : 'Launch & Embed'}
+                                            {isLoading? 'Launching...': 'Launch & Embed'}
                                         </button>
                                         <button
                                             onClick={() => handleSpawnEmulator(avd.name)}
@@ -351,16 +351,16 @@ const EmulatorPanel: React.FC = () => {
                                                 padding: '6px 10px',
                                                 fontSize: '11px',
                                                 fontWeight: 500,
-                                                background: isLoading ? 'var(--vscode-button-secondaryBackground)' : 'var(--vscode-button-background)',
+                                                background: isLoading? 'var(--vscode-button-secondaryBackground)': 'var(--vscode-button-background)',
                                                 color: 'var(--vscode-button-foreground)',
                                                 border: 'none',
                                                 borderRadius: '3px',
-                                                cursor: isLoading ? 'not-allowed' : 'pointer',
-                                                opacity: isLoading ? 0.6 : 1
+                                                cursor: isLoading? 'not-allowed': 'pointer',
+                                                opacity: isLoading? 0.6: 1
                                             }}
                                             title="Start emulator in external window"
                                         >
-                                            {isLoading ? 'Starting...' : 'External'}
+                                            {isLoading? 'Starting...': 'External'}
                                         </button>
                                     </div>
                                 </div>
@@ -397,7 +397,7 @@ const EmulatorPanel: React.FC = () => {
                         Running Emulators
                     </h4>
 
-                    {runningEmulators.length === 0 ? (
+                    {runningEmulators.length === 0? (
                         <div style={{
                             fontSize: '11px',
                             opacity: 0.5,
@@ -407,7 +407,7 @@ const EmulatorPanel: React.FC = () => {
                         }}>
                             No running emulators. Start one from the list above.
                         </div>
-                    ) : (
+                    ): (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             {runningEmulators.map((emu) => (
                                 <div
@@ -442,7 +442,7 @@ const EmulatorPanel: React.FC = () => {
                                             marginLeft: '8px'
                                         }}
                                     >
-                                        📺 View
+                                         View
                                     </button>
                                 </div>
                             ))}

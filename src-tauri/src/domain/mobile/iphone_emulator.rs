@@ -422,11 +422,11 @@ pub async fn prepare_ios_firmware(
         let ok = matches!(status, Ok(Ok(s)) if s.success());
         let rd = PathBuf::from(&out_clone).join("raw").join("initrd.bin");
         let msg = if ok && rd.exists() {
-            format!("[prepare] ✅ Done. Ramdisk: {}", rd.display())
+            format!("[prepare] Done. Ramdisk: {}", rd.display())
         } else if rd.exists() {
-            format!("[prepare] ⚠ Finished with errors, but ramdisk exists: {}", rd.display())
+            format!("[prepare] Finished with errors, but ramdisk exists: {}", rd.display())
         } else {
-            "[prepare] ❌ Failed — no ramdisk produced. Check IPSW + tooling (keystone/lzfse).".to_string()
+            "[prepare] Failed — no ramdisk produced. Check IPSW + tooling (keystone/lzfse).".to_string()
         };
         let _ = app_done.emit("emulator-console", serde_json::json!({ "line": msg, "stream": "system" }));
         let _ = app_done.emit("ios-firmware-prepared", serde_json::json!({
@@ -508,9 +508,9 @@ pub async fn create_stub_ramdisk(output_path: String) -> Result<String, String> 
     // and enters an infinite loop. This proves userspace was reached.
     //
     // AArch64 instructions:
-    //   MOV X0, #'L'       ; character to write
-    //   LDR X1, =0x235200000 ; UART DR register
-    //   STRB W0, [X1]      ; write to UART
+    //   MOV X0, #'L'; character to write
+    //   LDR X1, =0x235200000; UART DR register
+    //   STRB W0, [X1]; write to UART
     //   ... (loop)
     //
     // We embed a pre-assembled minimal binary. The image size must be at least
@@ -520,7 +520,7 @@ pub async fn create_stub_ramdisk(output_path: String) -> Result<String, String> 
         0x58000121, // LDR X1, addr_uart  (load UART base)
         0x38006820, // STRB W0, [X1, X0]  (write char)
         // Infinite loop
-        0x14000000, // B . (branch to self)
+        0x14000000, // B. (branch to self)
         // UART address literal (0x235200000 = UART PL011 base)
         0x35200000, // low 32
         0x00000002, // high 32

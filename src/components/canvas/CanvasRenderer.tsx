@@ -27,7 +27,7 @@ const TONE_COLOR: Record<CanvasTone, string> = {
 const SERIES_FALLBACK = ['#60a5fa', '#4ade80', '#fbbf24', '#f87171', '#c084fc', '#22d3ee'];
 
 function seriesColor(s: CanvasChartSeries, i: number): string {
-    return s.tone ? TONE_COLOR[s.tone] : SERIES_FALLBACK[i % SERIES_FALLBACK.length];
+    return s.tone? TONE_COLOR[s.tone]: SERIES_FALLBACK[i % SERIES_FALLBACK.length];
 }
 
 const card: React.CSSProperties = {
@@ -61,7 +61,7 @@ function StatsBlock({ block }: { block: Extract<CanvasBlock, { type: 'stats' }> 
                     <div style={{
                         fontSize: 26,
                         fontWeight: 700,
-                        color: it.tone ? TONE_COLOR[it.tone] : 'var(--vscode-foreground, #e5e7eb)',
+                        color: it.tone? TONE_COLOR[it.tone]: 'var(--vscode-foreground, #e5e7eb)',
                         lineHeight: 1.2,
                         wordBreak: 'break-word',
                     }}>
@@ -85,15 +85,15 @@ function TableBlock({ block }: { block: Extract<CanvasBlock, { type: 'table' }> 
         if (sortCol === null) return block.rows;
         return [...block.rows].sort((a, b) => {
             const av = a[sortCol]; const bv = b[sortCol];
-            const an = typeof av === 'number' ? av : parseFloat(String(av));
-            const bn = typeof bv === 'number' ? bv : parseFloat(String(bv));
+            const an = typeof av === 'number'? av: parseFloat(String(av));
+            const bn = typeof bv === 'number'? bv: parseFloat(String(bv));
             if (Number.isFinite(an) && Number.isFinite(bn)) return (an - bn) * sortDir;
             return String(av).localeCompare(String(bv)) * sortDir;
         });
     }, [block.rows, sortCol, sortDir]);
 
     const onHeaderClick = (i: number) => {
-        if (sortCol === i) setSortDir((d) => (d === 1 ? -1 : 1));
+        if (sortCol === i) setSortDir((d) => (d === 1? -1: 1));
         else { setSortCol(i); setSortDir(1); }
     };
 
@@ -117,14 +117,14 @@ function TableBlock({ block }: { block: Extract<CanvasBlock, { type: 'table' }> 
                                     }}
                                     title="Click to sort"
                                 >
-                                    {c}{sortCol === i ? (sortDir === 1 ? ' ▲' : ' ▼') : ''}
+                                    {c}{sortCol === i? (sortDir === 1? ' ▲': ' ▼'): ''}
                                 </th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
                         {rows.map((r, ri) => (
-                            <tr key={ri} style={{ background: ri % 2 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                            <tr key={ri} style={{ background: ri % 2? 'rgba(255,255,255,0.02)': 'transparent' }}>
                                 {block.columns.map((_, ci) => (
                                     <td key={ci} style={{ padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.04)', verticalAlign: 'top' }}>
                                         {r[ci] ?? ''}
@@ -149,7 +149,7 @@ function niceMax(v: number): number {
     if (v <= 0) return 1;
     const exp = Math.pow(10, Math.floor(Math.log10(v)));
     const f = v / exp;
-    const nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
+    const nf = f <= 1? 1: f <= 2? 2: f <= 5? 5: 10;
     return nf * exp;
 }
 
@@ -188,7 +188,7 @@ function BarChart({ block }: { block: Extract<CanvasBlock, { type: 'chart' }> })
                     <g key={i}>
                         <line x1={PAD.left} x2={CHART_W - PAD.right} y1={y} y2={y} stroke="rgba(255,255,255,0.07)" />
                         <text x={PAD.left - 6} y={y + 3} textAnchor="end" fontSize={9} fill="rgba(255,255,255,0.45)">
-                            {Number.isInteger(t) ? t : t.toFixed(1)}
+                            {Number.isInteger(t)? t: t.toFixed(1)}
                         </text>
                     </g>
                 );
@@ -200,7 +200,7 @@ function BarChart({ block }: { block: Extract<CanvasBlock, { type: 'chart' }> })
                     <g key={li}>
                         {series.map((s, si) => {
                             const v = s.values[li] ?? 0;
-                            const h = max > 0 ? (v / max) * innerH : 0;
+                            const h = max > 0? (v / max) * innerH: 0;
                             const x = cx - totalBarW / 2 + si * barW;
                             return (
                                 <rect
@@ -209,12 +209,12 @@ function BarChart({ block }: { block: Extract<CanvasBlock, { type: 'chart' }> })
                                     width={Math.max(barW - 2, 1)} height={Math.max(h, 0)}
                                     rx={2} fill={seriesColor(s, si)} opacity={0.9}
                                 >
-                                    <title>{`${lab}${s.name ? ` · ${s.name}` : ''}: ${v}`}</title>
+                                    <title>{`${lab}${s.name? ` · ${s.name}`: ''}: ${v}`}</title>
                                 </rect>
                             );
                         })}
                         <text x={cx} y={CHART_H - 8} textAnchor="middle" fontSize={9} fill="rgba(255,255,255,0.55)">
-                            {lab.length > 12 ? `${lab.slice(0, 11)}…` : lab}
+                            {lab.length > 12? `${lab.slice(0, 11)}…`: lab}
                         </text>
                     </g>
                 );
@@ -228,8 +228,8 @@ function LineChart({ block }: { block: Extract<CanvasBlock, { type: 'chart' }> }
     const max = niceMax(Math.max(...series.flatMap((s) => s.values), 0));
     const innerW = CHART_W - PAD.left - PAD.right;
     const innerH = CHART_H - PAD.top - PAD.bottom;
-    const xAt = (i: number) => PAD.left + (labels.length > 1 ? (i / (labels.length - 1)) * innerW : innerW / 2);
-    const yAt = (v: number) => PAD.top + innerH - (max > 0 ? (v / max) * innerH : 0);
+    const xAt = (i: number) => PAD.left + (labels.length > 1? (i / (labels.length - 1)) * innerW: innerW / 2);
+    const yAt = (v: number) => PAD.top + innerH - (max > 0? (v / max) * innerH: 0);
 
     return (
         <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} style={{ width: '100%', height: 'auto', maxHeight: 280 }}>
@@ -239,7 +239,7 @@ function LineChart({ block }: { block: Extract<CanvasBlock, { type: 'chart' }> }
                     <g key={i}>
                         <line x1={PAD.left} x2={CHART_W - PAD.right} y1={y} y2={y} stroke="rgba(255,255,255,0.07)" />
                         <text x={PAD.left - 6} y={y + 3} textAnchor="end" fontSize={9} fill="rgba(255,255,255,0.45)">
-                            {Number.isInteger(t) ? t : t.toFixed(1)}
+                            {Number.isInteger(t)? t: t.toFixed(1)}
                         </text>
                     </g>
                 );
@@ -256,7 +256,7 @@ function LineChart({ block }: { block: Extract<CanvasBlock, { type: 'chart' }> }
                         <polyline points={pts.join(' ')} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />
                         {s.values.slice(0, labels.length).map((v, i) => (
                             <circle key={i} cx={xAt(i)} cy={yAt(v)} r={2.5} fill={color}>
-                                <title>{`${labels[i]}${s.name ? ` · ${s.name}` : ''}: ${v}`}</title>
+                                <title>{`${labels[i]}${s.name? ` · ${s.name}`: ''}: ${v}`}</title>
                             </circle>
                         ))}
                     </g>
@@ -265,7 +265,7 @@ function LineChart({ block }: { block: Extract<CanvasBlock, { type: 'chart' }> }
             {labels.map((lab, i) => (
                 (labels.length <= 12 || i % Math.ceil(labels.length / 12) === 0) && (
                     <text key={i} x={xAt(i)} y={CHART_H - 8} textAnchor="middle" fontSize={9} fill="rgba(255,255,255,0.55)">
-                        {lab.length > 10 ? `${lab.slice(0, 9)}…` : lab}
+                        {lab.length > 10? `${lab.slice(0, 9)}…`: lab}
                     </text>
                 )
             ))}
@@ -284,7 +284,7 @@ function PieChart({ block }: { block: Extract<CanvasBlock, { type: 'chart' }> })
         const a0 = angle;
         const a1 = angle + frac * Math.PI * 2;
         angle = a1;
-        const large = a1 - a0 > Math.PI ? 1 : 0;
+        const large = a1 - a0 > Math.PI? 1: 0;
         const p0 = [cx + r * Math.cos(a0), cy + r * Math.sin(a0)];
         const p1 = [cx + r * Math.cos(a1), cy + r * Math.sin(a1)];
         const q1 = [cx + inner * Math.cos(a1), cy + inner * Math.sin(a1)];
@@ -319,9 +319,9 @@ function ChartBlock({ block }: { block: Extract<CanvasBlock, { type: 'chart' }> 
     return (
         <div style={card}>
             <BlockTitle text={block.title} />
-            {block.chart === 'pie' ? <PieChart block={block} />
-                : block.chart === 'line' ? <LineChart block={block} />
-                    : <BarChart block={block} />}
+            {block.chart === 'pie'? <PieChart block={block} />
+: block.chart === 'line'? <LineChart block={block} />
+: <BarChart block={block} />}
             {block.chart !== 'pie' && <ChartLegend series={block.series} />}
         </div>
     );
@@ -355,12 +355,12 @@ function ProgressBlock({ block }: { block: Extract<CanvasBlock, { type: 'progres
                 {block.items.map((it, i) => {
                     const max = it.max ?? 100;
                     const pct = Math.min(100, Math.max(0, (it.value / (max || 1)) * 100));
-                    const color = it.tone ? TONE_COLOR[it.tone] : (pct >= 100 ? TONE_COLOR.success : TONE_COLOR.info);
+                    const color = it.tone? TONE_COLOR[it.tone]: (pct >= 100? TONE_COLOR.success: TONE_COLOR.info);
                     return (
                         <div key={i}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginBottom: 4 }}>
                                 <span style={{ opacity: 0.85 }}>{it.label}</span>
-                                <span style={{ opacity: 0.6 }}>{it.value}{it.max != null ? ` / ${it.max}` : '%'}</span>
+                                <span style={{ opacity: 0.6 }}>{it.value}{it.max != null? ` / ${it.max}`: '%'}</span>
                             </div>
                             <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
                                 <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3, transition: 'width var(--duration-base, 150ms) ease' }} />
@@ -386,14 +386,14 @@ function TodoBlock({ block }: { block: Extract<CanvasBlock, { type: 'todo' }> })
                     <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5 }}>
                         <span style={{
                             width: 14, height: 14, borderRadius: 7, flexShrink: 0, marginTop: 1,
-                            border: `1.5px solid ${it.done ? TONE_COLOR.success : 'rgba(255,255,255,0.3)'}`,
-                            background: it.done ? TONE_COLOR.success : 'transparent',
+                            border: `1.5px solid ${it.done? TONE_COLOR.success: 'rgba(255,255,255,0.3)'}`,
+                            background: it.done? TONE_COLOR.success: 'transparent',
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                             fontSize: 9, color: '#0b0e14', fontWeight: 700,
                         }}>
-                            {it.done ? '✓' : ''}
+                            {it.done? '': ''}
                         </span>
-                        <span style={{ opacity: it.done ? 0.55 : 0.9, textDecoration: it.done ? 'line-through' : 'none' }}>
+                        <span style={{ opacity: it.done? 0.55: 0.9, textDecoration: it.done? 'line-through': 'none' }}>
                             {it.text}
                         </span>
                     </div>
@@ -448,20 +448,20 @@ function TimelineBlock({ block }: { block: Extract<CanvasBlock, { type: 'timelin
             <BlockTitle text={block.title} />
             <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {block.items.map((it, i) => {
-                    const color = it.status === 'done' ? TONE_COLOR.success
-                        : it.status === 'active' ? TONE_COLOR.info : 'rgba(255,255,255,0.3)';
+                    const color = it.status === 'done'? TONE_COLOR.success
+: it.status === 'active'? TONE_COLOR.info: 'rgba(255,255,255,0.3)';
                     return (
                         <div key={i} style={{ display: 'flex', gap: 12 }}>
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                                 <span style={{
                                     width: 10, height: 10, borderRadius: 5, background: color, flexShrink: 0, marginTop: 4,
-                                    boxShadow: it.status === 'active' ? `0 0 6px ${color}` : 'none',
+                                    boxShadow: it.status === 'active'? `0 0 6px ${color}`: 'none',
                                 }} />
                                 {i < block.items.length - 1 && (
                                     <span style={{ width: 1.5, flex: 1, minHeight: 14, background: 'rgba(255,255,255,0.12)' }} />
                                 )}
                             </div>
-                            <div style={{ paddingBottom: i < block.items.length - 1 ? 14 : 0 }}>
+                            <div style={{ paddingBottom: i < block.items.length - 1? 14: 0 }}>
                                 <div style={{ fontSize: 12.5, fontWeight: 600, opacity: 0.9 }}>{it.title}</div>
                                 {it.detail && <div style={{ fontSize: 11.5, opacity: 0.6, marginTop: 2 }}>{it.detail}</div>}
                             </div>
