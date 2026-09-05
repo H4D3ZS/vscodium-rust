@@ -74,7 +74,7 @@ class LlamaCppService {
    */
   async checkStatus(): Promise<LlamaCppStatus> {
     this.status = { status: 'connecting' };
-    useStore.setState({ ollamaStatus: 'checking' });
+    useStore.setState({ llamaCppStatus: 'checking' });
 
     try {
       const response = await fetch(`${this.baseUrl}/health`, {
@@ -87,7 +87,7 @@ class LlamaCppService {
           status: 'connected',
           model: 'llama.cpp',
         };
-        useStore.setState({ ollamaStatus: 'running' });
+        useStore.setState({ llamaCppStatus: 'running' });
       } else {
         throw new Error('Server returned unhealthy status');
       }
@@ -96,7 +96,7 @@ class LlamaCppService {
         status: 'error',
         error: error instanceof Error ? error.message : 'Connection failed',
       };
-      useStore.setState({ ollamaStatus: 'error' });
+      useStore.setState({ llamaCppStatus: 'error' });
     }
 
     return this.status;

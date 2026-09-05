@@ -1,5 +1,5 @@
 import { invoke } from './tauri_bridge.ts';
-import { openFile } from './editor.ts';
+import { useStore } from './store.ts';
 
 export interface FileEntry {
     name: string;
@@ -205,7 +205,7 @@ function renderExplorer(entries: FileEntry[], container: HTMLElement) {
         } else {
             rowDiv.onclick = (e) => {
                 e.stopPropagation();
-                openFile(entry.path, entry.name);
+                useStore.getState().openFile(entry.path).catch(err => console.error(err));
             };
         }
 

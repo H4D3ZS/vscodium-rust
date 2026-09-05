@@ -59,7 +59,7 @@ const BrowserSurface: React.FC = () => {
                     const b64 = await invoke<string>('browser_screenshot');
                     if (b64) setScreenshot(`data:image/jpeg;base64,${b64}`);
                 } catch { /* browser not up yet */ } finally { busy = false; }
-            }, 1500);
+            }, 3000);
         }
         return () => clearInterval(interval);
     }, [visionEnabled, isAgentThinking, mode]);
@@ -345,7 +345,7 @@ const QUICK_PORTS: { label: string; url: string }[] = [
 const BrowserStart: React.FC<{ onPick: (u: string) => void }> = ({ onPick }) => (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
         <div style={{ textAlign: 'center', maxWidth: 460, padding: 24 }}>
-            <div style={{ fontSize: 44, marginBottom: 12 }}>🌐</div>
+            <div style={{ fontSize: 44, marginBottom: 12 }}></div>
             <h2 style={{ color: '#0f172a', margin: '0 0 6px', fontSize: 20 }}>Browser Preview</h2>
             <p style={{ color: '#64748b', fontSize: 13, lineHeight: 1.5, margin: '0 0 20px' }}>
                 Preview your project's dev server here while the agent edits code.
@@ -377,7 +377,7 @@ const BrowserStart: React.FC<{ onPick: (u: string) => void }> = ({ onPick }) => 
 const BrowserSelfWarning: React.FC<{ url: string; onClear: () => void }> = ({ url, onClear }) => (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff7ed' }}>
         <div style={{ textAlign: 'center', maxWidth: 460, padding: 24 }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>♾️</div>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>♾</div>
             <h2 style={{ color: '#9a3412', margin: '0 0 6px', fontSize: 18 }}>That's this IDE</h2>
             <p style={{ color: '#7c2d12', fontSize: 13, lineHeight: 1.5, margin: '0 0 18px' }}>
                 <code>{url}</code> is this IDE's own dev server — loading it here would just

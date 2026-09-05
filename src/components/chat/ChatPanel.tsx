@@ -1,12 +1,14 @@
 /**
  * ChatPanel — composition root for the agent chat surface.
  * Manages message list + input area; delegates to ChatMessage / ChatInput / ChatToolbar.
- * State stays in the calling component (RightSidebar); this handles pure layout.
+ * Integrates Cursor-style MentionPopup and BackgroundAgentJobs.
  */
 import React from 'react';
 import ChatMessageList from './ChatMessageList';
 import ChatInput from './ChatInput';
 import ChatToolbar from './ChatToolbar';
+import MentionPopup from './MentionPopup';
+import BackgroundAgentJobs from './BackgroundAgentJobs';
 import type { AgentMessage, AttachedContext } from '../../store';
 
 interface ChatPanelProps {
@@ -20,6 +22,12 @@ interface ChatPanelProps {
     editingMsgIdx: number | null;
     editValue: string;
     lastCopiedIdx: number | null;
+    /* mention popup */
+    allFiles: { path: string; name: string; is_dir: boolean }[];
+    isMentionOpen: boolean;
+    selectedMentionIndex: number;
+    onSelectMention: (item: any) => void;
+    onSelectMentionIndex: (index: number) => void;
     /* toolbar passthrough */
     mode: string;
     model: string;
@@ -71,8 +79,19 @@ const ChatPanel: React.FC<ChatPanelProps> = (props) => {
                 />
             </div>
 
-            {/* Input area */}
-            <div style={{ flexShrink: 0, padding: '8px 10px' }}>
+            {/* Background agent jobs */}
+            <BackgroundAgentJobs />
+
+            {/* Input area with @ mention popup */}
+            <div style={{ flexShrink: 0, padding: '8px 10px', position: 'relative' }}>
+                <MentionPopup
+                    inputValue={props.inputValue}
+                    allFiles={props.allFiles}
+                    isOpen={props.isMentionOpen}
+                    selectedIndex={props.selectedMentionIndex}
+                    onSelect={props.onSelectMention}
+                    onSelectIndex={props.onSelectMentionIndex}
+                />
                 <ChatInput
                     inputRef={props.inputRef}
                     inputValue={props.inputValue}

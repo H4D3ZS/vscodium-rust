@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 
 use crate::ai_engine::{AiRequest, ChatMessage, MessageContent, Sentient};
-use crate::EditorState;
 
 #[derive(Clone)]
 struct GatewayState {
@@ -56,14 +55,14 @@ struct GwChoice {
 
 #[tauri::command]
 pub async fn hermes_gateway_start(
-    state: tauri::State<'_, EditorState>,
+    state: tauri::State<'_, std::sync::Arc<crate::EditorState>>,
     port: Option<u16>,
 ) -> Result<u16, String> {
     if GATEWAY.lock().map_err(|e| e.to_string())?.is_some() {
         return Err("Hermes gateway already running".into());
     }
     let port = port.unwrap_or(8642);
-    let ollama_url = state.ai.ollama_url.lock().await.clone();
+    let ollama_url = state.ai.engine.lemonade_base().await;
     let default_model = state.ai.current_model.lock().await.clone();
     let gw = Arc::new(GatewayState {
         sentient: state.ai.engine.clone(),
@@ -73,7 +72,7 @@ pub async fn hermes_gateway_start(
     });
 
     let gw_run = gw.clone();
-    tauri::async_runtime::spawn(async move {
+    tokio::spawn(async move {
         if let Err(e) = serve_gateway(gw_run).await {
             eprintln!("[hermes-gateway] stopped: {e}");
         }
@@ -166,7 +165,7 @@ async fn chat_completions(
 
     let ollama_url = gw.ollama_url.clone();
     let ai_req = AiRequest {
-        provider: "ollama".into(),
+        provider: "lemonade".into(),
         model: model.clone(),
         messages,
         temperature: req.temperature,

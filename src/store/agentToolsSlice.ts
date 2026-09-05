@@ -9,10 +9,14 @@ import type {
     AgentMessage, AgentStep, Artifact, AttachedContext, AgentTask, TaskArtifact, SemanticSlot,
 } from './types';
 import type { AgentToolBlock } from '../domain/agent/agentToolBlocks';
-import { createToolBlock, enrichCanvasBlockFromResult, enrichEditBlockFromResult } from '../domain/agent/agentToolBlocks';
+import { createToolBlock, enrichCanvasBlockFromResult, enrichEditBlockFromResult, enrichExploreBlockFromResult } from '../domain/agent/agentToolBlocks';
 import { toolsMatchForFinish } from '../domain/agent/toolAliases';
 import { cleanAgentContent, shouldReplaceAgentContent } from '../domain/agent/cleanAgentContent';
 import { onAgentModeChanged } from '../lib/agentAutonomy';
+import {
+    boundedPush, boundedTail,
+    MAX_AGENT_STEPS_PER_MSG, MAX_TRAJECTORY_EVENTS, MAX_TOOL_BLOCKS, MAX_TOOL_OUTPUT_LINES, MAX_COMPLETED_TASKS,
+} from '../domain/utils/boundedArray';
 import { type CustomMode, loadCustomModes, parseThought, normalizeBackendMessages, mapBackendChatMessages } from './agentSliceShared';
 
 export interface AgentToolsSlice {
@@ -103,7 +107,7 @@ export const createAgentToolsSlice: StateCreator<AppState, [], [], AgentToolsSli
         if (last && last.role === 'assistant') {
             const steps = last.steps || [];
             if (!steps.find((s: any) => (callId && s.callId === callId) || (!callId && s.name === name && s.status === 'running'))) {
-                last.steps = [...steps, { name, status: 'running', type, args, callId }];
+                last.steps = boundedPush(steps, { name, status: 'running' as const, type, args, callId }, MAX_AGENT_STEPS_PER_MSG);
             }
         }
         return { agentMessages: messages };
@@ -141,7 +145,7 @@ export const createAgentToolsSlice: StateCreator<AppState, [], [], AgentToolsSli
 
     pushTrajectoryEvent: (evt) => {
         set((s) => ({
-            agentTrajectory: [...s.agentTrajectory.slice(-199), { id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ts: Date.now(), turn: s.currentTurnId, ...evt }],
+            agentTrajectory: boundedPush(s.agentTrajectory, { id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ts: Date.now(), turn: s.currentTurnId, ...evt }, MAX_TRAJECTORY_EVENTS),
         }));
         const st = get();
         if (st.activeRoot && st.activeCascadeId) {
@@ -169,14 +173,14 @@ export const createAgentToolsSlice: StateCreator<AppState, [], [], AgentToolsSli
             );
             if (dup) return state;
         }
-        return { agentToolBlocks: [...state.agentToolBlocks.slice(-24), block] };
+        return { agentToolBlocks: boundedPush(state.agentToolBlocks, block, MAX_TOOL_BLOCKS) };
     }),
 
     appendAgentToolOutput: (streamId, line, stream) => set((state) => ({
         agentToolBlocks: state.agentToolBlocks.map((b) => {
-            if (b.streamId !== streamId) return b;
-            const prefix = stream === 'stderr' ? '[stderr] ' : '';
-            return { ...b, outputLines: [...b.outputLines, prefix + line].slice(-40) };
+            if (b.id !== streamId) return b;
+            const prefix = stream === 'stderr' ? '\x1b[31m' : '';
+            return { ...b, outputLines: boundedPush(b.outputLines, prefix + line, MAX_TOOL_OUTPUT_LINES) };
         }),
     })),
 
@@ -206,7 +210,7 @@ export const createAgentToolsSlice: StateCreator<AppState, [], [], AgentToolsSli
                 outputLines: [],
             });
         }
-        return { agentToolBlocks: blocks.slice(-24) };
+        return { agentToolBlocks: boundedTail(blocks, MAX_TOOL_BLOCKS) };
     }),
 
     finishAgentToolCall: (tool, success, result, streamId, callId) => set((state) => {
@@ -230,6 +234,12 @@ export const createAgentToolsSlice: StateCreator<AppState, [], [], AgentToolsSli
                     ...enriched,
                     status: success ? 'done' as const : 'error' as const,
                     preview: enriched.preview || (result.length < 500 ? result.slice(0, 400) : enriched.preview),
+                };
+            }
+            if (result && b.kind === 'explore') {
+                next = {
+                    ...enrichExploreBlockFromResult(next, result),
+                    status: success ? 'done' as const : 'error' as const,
                 };
             }
             return next;
@@ -311,7 +321,9 @@ export const createAgentToolsSlice: StateCreator<AppState, [], [], AgentToolsSli
             updatedTask = { id: taskUpdate.id, title: taskUpdate.title || 'Agent Task', summary: taskUpdate.summary || '', status: (taskUpdate.status as any) || 'running', progress: taskUpdate.progress || 0, createdAt: Date.now(), updatedAt: Date.now(), artifacts: [] };
             existingTasks.push(updatedTask);
         }
-        return { agentTasks: existingTasks, agentTask: updatedTask };
+        const active = existingTasks.filter((t: any) => t.status === 'running' || t.status === 'pending');
+        const completed = boundedTail(existingTasks.filter((t: any) => t.status !== 'running' && t.status !== 'pending'), MAX_COMPLETED_TASKS);
+        return { agentTasks: [...active, ...completed], agentTask: updatedTask };
     }),
     setAgentTask: (agentTask) => set({ agentTask }),
     setAgentTasks: (agentTasks) => set({ agentTasks }),

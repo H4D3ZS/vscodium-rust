@@ -1,16 +1,15 @@
 use tauri::State;
-use crate::EditorState;
 use crate::performance;
 use serde_json::{json, Value};
 
 #[tauri::command]
-pub async fn get_process_stats(state: State<'_, EditorState>) -> Result<performance::ProcessStats, String> {
+pub async fn get_process_stats(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<performance::ProcessStats, String> {
     Ok(state.services.perf_monitor.get_stats().await.ok_or("Failed to get process stats")?)
 
 }
 
 #[tauri::command]
-pub async fn get_system_health(state: State<'_, EditorState>) -> Result<Value, String> {
+pub async fn get_system_health(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Value, String> {
     let stats = state.services.perf_monitor.get_stats().await.ok_or("Failed to get health stats")?;
     Ok(json!({
         "status": "healthy",
@@ -26,7 +25,7 @@ pub async fn get_system_health(state: State<'_, EditorState>) -> Result<Value, S
 /// (batched dot products over synthetic unit vectors, 768-dim like nomic-embed).
 #[tauri::command]
 pub async fn benchmark_ane(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     iterations: Option<u32>,
 ) -> Result<Value, String> {
     let its = iterations.unwrap_or(10).max(1);
@@ -83,12 +82,12 @@ pub async fn benchmark_ane(
 }
 
 #[tauri::command]
-pub async fn get_inference_history(state: State<'_, EditorState>) -> Result<Value, String> {
+pub async fn get_inference_history(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Value, String> {
     Ok(json!(state.services.perf_monitor.get_inference_history().await))
 }
 
 #[tauri::command]
-pub async fn query_performance_history(state: State<'_, EditorState>) -> Result<Value, String> {
+pub async fn query_performance_history(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Value, String> {
     Ok(json!(state.services.perf_monitor.get_inference_history().await))
 
 }
@@ -115,7 +114,7 @@ pub fn macos_pressure_relief() {
 }
 
 #[tauri::command]
-pub async fn optimize_memory(state: State<'_, EditorState>) -> Result<String, String> {
+pub async fn optimize_memory(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<String, String> {
     state.memory.optimizer.optimize().await.map_err(|e| e.to_string())?;
     let engine = state.ai.engine.clone();
     let _ = engine.optimize_memory().await;
@@ -133,6 +132,6 @@ pub async fn optimize_memory(state: State<'_, EditorState>) -> Result<String, St
 }
 
 #[tauri::command]
-pub async fn get_memory_savings(state: State<'_, EditorState>) -> Result<(usize, usize), String> {
+pub async fn get_memory_savings(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<(usize, usize), String> {
     Ok(state.memory.optimizer.get_savings_report().await)
 }

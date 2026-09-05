@@ -34,6 +34,8 @@ const ALIAS_MAP: Record<string, string> = {
     // Web
     web_fetch: 'web_fetch', read_url_content: 'web_fetch', fetch_url: 'web_fetch',
     internet_search: 'web_search', research: 'web_search', browse: 'web_search',
+    crawl: 'crawl_url', scrape: 'crawl_url', extract_page: 'crawl_url',
+    deep_scrape: 'deep_crawl', crawl_site: 'deep_crawl', site_map: 'deep_crawl',
     // Pentest
     nmap: 'network_port_scanner', port_scan: 'network_port_scanner', scan_ports: 'network_port_scanner',
     nmap_scan: 'network_scan', host_scan: 'network_scan', network_recon: 'network_scan',
@@ -62,6 +64,8 @@ export const BACKEND_TO_TS_TOOL: Record<string, string> = {
     list_files: 'list_directory',
     web_fetch: 'web_fetch',
     web_search: 'web_search',
+    crawl_url: 'crawl_url',
+    deep_crawl: 'deep_crawl',
 };
 
 export function canonicalToolName(name: string): string {

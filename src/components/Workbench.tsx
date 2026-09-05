@@ -2,7 +2,6 @@ import React, { useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import ActivityBar from './ActivityBar';
 import Sidebar from './Sidebar';
 import BrandedWelcomeScreen from './BrandedWelcomeScreen';
-import OllamaProgressBar from './OllamaProgressBar';
 import { useStore } from '../store';
 import TabStrip from './workbench/TabStrip';
 import ToastManager from './ToastManager';
@@ -17,6 +16,7 @@ const SettingsPage = lazy(() => import('./SettingsPage'));
 const McpStorePanel = lazy(() => import('./McpStorePanel'));
 const AimViewer = lazy(() => import('./AimViewer'));
 const CanvasView = lazy(() => import('./canvas/CanvasView'));
+const MermaidView = lazy(() => import('./MermaidView'));
 const VisualLab = lazy(() => import('./visual/VisualLab'));
 const SpecsToCodeWizard = lazy(() => import('./SpecsToCodeWizard'));
 const WorkspaceArchitecturePanel = lazy(() => import('./modules/WorkspaceArchitecturePanel'));
@@ -184,6 +184,8 @@ const Workbench: React.FC = () => {
                                                 <Suspense fallback={<PanelFallback />}><AimViewer path={(tabs.find(t => t.id === activeTabId) as any)?.path} /></Suspense>
                                             ) : tabs.find(t => t.id === activeTabId)?.type === 'canvas' ? (
                                                 <Suspense fallback={<PanelFallback />}><CanvasView path={tabs.find(t => t.id === activeTabId)?.path || ''} /></Suspense>
+                                            ) : (tabs.find(t => t.id === activeTabId) as any)?.type === 'mermaid' ? (
+                                                <Suspense fallback={<PanelFallback />}><MermaidView id={activeTabId || 'mmd'} code={tabs.find(t => t.id === activeTabId)?.content || ''} /></Suspense>
                                             ) : (
                                                 <div style={{ display: 'flex', flex: 1, width: '100%', height: '100%', minWidth: 0 }}>
                                                     {showLeftEmulatorDock && (
@@ -227,7 +229,7 @@ const Workbench: React.FC = () => {
                                                     </div>
                                                     {/* Visual Lab split */}
                                                     {(isVisualLabSplitView && isVisualLabOpen) && (
-                                                        <div style={{ flex: '0 0 50%', height: '100%', minWidth: 0, background: '#090909' }}>
+                                                        <div style={{ flex: '0 0 50%', height: '100%', minWidth: 0, background: 'var(--vscode-editor-background)' }}>
                                                             <Suspense fallback={<PanelFallback />}><VisualLab isInline={true} /></Suspense>
                                                         </div>
                                                     )}
@@ -384,7 +386,7 @@ const Workbench: React.FC = () => {
                 )}
 
             {/* Ollama Progress Bar */}
-            <OllamaProgressBar />
+            
             <Suspense fallback={<PanelFallback />}><ComposerOverlay /></Suspense>
             <ToastManager />
         </div >

@@ -25,7 +25,7 @@ const VisionPanel: React.FC = () => {
       
       const analysisResult = await invoke<VisionResult>('airi_vision_analyze_screen', {
         prompt: prompt,
-        ollamaUrl: ollamaUrl || 'http://localhost:11434',
+        ollamaUrl: ollamaUrl || 'http://localhost:13305',
       });
 
       setResult(analysisResult);
@@ -66,7 +66,7 @@ const VisionPanel: React.FC = () => {
           gap: '8px',
           marginBottom: '8px'
         }}>
-          <span style={{ fontSize: '16px' }}>👁️</span>
+          <span style={{ fontSize: '16px' }}>👁</span>
           <h3 style={{ 
             margin: 0, 
             fontSize: '14px', 
@@ -95,25 +95,25 @@ const VisionPanel: React.FC = () => {
             onClick={() => handleQuickAction('Find any error messages or crash dialogs on this screen')}
             style={quickActionBtnStyle}
           >
-            🔍 Find Errors
+            Find Errors
           </button>
           <button
             onClick={() => handleQuickAction('List all interactive UI elements and their states')}
             style={quickActionBtnStyle}
           >
-            📱 List UI Elements
+            List UI Elements
           </button>
           <button
             onClick={() => handleQuickAction('Is this app screen healthy or showing problems?')}
             style={quickActionBtnStyle}
           >
-            ✅ Health Check
+            Health Check
           </button>
           <button
             onClick={() => handleQuickAction('What should I test next on this screen?')}
             style={quickActionBtnStyle}
           >
-            🧪 Test Suggestions
+            Test Suggestions
           </button>
         </div>
       </div>
@@ -156,7 +156,7 @@ const VisionPanel: React.FC = () => {
             </>
           ) : (
             <>
-              <span>👁️</span>
+              <span>👁</span>
               Analyze Screen
             </>
           )}
@@ -177,7 +177,7 @@ const VisionPanel: React.FC = () => {
             background: result.status === 'healthy' ? '#34C759' : result.status === 'error' ? '#FF3B30' : '#FF9500',
             color: 'var(--vscode-editor-foreground, #fff)',
           }}>
-            {result.status === 'healthy' ? '✅ Healthy' : result.status === 'error' ? '❌ Error Detected' : '⚠️ Unknown'}
+            {result.status === 'healthy' ? 'Healthy' : result.status === 'error' ? 'Error Detected' : 'Unknown'}
           </div>
 
           {/* Error Message */}
@@ -205,7 +205,7 @@ const VisionPanel: React.FC = () => {
               marginBottom: '12px',
             }}>
               <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', color: 'var(--vscode-foreground)' }}>
-                📱 UI Elements Detected:
+                UI Elements Detected:
               </div>
               <ul style={{ 
                 margin: 0, 
@@ -229,7 +229,7 @@ const VisionPanel: React.FC = () => {
             marginBottom: '12px',
           }}>
             <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', color: 'var(--vscode-foreground)' }}>
-              💡 Suggested Action:
+              Suggested Action:
             </div>
             <div style={{ fontSize: '12px', color: 'var(--vscode-foreground)' }}>
               {result.suggested_action}
@@ -248,7 +248,7 @@ const VisionPanel: React.FC = () => {
             color: 'var(--vscode-foreground)',
           }}>
             <div style={{ fontSize: '10px', fontWeight: 600, marginBottom: '6px', opacity: 0.7 }}>
-              📄 Full Analysis:
+              Full Analysis:
             </div>
             {result.raw_analysis}
           </div>
@@ -268,7 +268,7 @@ const VisionPanel: React.FC = () => {
           padding: '20px',
         }}>
           <div>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>👁️</div>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>👁</div>
             <div>Capture and analyze emulator screens</div>
             <div style={{ fontSize: '11px', opacity: 0.6, marginTop: '8px' }}>
               Uses Qwen2.5-VL for AI-powered mobile QA

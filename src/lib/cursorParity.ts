@@ -99,7 +99,7 @@ export const CURSOR_PARITY_GROUPS: CursorParityGroup[] = [
         cursorRef: 'Cursor model routing',
         features: [
             { id: 'multi-provider', name: 'Multi-provider routing', description: 'Anthropic, OpenAI, Ollama, etc.', cursorRef: 'model picker', status: 'done', hadesPath: 'inferenceSlice.ts, ai_engine.rs' },
-            { id: 'local-ollama', name: 'Local Ollama (no cloud)', description: 'Unlimited local agentic inference', cursorRef: 'Ollama', status: 'done', hadesPath: 'localOllamaRegistry.ts' },
+            { id: 'local-lemonade', name: 'Local Lemonade (no cloud)', description: 'Unlimited local agentic inference on real llama.cpp', cursorRef: 'Ollama', status: 'done', hadesPath: 'application/commands/ai.rs' },
             { id: 'feature-models', name: 'Per-feature model slots', description: 'Chat / Apply / Tab / SCM models', cursorRef: 'FEATURES', status: 'done', hadesPath: 'model_capabilities.ts' },
             { id: 'composer-2-amd3900', name: 'Composer 2 AMD 3900 hybrid', description: 'Local fast chat + remote MiniMax M2.7 agent with failover', cursorRef: 'Composer 2', status: 'done', hadesPath: 'composer2Stack.ts' },
             { id: 'composer-2', name: 'Composer 2 stack presets', description: 'Kimi K2.6-class hybrid + Composer 2 Fast chat routing', cursorRef: 'Composer 2', status: 'done', hadesPath: 'src/lib/composer2Stack.ts' },

@@ -5,11 +5,75 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{Emitter, Manager};
 use super::registry::AiTools;
 use super::registry::push_activity;
 use super::shell::ShellTranslator;
+use crate::domain::safe_io;
 use crate::process_ext::CommandExtHidden;
+
+/// Parse FastContext's trained text tool-call format — `READ(path)`, `GLOB(pat)`,
+/// `GREP(term)` (case-insensitive) — into `(internal_name, arg)` pairs. Used when
+/// the GGUF template doesn't emit native Ollama tool_calls.
+fn parse_text_tool_calls(text: &str) -> Vec<(String, String)> {
+    let re = regex::Regex::new(r#"(?i)\b(READ|GLOB|GREP|CODE_SEARCH|SEARCH)\s*\(\s*["']?([^"')]+?)["']?\s*\)"#).unwrap();
+    let mut out = Vec::new();
+    for cap in re.captures_iter(text) {
+        let name = match cap[1].to_lowercase().as_str() {
+            "read" => "read_file",
+            "glob" => "glob",
+            "code_search" => "code_search",
+            _ => "grep", // GREP / SEARCH
+        };
+        let arg = cap[2].trim().to_string();
+        if !arg.is_empty() { out.push((name.to_string(), arg)); }
+        if out.len() >= 8 { break; }
+    }
+    out
+}
+
+/// Known long-running CLI tools — mostly recon/scanning binaries used in
+/// bug-bounty / pentest PoC work — that should default to a background terminal
+/// so they don't block the agent turn. Matched against any whitespace- or
+/// pipe-separated token in the command (so `sudo nmap ...` and `foo | ffuf ...`
+/// both hit). Curated deliberately: only tools that routinely run for minutes.
+const LONG_RUNNING_BINARIES: &[&str] = &[
+    "nmap", "masscan", "rustscan", "naabu", "zmap",
+    "ffuf", "gobuster", "feroxbuster", "dirb", "dirbuster", "wfuzz", "dirsearch",
+    "nikto", "sqlmap", "wpscan", "joomscan", "nuclei", "wafw00f",
+    "hydra", "medusa", "patator", "hashcat", "john",
+    "amass", "subfinder", "assetfinder", "gau", "katana", "httpx",
+    "gospider", "hakrawler", "arjun", "dalfox", "testssl", "sslscan",
+];
+
+/// True when the command's first meaningful token (skipping sudo/env prefixes)
+/// or any pipeline stage invokes a known long-running scanner.
+pub(crate) fn is_long_running_command(command: &str) -> bool {
+    for stage in command.split(['|', ';', '&']) {
+        let mut tokens = stage.split_whitespace().peekable();
+        // Skip common prefixes that precede the real binary.
+        while let Some(&tok) = tokens.peek() {
+            let base = tok.rsplit(['/', '\\']).next().unwrap_or(tok).to_lowercase();
+            if matches!(base.as_str(), "sudo" | "doas" | "env" | "time" | "nice" | "stdbuf" | "proxychains" | "proxychains4") {
+                tokens.next();
+                continue;
+            }
+            // Skip `VAR=value` env assignments.
+            if tok.contains('=') && !tok.starts_with('-') {
+                tokens.next();
+                continue;
+            }
+            break;
+        }
+        if let Some(tok) = tokens.next() {
+            let base = tok.rsplit(['/', '\\']).next().unwrap_or(tok).to_lowercase();
+            let base = base.trim_end_matches(".exe");
+            if LONG_RUNNING_BINARIES.contains(&base) {
+                return true;
+            }
+        }
+    }
+    false
+}
 
 impl AiTools {
     pub(crate) fn validate_path(&self, root: &std::path::Path, path_str: &str) -> Result<PathBuf> {
@@ -20,10 +84,17 @@ impl AiTools {
             root.join(path)
         };
 
-        // Canonicalize when the path already exists so shadow-buffer keys,
-        // apply_shadow_patch, and disk reads all agree (notably on Windows).
+        // Prevent path traversal — the resolved path must stay within workspace root.
+        let canon_root = std::fs::canonicalize(root)
+            .unwrap_or_else(|_| root.to_path_buf());
         if full_path.exists() {
             if let Ok(canon) = std::fs::canonicalize(&full_path) {
+                if !canon.starts_with(&canon_root) {
+                    return Err(anyhow::anyhow!(
+                        "Path escapes workspace root: {}",
+                        full_path.display()
+                    ));
+                }
                 let ignore = crate::cursor_compat::CursorIgnoreSet::load(
                     root,
                     crate::cursor_compat::IgnoreScope::AiAccess,
@@ -36,6 +107,19 @@ impl AiTools {
                 }
                 return Ok(canon);
             }
+        }
+        // For non-existent paths, check the parent directory chain stays within root.
+        let mut parent = full_path.parent();
+        while let Some(p) = parent {
+            if p == canon_root { break; }
+            if p.starts_with(&canon_root) {
+                parent = p.parent();
+                continue;
+            }
+            return Err(anyhow::anyhow!(
+                "Path escapes workspace root: {}",
+                full_path.display()
+            ));
         }
         let ignore = crate::cursor_compat::CursorIgnoreSet::load(
             root,
@@ -126,16 +210,52 @@ impl AiTools {
         // to "comprehend" stale buffers (e.g. empty or pre-edit snapshots) while
         // the editor showed different on-disk truth — breaking writes and reviews.
         let metadata = fs::metadata(&full_path)?;
-        if metadata.len() > 10 * 1024 * 1024 {
-            return Err(anyhow!("File is too large ({} bytes). Use read_file_lines for large files.", metadata.len()));
+        let file_size = metadata.len();
+
+        if file_size > 2 * 1024 * 1024 {
+            use std::io::{BufRead, BufReader};
+            let file = fs::File::open(&full_path)?;
+            let mut reader = BufReader::new(file);
+            let mut head_lines = Vec::new();
+            let mut tail_lines = Vec::new();
+            let mut line_num = 0usize;
+            let mut buf = String::new();
+            let head_limit = 200;
+            let tail_limit = 50;
+            loop {
+                buf.clear();
+                let bytes_read = reader.read_line(&mut buf)?;
+                if bytes_read == 0 { break; }
+                line_num += 1;
+                if line_num <= head_limit {
+                    head_lines.push(buf.trim_end_matches('\n').trim_end_matches('\r').to_string());
+                } else {
+                    tail_lines.push(buf.trim_end_matches('\n').trim_end_matches('\r').to_string());
+                    if tail_lines.len() > tail_limit {
+                        tail_lines.remove(0);
+                    }
+                }
+            }
+            let preview = if tail_lines.is_empty() {
+                head_lines.join("\n")
+            } else {
+                let mut all = head_lines;
+                all.push(format!("\n... ({line_num} lines total, showing first 200 + last 50) ...\n"));
+                all.extend(tail_lines);
+                all.join("\n")
+            };
+            self.memory_store.update_vfs_cache(full_path.clone(), preview.clone()).await;
+            Ok(json!({
+                "large": true,
+                "size": file_size,
+                "total_lines": line_num,
+                "preview": preview
+            }))
+        } else {
+            let content = safe_io::safe_read(&full_path)?;
+            self.memory_store.update_vfs_cache(full_path, content.clone()).await;
+            Ok(Value::String(content))
         }
-
-        let content = fs::read_to_string(&full_path)?;
-
-        // Keep cache aligned with disk for other subsystems (memory / page-fault).
-        self.memory_store.update_vfs_cache(full_path, content.clone()).await;
-
-        Ok(Value::String(content))
     }
 
     pub(crate) async fn write_file(&self, args: Value) -> Result<Value> {
@@ -181,21 +301,18 @@ impl AiTools {
         // Emit artifact for UI card + file-changed so Monaco tabs reload + open in editor
         {
             let path_abs = full_path.to_string_lossy().to_string();
-            let h_lock = self.app_handle.lock().await;
-            if let Some(h) = h_lock.as_ref() {
-                let _ = h.emit(
-                    "ai-artifact",
-                    json!({
-                        "type": "file",
-                        "path": path_str,
-                        "title": format!("Written: {}", path_str),
-                        "content": "File saved successfully"
-                    }),
-                );
-                // Reload if already open in editor, or open fresh
-                let _ = h.emit("file-changed", json!({ "path": &path_abs }));
-                let _ = h.emit("editor_open_file", json!({ "path": &path_abs }));
-            }
+            self.emit_tool_event(
+                "ai-artifact",
+                json!({
+                    "type": "file",
+                    "path": path_str,
+                    "title": format!("Written: {}", path_str),
+                    "content": "File saved successfully"
+                }),
+            );
+            // Reload if already open in editor, or open fresh
+            self.emit_tool_event("file-changed", json!({ "path": &path_abs }));
+            self.emit_tool_event("editor_open_file", json!({ "path": &path_abs }));
         }
 
         let bytes = content.len();
@@ -218,7 +335,7 @@ impl AiTools {
         let root = self.root_path.lock().await.clone();
         let full_path = self.validate_path(&root, path_str)?;
 
-        let content = fs::read_to_string(&full_path)
+        let content = safe_io::safe_read(&full_path)
             .map_err(|e| anyhow!("Cannot read {}: {}", path_str, e))?;
 
         if !content.contains(old_str) {
@@ -237,10 +354,7 @@ impl AiTools {
 
         {
             let path_abs = full_path.to_string_lossy().to_string();
-            let h_lock = self.app_handle.lock().await;
-            if let Some(h) = h_lock.as_ref() {
-                let _ = h.emit("file-changed", json!({ "path": &path_abs }));
-            }
+            self.emit_tool_event("file-changed", json!({ "path": &path_abs }));
         }
 
         Ok(json!({
@@ -398,17 +512,12 @@ impl AiTools {
         let result = Value::Array(files);
 
         // Emit artifact for file listing
-        {
-            let h_lock = self.app_handle.lock().await;
-            if let Some(h) = h_lock.as_ref() {
-                let _ = h.emit("ai-artifact", json!({
-                    "type": "file",
-                    "path": path_str,
-                    "title": format!("Listed: {}", path_str),
-                    "content": format!("Found {} items", result.as_array().map(|a| a.len()).unwrap_or(0))
-                }));
-            }
-        }
+        self.emit_tool_event("ai-artifact", json!({
+            "type": "file",
+            "path": path_str,
+            "title": format!("Listed: {}", path_str),
+            "content": format!("Found {} items", result.as_array().map(|a| a.len()).unwrap_or(0))
+        }));
 
         Ok(result)
     }
@@ -589,21 +698,28 @@ impl AiTools {
                 "hint": "Use the exact in-scope URL from the user. See .agent/skills/bugbounty-hunter/SKILL.md"
             }));
         }
-        let background = args
-            .get("background")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let explicit_background = args.get("background").and_then(|v| v.as_bool());
+        // Auto-route known long-running scanners to a background terminal unless the
+        // caller explicitly chose foreground. A local model rarely sets background
+        // itself, so a 20-minute `nmap -p-` would otherwise block the whole turn in
+        // the un-cancellable foreground path. Background streams to a pollable
+        // terminal instead, keeping the agent loop responsive during scans.
+        let background = match explicit_background {
+            Some(b) => b,
+            None => {
+                let is_long = is_long_running_command(command);
+                if is_long {
+                    println!("[AI] Auto-backgrounding long-running command: {}", command.lines().next().unwrap_or(command));
+                }
+                is_long
+            }
+        };
 
         let root = self.root_path.lock().await.clone();
 
         let shell_hint = args.get("shell_hint").and_then(|v| v.as_str()).unwrap_or("run_command");
 
         if background {
-            let h_lock = self.app_handle.lock().await;
-            let h = h_lock
-                .as_ref()
-                .ok_or_else(|| anyhow!("App handle not set"))?;
-
             let id = format!(
                 "bg-{}",
                 std::time::SystemTime::now()
@@ -611,10 +727,10 @@ impl AiTools {
                     .unwrap()
                     .as_millis()
             );
-            h.emit(
+            self.emit_tool_event(
                 "terminal-create",
                 json!({ "id": id.clone(), "command": command, "shell": shell_hint }),
-            )?;
+            );
 
             return Ok(json!({
                 "status": "success",
@@ -644,10 +760,10 @@ impl AiTools {
 
         let stream_id = format!("cmd-{}", uuid::Uuid::new_v4().simple());
 
-        let app_handle = {
-            let h_lock = self.app_handle.lock().await;
-            h_lock.clone()
-        };
+        // Snapshot the sink once for the reader threads (Send+Sync), instead of
+        // a tauri::AppHandle. The primary UI channel is `activity_log` (polled);
+        // the sink emit is the secondary path.
+        let sink = self.sink();
 
         let start_payload = json!({
             "stream_id": stream_id,
@@ -655,8 +771,8 @@ impl AiTools {
             "shell_hint": shell_hint,
         });
         push_activity(&self.activity_log, "ai-tool-stdout-start", start_payload.clone());
-        if let Some(ref h) = app_handle {
-            let _ = h.emit("ai-tool-stdout-start", start_payload);
+        if let Some(ref s) = sink {
+            s.emit("ai-tool-stdout-start", start_payload);
         }
 
         let mut cmd = std::process::Command::new(&exec_path);
@@ -671,7 +787,18 @@ impl AiTools {
         if command.to_lowercase().contains("curl ") {
             ShellTranslator::sanitize_proxy_env(&mut cmd);
         }
+        // Put the child in its own process group so the stop signal can kill the
+        // whole tree (e.g. `sh -c "nmap ..."` plus the nmap it forks) via a
+        // negative-PID signal. Windows uses taskkill /T for the same effect.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
         let mut child = cmd.spawn()?;
+        // Register for stop-signal kill while this command runs.
+        let child_pid = child.id();
+        crate::process_registry::register(child_pid);
 
         let child_stdout = child
             .stdout
@@ -686,7 +813,7 @@ impl AiTools {
         let stderr_buf = Arc::new(std::sync::Mutex::new(String::new()));
 
         // Reader thread: stdout
-        let h_out = app_handle.clone();
+        let s_out = sink.clone();
         let sid_out = stream_id.clone();
         let buf_out = stdout_buf.clone();
         let act_out = self.activity_log.clone();
@@ -700,18 +827,22 @@ impl AiTools {
                     "stream": "stdout",
                 });
                 push_activity(&act_out, "ai-tool-stdout", payload.clone());
-                if let Some(ref h) = h_out {
-                    let _ = h.emit("ai-tool-stdout", payload);
+                if let Some(ref s) = s_out {
+                    s.emit("ai-tool-stdout", payload);
                 }
                 if let Ok(mut b) = buf_out.lock() {
                     b.push_str(&line);
                     b.push('\n');
+                    if b.len() > safe_io::MAX_CMD_OUTPUT {
+                        let excess = b.len() - safe_io::MAX_CMD_OUTPUT;
+                        b.drain(0..excess);
+                    }
                 }
             }
         });
 
         // Reader thread: stderr
-        let h_err = app_handle.clone();
+        let s_err = sink.clone();
         let sid_err = stream_id.clone();
         let buf_err = stderr_buf.clone();
         let act_err = self.activity_log.clone();
@@ -725,12 +856,16 @@ impl AiTools {
                     "stream": "stderr",
                 });
                 push_activity(&act_err, "ai-tool-stdout", payload.clone());
-                if let Some(ref h) = h_err {
-                    let _ = h.emit("ai-tool-stdout", payload);
+                if let Some(ref s) = s_err {
+                    s.emit("ai-tool-stdout", payload);
                 }
                 if let Ok(mut b) = buf_err.lock() {
                     b.push_str(&line);
                     b.push('\n');
+                    if b.len() > safe_io::MAX_CMD_OUTPUT {
+                        let excess = b.len() - safe_io::MAX_CMD_OUTPUT;
+                        b.drain(0..excess);
+                    }
                 }
             }
         });
@@ -741,6 +876,7 @@ impl AiTools {
         let status = tokio::task::spawn_blocking(move || child.wait())
             .await
             .map_err(|e| anyhow!("join error: {}", e))??;
+        crate::process_registry::unregister(child_pid);
         let _ = stdout_thread.join();
         let _ = stderr_thread.join();
 
@@ -753,9 +889,9 @@ impl AiTools {
             "success": status.success(),
         });
         push_activity(&self.activity_log, "ai-tool-stdout-end", end_payload.clone());
-        if let Some(ref h) = app_handle {
-            let _ = h.emit("ai-tool-stdout-end", end_payload);
-            let _ = h.emit(
+        if let Some(ref s) = sink {
+            s.emit("ai-tool-stdout-end", end_payload);
+            s.emit(
                 "ai-artifact",
                 json!({
                     "type": "terminal",
@@ -785,35 +921,26 @@ impl AiTools {
     }
 
     pub(crate) async fn browser_get_content_summary(&self, _args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().await;
-        if let Some(h) = h_lock.as_ref() {
-            let res = crate::browser::browser_get_content_summary(h.state()).await;
-            match res {
-                Ok(v) => Ok(v),
-                Err(e) => Err(anyhow!("{}", e)),
-            }
-        } else {
-            Err(anyhow!("App handle not set"))
-        }
+        crate::browser::browser_content_summary_for(&self.browser_state)
+            .await
+            .map_err(|e| anyhow!("{}", e))
     }
 
     pub(crate) async fn spawn_subagent(&self, args: Value) -> Result<Value> {
         let sub_task = args["task"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing task"))?;
-        let h_lock = self.app_handle.lock().await;
 
-        if let Some(h) = h_lock.as_ref() {
-            let state: tauri::State<crate::EditorState> = h.state();
+        if let Some(state) = self.editor_state() {
             let engine = state.ai.engine.clone();
-            let handle = h.clone();
+            let sink = self.sink();
             let task_id = uuid::Uuid::new_v4().to_string();
             let task_id_clone = task_id.clone();
             let sub_task_clone = sub_task.to_string();
 
             // Prepare sub-agent request
             let req = crate::ai_engine::AiRequest {
-                provider: "ollama".to_string(), // Native Local Subagent
+                provider: "lemonade".to_string(), // Native Local Subagent
                 model: "qwen2.5-coder-abliterate:7b".to_string(), // Or could be pulled from global state
                 messages: vec![crate::ai_engine::ChatMessage {
                     role: "user".to_string(),
@@ -844,45 +971,57 @@ impl AiTools {
 
             // Spawn background task (non-Send workaround: use thread-local tokio runtime)
             std::thread::spawn(move || {
-                let rt = tokio::runtime::Builder::new_current_thread()
+                let rt = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .expect("tokio rt for subagent");
+                {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        eprintln!("[SubAgent] Failed to create tokio runtime: {e}");
+                        return;
+                    }
+                };
 
-                let _ = handle.emit(
-                    "subagent-progress",
-                    &json!({
-                        "task_id": task_id_clone,
-                        "status": "running",
-                        "progress": 5,
-                        "message": "Initializing sub-agent session..."
-                    }),
-                );
+                if let Some(ref s) = sink {
+                    s.emit(
+                        "subagent-progress",
+                        json!({
+                            "task_id": task_id_clone,
+                            "status": "running",
+                            "progress": 5,
+                            "message": "Initializing sub-agent session..."
+                        }),
+                    );
+                }
 
                 let res = rt.block_on(engine.autonomous_loop(req, None));
 
                 match res {
                     Ok(answer) => {
-                        let _ = handle.emit(
-                            "subagent-progress",
-                            &json!({
-                                "task_id": task_id_clone,
-                                "status": "completed",
-                                "progress": 100,
-                                "result": answer
-                            }),
-                        );
+                        if let Some(ref s) = sink {
+                            s.emit(
+                                "subagent-progress",
+                                json!({
+                                    "task_id": task_id_clone,
+                                    "status": "completed",
+                                    "progress": 100,
+                                    "result": answer
+                                }),
+                            );
+                        }
                     }
                     Err(e) => {
-                        let _ = handle.emit(
-                            "subagent-progress",
-                            &json!({
-                                "task_id": task_id_clone,
-                                "status": "failed",
-                                "progress": 0,
-                                "error": e.to_string()
-                            }),
-                        );
+                        if let Some(ref s) = sink {
+                            s.emit(
+                                "subagent-progress",
+                                json!({
+                                    "task_id": task_id_clone,
+                                    "status": "failed",
+                                    "progress": 0,
+                                    "error": e.to_string()
+                                }),
+                            );
+                        }
                     }
                 }
             });
@@ -897,6 +1036,364 @@ impl AiTools {
         }
     }
 
+    /// FastContext repository explorer — spawns a lightweight subagent that does
+    /// parallel READ/GLOB/GREP and returns compact file citations. Uses the
+    /// FastContext-1.0-4B-SFT model if available, otherwise falls back to the
+    /// main agent's model with explorer-mode prompting.
+    pub(crate) async fn explore_repository(&self, args: Value) -> Result<Value> {
+        let query = args["query"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing query"))?;
+        let max_results = args["max_results"].as_u64().unwrap_or(10) as usize;
+        let file_pattern = args["file_pattern"].as_str();
+
+        let ollama_url = {
+            if let Some(state) = self.editor_state() {
+                state.ai.engine.resolved_local_base(&crate::ai_engine::AiRequest {
+                    provider: "lemonade".to_string(),
+                    model: "fastcontext".to_string(),
+                    messages: vec![],
+                    temperature: None,
+                    autonomous: false,
+                    mode: None,
+                    cyber_mode: None,
+                    root_access: None,
+                    ollama_url: None,
+                    tools: None,
+                    reasoning_budget: None,
+                    reasoning_effort: None,
+                    reasoning_enabled: None,
+                    feature: None,
+                }).await
+            } else {
+                // No EditorState available — fall back to the default local
+                // inference endpoint. This path is rare (tool invoked before
+                // state initialization) and the URL is cosmetic here since
+                // `explore_repository` uses it only for model discovery.
+                "http://127.0.0.1:11434".to_string()
+            }
+        };
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(90))
+            .build()
+            .unwrap_or_default();
+
+        // Resolve the actual installed FastContext tag (keeps `hf.co/` prefix etc.).
+        let models_url = format!("{}/api/tags", ollama_url);
+        let fc_model: Option<String> = match client.get(&models_url).send().await {
+            Ok(resp) => resp.json::<serde_json::Value>().await.ok().and_then(|body| {
+                body.get("models").and_then(|m| m.as_array()).and_then(|models| {
+                    models.iter().find_map(|m| {
+                        m.get("name").and_then(|n| n.as_str())
+                            .filter(|n| n.to_lowercase().contains("fastcontext"))
+                            .map(|n| n.to_string())
+                    })
+                })
+            }),
+            Err(_) => None,
+        };
+
+        let Some(model) = fc_model else {
+            println!("[EXPLORE] FastContext not installed, using built-in explorer");
+            return self.builtin_explore(query, max_results, file_pattern).await;
+        };
+
+        println!("[EXPLORE] Using FastContext subagent ({}) for: {}", model, query);
+        match self.run_fastcontext_loop(&client, &ollama_url, &model, query, file_pattern, max_results).await {
+            Ok(citations) if !citations.is_empty() => Ok(json!({
+                "status": "success",
+                "explorer": model,
+                "query": query,
+                "citations": citations,
+            })),
+            other => {
+                if let Err(e) = &other {
+                    println!("[EXPLORE] FastContext loop error: {} — falling back to built-in", e);
+                } else {
+                    println!("[EXPLORE] FastContext returned no citations — falling back to built-in");
+                }
+                self.builtin_explore(query, max_results, file_pattern).await
+            }
+        }
+    }
+
+    /// Read-only agentic exploration loop. FastContext issues real READ/GLOB/GREP
+    /// tool calls (native Ollama tools, or its trained text format as fallback)
+    /// which we execute against the repo, looping until it emits `<final_answer>`
+    /// citations. Returns parsed `path:line` citations.
+    async fn run_fastcontext_loop(
+        &self,
+        client: &reqwest::Client,
+        ollama_url: &str,
+        model: &str,
+        query: &str,
+        file_pattern: Option<&str>,
+        max_results: usize,
+    ) -> Result<Vec<Value>> {
+        let scope = file_pattern
+            .map(|p| format!("Restrict search to files matching: {}", p))
+            .unwrap_or_else(|| "Search the entire repository.".to_string());
+        let system = format!(
+            "You are FastContext, a repository-exploration subagent. Your ONLY job is to \
+             LOCATE relevant code for the main agent — never edit or write code.\n\
+             {scope}\n\
+             Use the read-only tools (read_file, glob, grep, code_search) to find the files \
+             and line ranges relevant to the query. Issue several tool calls per turn to \
+             cover complementary hypotheses. When you have enough evidence, STOP calling \
+             tools and output a compact block:\n\
+             <final_answer>\n<path>:<start>-<end>  short reason\n...\n</final_answer>\n\
+             List at most {max_results} citations, most relevant first."
+        );
+        // Read-only tool schemas exposed to the explorer.
+        let tools = json!([
+            { "type": "function", "function": { "name": "read_file", "description": "Read a file (optionally a line range).",
+              "parameters": { "type": "object", "properties": {
+                  "path": {"type": "string"}, "start_line": {"type": "integer"}, "end_line": {"type": "integer"} }, "required": ["path"] } } },
+            { "type": "function", "function": { "name": "glob", "description": "Find files by name/glob pattern.",
+              "parameters": { "type": "object", "properties": { "pattern": {"type": "string"}, "path": {"type": "string"} }, "required": ["pattern"] } } },
+            { "type": "function", "function": { "name": "grep", "description": "Search file contents for a string across the repo.",
+              "parameters": { "type": "object", "properties": { "query": {"type": "string"} }, "required": ["query"] } } },
+            { "type": "function", "function": { "name": "code_search", "description": "Semantic/code search across the repo.",
+              "parameters": { "type": "object", "properties": { "query": {"type": "string"} }, "required": ["query"] } } }
+        ]);
+
+        let mut messages = vec![
+            json!({ "role": "system", "content": system }),
+            json!({ "role": "user", "content": format!("Query: {}", query) }),
+        ];
+        let chat_url = format!("{}/api/chat", ollama_url);
+
+        for _turn in 0..6 {
+            let body = json!({
+                "model": model,
+                "messages": messages,
+                "tools": tools,
+                "stream": false,
+                "options": { "temperature": 0.1, "num_ctx": 16384 }
+            });
+            let resp = client.post(&chat_url).json(&body).send().await
+                .map_err(|e| anyhow!("fastcontext chat: {}", e))?;
+            let v: Value = resp.json().await.map_err(|e| anyhow!("fastcontext json: {}", e))?;
+            let msg = v.get("message").cloned().unwrap_or_else(|| json!({}));
+            let content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+
+            // Native tool calls.
+            let tool_calls = msg.get("tool_calls").and_then(|t| t.as_array()).cloned().unwrap_or_default();
+            if !tool_calls.is_empty() {
+                messages.push(msg.clone());
+                for tc in &tool_calls {
+                    let name = tc["function"]["name"].as_str().unwrap_or("");
+                    let raw_args = tc["function"]["arguments"].clone();
+                    let args = if raw_args.is_string() {
+                        serde_json::from_str(raw_args.as_str().unwrap_or("{}")).unwrap_or(json!({}))
+                    } else { raw_args };
+                    let result = self.exec_explore_tool(name, args).await;
+                    messages.push(json!({ "role": "tool", "content": result }));
+                }
+                continue;
+            }
+
+            // Done if the model produced a final answer (or plain text, no further calls).
+            if content.contains("<final_answer>") {
+                return Ok(self.parse_explorer_citations(&content, max_results));
+            }
+
+            // Text-ReAct fallback: parse FastContext's trained READ()/GLOB()/GREP() calls.
+            let calls = parse_text_tool_calls(&content);
+            if calls.is_empty() {
+                return Ok(self.parse_explorer_citations(&content, max_results));
+            }
+            messages.push(json!({ "role": "assistant", "content": content }));
+            let mut obs = String::new();
+            for (name, arg) in calls {
+                let args = match name.as_str() {
+                    "read_file" => json!({ "path": arg }),
+                    "glob" => json!({ "pattern": arg }),
+                    _ => json!({ "query": arg }),
+                };
+                let result = self.exec_explore_tool(&name, args).await;
+                obs.push_str(&format!("{}({}) =>\n{}\n\n", name, arg, result.chars().take(1500).collect::<String>()));
+            }
+            messages.push(json!({ "role": "user", "content": format!("Observations:\n{}\nContinue or give <final_answer>.", obs) }));
+        }
+        Ok(Vec::new())
+    }
+
+    /// Execute one read-only explorer tool call, mapping the explorer's tool names
+    /// onto the existing dispatch. Returns a compact string result (capped).
+    async fn exec_explore_tool(&self, name: &str, args: Value) -> String {
+        if name == "code_search" {
+            return self.code_search(args).await
+                .map(|v| v.to_string()).unwrap_or_else(|e| format!("error: {}", e))
+                .chars().take(3000).collect();
+        }
+        let internal = match name {
+            "read_file" => "view_file",
+            "glob" => "find_by_name",
+            "grep" => "search_files",
+            other => other,
+        };
+        // grep maps to search_files which expects `query`, not `pattern`.
+        let args = if name == "grep" {
+            let q = args.get("query").or_else(|| args.get("pattern")).cloned().unwrap_or(json!(""));
+            json!({ "query": q })
+        } else { args };
+        self.handle_fs_tool(internal, args).await
+            .map(|v| v.to_string())
+            .unwrap_or_else(|e| format!("error: {}", e))
+            .chars().take(3000).collect()
+    }
+
+    /// Parse citations from a FastContext-style <final_answer> block
+    fn parse_explorer_citations(&self, text: &str, max_results: usize) -> Vec<Value> {
+        let mut citations = Vec::new();
+
+        // Try to find <final_answer> block
+        if let Some(start) = text.find("<final_answer>") {
+            if let Some(end) = text[start..].find("</final_answer>") {
+                let block = &text[start + 14..start + end];
+                // Parse file:line citations
+                for line in block.lines() {
+                    if citations.len() >= max_results {
+                        break;
+                    }
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') {
+                        continue;
+                    }
+                    // Try to extract path:line patterns
+                    if let Some(colon_pos) = line.find(':') {
+                        let path = line[..colon_pos].trim().to_string();
+                        let rest = line[colon_pos + 1..].trim();
+                        let line_range = rest.split_whitespace().next().unwrap_or("").to_string();
+                        citations.push(json!({
+                            "path": path,
+                            "line_range": line_range,
+                            "context": rest.to_string()
+                        }));
+                    } else {
+                        citations.push(json!({
+                            "path": line.to_string(),
+                            "line_range": "",
+                            "context": ""
+                        }));
+                    }
+                }
+            }
+        }
+
+        // If no <final_answer> found, try to extract file paths from the response
+        if citations.is_empty() {
+            let mut seen = std::collections::HashSet::new();
+            for line in text.lines() {
+                if citations.len() >= max_results {
+                    break;
+                }
+                // Look for paths that look like source files
+                if let Some(path) = self.extract_source_path(line) {
+                    if !seen.contains(&path) {
+                        seen.insert(path.clone());
+                        citations.push(json!({
+                            "path": path,
+                            "line_range": "",
+                            "context": line.trim().to_string()
+                        }));
+                    }
+                }
+            }
+        }
+
+        citations
+    }
+
+    /// Extract a source file path from a line of text
+    fn extract_source_path(&self, line: &str) -> Option<String> {
+        let line = line.trim();
+        // Look for patterns like src/foo.rs or path/to/file.ts
+        let extensions = [".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".java", ".c", ".cpp", ".h"];
+        for ext in &extensions {
+            if let Some(pos) = line.find(ext) {
+                // Find the start of the path
+                let before = &line[..pos + ext.len()];
+                if let Some(start) = before.rfind(|c: char| c == ' ' || c == '(' || c == '"' || c == '\'' || c == '`') {
+                    let path = &line[start + 1..pos + ext.len()];
+                    if path.contains('/') || path.contains('\\') {
+                        return Some(path.to_string());
+                    }
+                } else if !before.is_empty() {
+                    return Some(before.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// Built-in exploration using existing tools (fallback when FastContext isn't available)
+    async fn builtin_explore(&self, query: &str, max_results: usize, file_pattern: Option<&str>) -> Result<Value> {
+        let root = self.root_path.lock().await.clone();
+        let mut citations = Vec::new();
+
+        // Step 1: GLOB to find relevant files
+        let glob_pattern = if let Some(pat) = file_pattern {
+            pat.to_string()
+        } else {
+            // Guess file extensions from query
+            "**/*.{rs,ts,tsx,js,jsx,py,go}".to_string()
+        };
+
+        let glob_args = json!({
+            "pattern": glob_pattern,
+            "path": root.to_string_lossy()
+        });
+
+        if let Ok(glob_result) = self.handle_fs_tool("find_by_name", glob_args).await {
+            if let Some(files) = glob_result.get("files").and_then(|f| f.as_array()) {
+                // Step 2: For each file, grep for the query terms
+                let query_terms: Vec<&str> = query.split_whitespace().collect();
+                for file_entry in files.iter().take(max_results * 3) {
+                    if citations.len() >= max_results {
+                        break;
+                    }
+                    if let Some(path) = file_entry.get("path").and_then(|p| p.as_str()) {
+                        let grep_args = json!({
+                            "pattern": query_terms.first().unwrap_or(&""),
+                            "path": path,
+                        });
+                        if let Ok(grep_result) = self.handle_fs_tool("search_files", grep_args).await {
+                            if let Some(matches) = grep_result.get("matches").and_then(|m| m.as_array()) {
+                                if !matches.is_empty() {
+                                    citations.push(json!({
+                                        "path": path,
+                                        "line_range": matches.first()
+                                            .and_then(|m| m.get("line"))
+                                            .and_then(|l| l.as_u64())
+                                            .map(|l| format!("L{}", l))
+                                            .unwrap_or_default(),
+                                        "context": matches.first()
+                                            .and_then(|m| m.get("text"))
+                                            .and_then(|t| t.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        "match_count": matches.len()
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(json!({
+            "status": "success",
+            "explorer": "builtin",
+            "query": query,
+            "citations": citations,
+            "note": "FastContext not available — used built-in exploration. Pull FastContext for better results: ollama pull hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M"
+        }))
+    }
+
     pub(crate) async fn generate_image(&self, args: Value) -> Result<Value> {
         let prompt = args["prompt"]
             .as_str()
@@ -906,11 +1403,7 @@ impl AiTools {
             .ok_or_else(|| anyhow!("Missing path"))?;
 
         let root = self.root_path.lock().await.clone();
-        let full = if std::path::Path::new(path).is_absolute() {
-            std::path::PathBuf::from(path)
-        } else {
-            std::path::Path::new(&root).join(path)
-        };
+        let full = self.validate_path(&root, path)?;
 
         let keys = self.load_keys_value().await;
         let google_key = keys.get("google").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
@@ -958,11 +1451,7 @@ impl AiTools {
             .unwrap_or("Describe this image in detail.");
 
         let root = self.root_path.lock().await.clone();
-        let full = if std::path::Path::new(path).is_absolute() {
-            std::path::PathBuf::from(path)
-        } else {
-            std::path::Path::new(&root).join(path)
-        };
+        let full = self.validate_path(&root, path)?;
         if !full.exists() {
             return Err(anyhow!("Image not found: {}", full.display()));
         }
@@ -1008,22 +1497,31 @@ impl AiTools {
         let mut results = Vec::new();
         let glob_pattern = format!("**/{}", pattern);
 
-        // Use walkdir for recursive search
+        // Use walkdir for recursive search (cap depth to prevent scanning node_modules etc.)
         for entry in walkdir::WalkDir::new(&root)
+            .max_depth(10)
             .into_iter()
             .filter_map(|e| e.ok())
         {
             if entry.file_type().is_file() {
                 let path = entry.path();
 
+                // Use central safety module for all checks
+                if safe_io::should_skip_path(path) { continue; }
+                if let Ok(meta) = std::fs::metadata(path) {
+                    if meta.len() > safe_io::MAX_TEXT_FILE_SIZE { continue; }
+                } else { continue; }
+
                 // Match file pattern if provided
                 if pattern != "*" {
                     let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if !glob::Pattern::new(&glob_pattern)
-                        .unwrap()
-                        .matches_path(path)
-                        && !glob::Pattern::new(pattern).unwrap().matches(file_name)
-                    {
+                    let pat_ok = glob::Pattern::new(&glob_pattern)
+                        .map(|p| p.matches_path(path))
+                        .unwrap_or(false);
+                    let pat2_ok = glob::Pattern::new(pattern)
+                        .map(|p| p.matches(file_name))
+                        .unwrap_or(false);
+                    if !pat_ok && !pat2_ok {
                         continue;
                     }
                 }
@@ -1055,14 +1553,10 @@ impl AiTools {
             .ok_or_else(|| anyhow!("Missing path"))?;
 
         let root = self.root_path.lock().await.clone();
-        let full_path = if PathBuf::from(path_str).is_absolute() {
-            PathBuf::from(path_str)
-        } else {
-            root.join(path_str)
-        };
+        let full_path = self.validate_path(&root, path_str)?;
 
         let mut imports = Vec::new();
-        if let Ok(content) = fs::read_to_string(&full_path) {
+        if let Ok(content) = safe_io::safe_read(&full_path) {
             // Very simple regex-based discovery for demonstration
             // In a real implementation, we'd use tree-sitter or a proper parser
             let re_rust = regex::Regex::new(r"use\s+([^;]+);").unwrap();
@@ -1083,22 +1577,72 @@ impl AiTools {
         }))
     }
 
+    /// Return the stripped-body signatures (functions, types, traits, doc
+    /// comments) for a single source file — the "on demand" half of the tiered
+    /// codebase-context strategy. The always-on `codebase_map` orients the model
+    /// to directories; this pulls a specific file's contract without its full
+    /// body, keeping token cost low.
+    pub(crate) async fn get_file_signatures(&self, args: Value) -> Result<Value> {
+        let path_str = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("get_file_signatures requires a 'path'"))?;
+        let root = self.root_path.lock().await.clone();
+        let full = self.validate_path(&root, path_str)?;
+        let content = crate::domain::safe_io::safe_read(&full)
+            .map_err(|e| anyhow!("failed to read {}: {}", path_str, e))?;
+        let bp = crate::domain::indexing::structural_blueprints::StructuralBlueprints::new(root.clone());
+        match bp.blueprint_file(&full, &content) {
+            Some(entry) => {
+                let serialized = crate::domain::indexing::structural_blueprints::StructuralBlueprints::serialize_blueprints(std::slice::from_ref(&entry));
+                Ok(json!({
+                    "status": "success",
+                    "path": entry.file_path,
+                    "language": entry.language,
+                    "signature_count": entry.signatures.len(),
+                    "signatures": serialized,
+                }))
+            }
+            None => Ok(json!({
+                "status": "unsupported",
+                "path": path_str,
+                "hint": "Signature extraction supports .rs/.ts/.tsx/.js/.jsx/.py — use view_file for other files.",
+            })),
+        }
+    }
+
+    /// Return the compact, always-on codebase directory map (one line per source
+    /// directory). Cheap orientation for the whole repo; pair with
+    /// `get_file_signatures` for per-file detail.
+    pub(crate) async fn codebase_map_tool(&self, args: Value) -> Result<Value> {
+        let root = self.root_path.lock().await.clone();
+        // Default ~3K-token budget (≈12K chars); caller may override.
+        let max_chars = args
+            .get("max_chars")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(12_000) as usize;
+        let map = crate::domain::indexing::codebase_map::generate_repo_map_cached(&root, max_chars);
+        Ok(json!({
+            "status": "success",
+            "map": map,
+            "chars": map.len(),
+        }))
+    }
+
     pub(crate) async fn terminal_terminate(&self, args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().await;
-        let h = h_lock
-            .as_ref()
-            .ok_or_else(|| anyhow!("App handle not set"))?;
+        let state = self.editor_state().ok_or_else(|| anyhow!("EditorState unavailable"))?;
         let term_id = args
             .get("term_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing term_id"))?;
 
-        let state = h.state::<crate::EditorState>();
         let mut processes = state.terminal.processes.lock().await;
         if let Some(mut child) = processes.remove(term_id) {
             let _ = child.kill();
             state.terminal.masters.lock().await.remove(term_id);
             state.terminal.writers.lock().await.remove(term_id);
+            state.terminal.buffers.lock().await.remove(term_id);
+            let _ = state.terminal.pending.lock().map(|mut p| p.remove(term_id));
             Ok(json!({ "status": "success", "info": format!("Terminal {} terminated.", term_id) }))
         } else {
             Ok(json!({ "status": "error", "message": "Terminal not found or already closed." }))
@@ -1106,16 +1650,12 @@ impl AiTools {
     }
 
     pub(crate) async fn terminal_get_status(&self, args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().await;
-        let h = h_lock
-            .as_ref()
-            .ok_or_else(|| anyhow!("App handle not set"))?;
+        let state = self.editor_state().ok_or_else(|| anyhow!("EditorState unavailable"))?;
         let term_id = args
             .get("term_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing term_id"))?;
 
-        let state = h.state::<crate::EditorState>();
         let mut processes = state.terminal.processes.lock().await;
         if let Some(child) = processes.get_mut(term_id) {
             match child.try_wait() {
@@ -1349,34 +1889,57 @@ impl AiTools {
     pub(crate) async fn read_file_lines(&self, args: Value) -> Result<Value> {
         let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
         let start = args["start_line"].as_u64().unwrap_or(1) as usize;
-        let end = args["end_line"].as_u64().unwrap_or(1) as usize;
-        
+        let end = args["end_line"].as_u64().unwrap_or(100) as usize;
+
         let root = self.root_path.lock().await.clone();
         let full_path = self.validate_path(&root, path_str)?;
-        
-        let content = fs::read_to_string(full_path)?;
-        let lines: Vec<&str> = content.lines().collect();
-        
-        let safe_start = start.max(1).min(lines.len());
-        let safe_end = end.min(lines.len()).max(safe_start);
-        
-        let subset = &lines[safe_start-1..safe_end];
-        Ok(json!({
-            "path": path_str,
-            "total_lines": lines.len(),
-            "range": format!("{}-{}", safe_start, safe_end),
-            "content": subset.join("\n")
-        }))
+
+        let metadata = fs::metadata(&full_path)?;
+        let file_size = metadata.len();
+
+        if file_size > 10 * 1024 * 1024 {
+            use std::io::{BufRead, BufReader};
+            let file = fs::File::open(&full_path)?;
+            let mut reader = BufReader::new(file);
+            let mut lines_out = Vec::new();
+            let mut line_num = 0usize;
+            let mut buf = String::new();
+            let safe_start = start.max(1);
+            let safe_end = end.max(safe_start);
+            loop {
+                buf.clear();
+                let bytes_read = reader.read_line(&mut buf)?;
+                if bytes_read == 0 { break; }
+                line_num += 1;
+                if line_num >= safe_start && line_num <= safe_end {
+                    lines_out.push(buf.trim_end_matches('\n').trim_end_matches('\r').to_string());
+                }
+                if line_num > safe_end { break; }
+            }
+            Ok(json!({
+                "path": path_str,
+                "total_lines": line_num,
+                "range": format!("{}-{}", safe_start, safe_end.min(line_num)),
+                "content": lines_out.join("\n")
+            }))
+        } else {
+            let content = safe_io::safe_read(&full_path)?;
+            let lines: Vec<&str> = content.lines().collect();
+            let safe_start = start.max(1).min(lines.len());
+            let safe_end = end.min(lines.len()).max(safe_start);
+            let subset = &lines[safe_start-1..safe_end];
+            Ok(json!({
+                "path": path_str,
+                "total_lines": lines.len(),
+                "range": format!("{}-{}", safe_start, safe_end),
+                "content": subset.join("\n")
+            }))
+        }
     }
 
     pub(crate) async fn reindex_project(&self, _args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().await;
-        if let Some(h) = h_lock.as_ref() {
-            h.emit("reindex-project", json!({}))?;
-            Ok(json!({"status": "success", "info": "Background re-indexing triggered."}))
-        } else {
-            Err(anyhow!("App handle not available"))
-        }
+        self.emit_tool_event("reindex-project", json!({}));
+        Ok(json!({"status": "success", "info": "Background re-indexing triggered."}))
     }
 
     pub(crate) async fn list_dir_tree(&self, args: Value) -> Result<Value> {
@@ -1466,8 +2029,8 @@ impl AiTools {
         let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
         let root = self.root_path.lock().await.clone();
         let full_path = self.validate_path(&root, path_str)?;
-        
-        let bytes = fs::read(full_path)?;
+
+        let bytes = safe_io::safe_read_bytes(&full_path)?;
         let mut strings = Vec::new();
         let mut current = Vec::new();
         
@@ -1528,7 +2091,7 @@ impl AiTools {
         let root = self.root_path.lock().await.clone();
         let full_path = self.validate_path(&root, path_str)?;
 
-        let old_content = fs::read_to_string(&full_path)?;
+        let old_content = safe_io::safe_read(&full_path)?;
 
         // Actually apply the unified diff so the DiffViewer shows the real
         // patched result. SEARCH/REPLACE blocks belong to the surgical edit
@@ -1542,14 +2105,12 @@ impl AiTools {
         let new_content = diffy::apply(&old_content, &parsed)
             .map_err(|e| anyhow!("patch does not apply cleanly to {path_str}: {e}"))?;
 
-        if let Some(h) = self.app_handle.lock().await.as_ref() {
-            let _ = h.emit("propose-edit", json!({
-                "path": path_str,
-                "old_content": old_content,
-                "new_content": new_content,
-                "description": description
-            }));
-        }
+        self.emit_tool_event("propose-edit", json!({
+            "path": path_str,
+            "old_content": old_content,
+            "new_content": new_content,
+            "description": description
+        }));
 
         Ok(json!({
             "status": "proposed",
@@ -1567,25 +2128,20 @@ impl AiTools {
         let root = self.root_path.lock().await.clone();
         let full_path = self.validate_path(&root, path_str)?;
 
-        let old_content = fs::read_to_string(&full_path).unwrap_or_default();
+        let old_content = safe_io::safe_read(&full_path).unwrap_or_default();
 
-        if let Some(h) = self.app_handle.lock().await.as_ref() {
-            let _ = h.emit("propose-edit", json!({
-                "path": path_str,
-                "old_content": old_content,
-                "new_content": new_content,
-                "description": description
-            }));
-        }
+        self.emit_tool_event("propose-edit", json!({
+            "path": path_str,
+            "old_content": old_content,
+            "new_content": new_content,
+            "description": description
+        }));
 
         Ok(json!({ "status": "proposed", "path": path_str }))
     }
 
     pub(crate) async fn ide_get_state(&self, _args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().await;
-        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
-        
-        let state = h.state::<crate::EditorState>();
+        let state = self.editor_state().ok_or_else(|| anyhow!("EditorState unavailable"))?;
         let active_path = state.editor.active_path.lock().await.clone();
         let terminals = state.terminal.processes.lock().await.keys().cloned().collect::<Vec<String>>();
         
@@ -1596,4 +2152,35 @@ impl AiTools {
         }))
     }
 
+}
+
+#[cfg(test)]
+mod long_running_command_tests {
+    use super::is_long_running_command;
+
+    #[test]
+    fn detects_scanners_in_various_shapes() {
+        assert!(is_long_running_command("nmap -p- 10.0.0.5"));
+        assert!(is_long_running_command("sudo nmap -sS target"));
+        assert!(is_long_running_command("/usr/bin/ffuf -u https://x/FUZZ -w list"));
+        assert!(is_long_running_command("proxychains4 sqlmap -u 'https://x?id=1'"));
+        assert!(is_long_running_command("HTTPS_PROXY=x gobuster dir -u https://x"));
+        assert!(is_long_running_command("cat urls.txt | httpx"));
+        assert!(is_long_running_command("nmap.exe -A host"));
+    }
+
+    #[test]
+    fn leaves_ordinary_commands_foreground() {
+        for c in [
+            "ls -la",
+            "cat file.txt",
+            "cargo check",
+            "git status",
+            "echo nmap",          // 'nmap' is an argument, not the binary
+            "python calc.py",
+            "grep foo bar.txt",
+        ] {
+            assert!(!is_long_running_command(c), "{c} should NOT auto-background");
+        }
+    }
 }

@@ -103,6 +103,12 @@ const PredictiveEditOverlay: React.FC = () => {
             const reqId = ++aiReqIdRef.current;
             const autoSel = st.modelSelectionOfFeature?.['Autocomplete'];
             const modelOverride = autoSel?.modelName || st.agentModel || undefined;
+            // Pass the active backend so qwen/llama-style Lemonade model names
+            // aren't misrouted to Ollama by backend name-sniffing.
+            const provider = autoSel?.providerName
+                || st.inferenceBackend
+                || localStorage.getItem('inferenceBackend')
+                || undefined;
             try {
                 const res: any = await invoke('predict_next_edit', {
                     content,
@@ -111,6 +117,7 @@ const PredictiveEditOverlay: React.FC = () => {
                     filePath,
                     recentChange: lastChangeTextRef.current.slice(0, 400),
                     modelOverride,
+                    provider,
                 });
                 // Stale (newer edit superseded this) or editor gone.
                 if (reqId !== aiReqIdRef.current || !editorRef.current) return;
@@ -289,7 +296,7 @@ const PredictiveEditOverlay: React.FC = () => {
                 isWholeLine: true,
                 className: 'predictive-next-edit-line',
                 glyphMarginClassName: 'predictive-next-edit-glyph',
-                overviewRuler: { color: '#7c3aed', position: monaco.editor.OverviewRulerLane.Center },
+                overviewRuler: { color: 'var(--vscode-button-background)', position: monaco.editor.OverviewRulerLane.Center },
             },
         }]);
         setAiSuggestion({ ...s, phase: 'ready' });
@@ -355,16 +362,16 @@ const PredictiveEditOverlay: React.FC = () => {
         right: 18,
         bottom: 18,
         zIndex: 200,
-        background: 'rgba(15,15,25,0.92)',
-        border: '1px solid rgba(124,58,237,0.4)',
+        background: 'var(--vscode-editorWidget-background)',
+        border: '1px solid var(--vscode-panel-border)',
         borderRadius: 6,
         padding: '6px 12px',
         display: 'flex',
         alignItems: 'center',
         gap: 10,
         fontSize: 12,
-        color: 'rgba(255,255,255,0.9)',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+        color: 'var(--vscode-editorWidget-foreground)',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
     };
 
     // AI next-edit toast takes priority over the local rename toast.
@@ -374,7 +381,7 @@ const PredictiveEditOverlay: React.FC = () => {
             <>
                 <style>{NEXT_EDIT_CSS}</style>
                 <div style={toastShell}>
-                    <i className="codicon codicon-lightbulb-sparkle" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: '#c084fc' }} />
+                    <i className="codicon codicon-lightbulb-sparkle" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: 'var(--vscode-button-foreground)' }} />
                     <span>
                         {isPreview ? 'Next edit' : 'Apply edit'} · <span style={{ opacity: 0.75 }}>{aiSuggestion.reason}</span>{' '}
                         <span style={{ opacity: 0.5 }}>(line {aiSuggestion.startLine})</span>
@@ -392,7 +399,7 @@ const PredictiveEditOverlay: React.FC = () => {
 
     return (
         <div style={toastShell}>
-            <i className="codicon codicon-sparkle" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: '#c084fc' }} />
+            <i className="codicon codicon-sparkle" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: 'var(--vscode-button-foreground)' }} />
             <span>
                 <b>{suggestion!.occurrences.length}</b> more use{suggestion!.occurrences.length === 1 ? '' : 's'} of{' '}
                 <code style={tokenStyle}>{suggestion!.oldText}</code> → <code style={tokenStyle}>{suggestion!.newText}</code>
@@ -409,25 +416,26 @@ const PredictiveEditOverlay: React.FC = () => {
 
 // Decoration styling for the highlighted target lines on jump.
 const NEXT_EDIT_CSS = `
-.predictive-next-edit-line { background: rgba(124,58,237,0.16); }
+.predictive-next-edit-line { background: var(--vscode-editorSelectionBackground); }
 .predictive-next-edit-glyph::before {
-    content: '\\eb7e'; font-family: codicon; color: #c084fc;
+    content: '\\eb7e'; font-family: codicon; color: var(--vscode-button-foreground);
     display: flex; align-items: center; justify-content: center;
 }
 `;
 
 const tokenStyle: React.CSSProperties = {
     fontFamily: 'var(--font-mono, monospace)',
-    background: 'rgba(255,255,255,0.06)',
+    background: 'var(--vscode-editorHoverWidget-background)',
+    color: 'var(--vscode-editorHoverWidget-foreground)',
     padding: '1px 5px',
     borderRadius: 3,
     fontSize: 11,
 };
 
 const btnAccept: React.CSSProperties = {
-    background: 'rgba(124,58,237,0.25)',
-    border: '1px solid rgba(124,58,237,0.55)',
-    color: 'var(--vscode-editor-foreground, #fff)',
+    background: 'var(--vscode-button-background)',
+    border: '1px solid var(--vscode-button-border)',
+    color: 'var(--vscode-button-foreground)',
     padding: '3px 10px',
     fontSize: 11,
     borderRadius: 4,

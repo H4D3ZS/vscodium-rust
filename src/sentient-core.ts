@@ -34,12 +34,6 @@ export class SentientCore {
     timestamp: number;
   }> = [];
   private lastInteraction: number = Date.now();
-  private conversationMemory: Array<{
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: number;
-    emotionalContext?: string;
-  }> = [];
 
   constructor() {
     this.config = {
@@ -188,13 +182,15 @@ export class SentientCore {
     return messages[index];
   }
 
+  private userActivityUnsub: (() => void) | null = null;
+  private emotionalCycleInterval: ReturnType<typeof setInterval> | null = null;
+
   /**
    * Monitor user activity for context
    */
   private monitorUserActivity(): void {
-    // Track when user interacts
     let lastMsgId: string | number | null = null;
-    useStore.subscribe(
+    this.userActivityUnsub = useStore.subscribe(
       (state) => {
         const messages = state.agentMessages;
         if (messages.length === 0) return;
@@ -203,34 +199,22 @@ export class SentientCore {
         if (lastMsg?.role === 'user' && msgId !== lastMsgId) {
           lastMsgId = msgId;
           this.lastInteraction = Date.now();
-          this.emotionalState.urgency = 0; // Reset urgency on interaction
-          
-          // Update emotional state based on message
+          this.emotionalState.urgency = 0;
           this.updateEmotionFromMessage(lastMsg.content);
         }
       }
     );
   }
 
-  /**
-   * Emotional cycle - AIRI's emotions evolve over time
-   */
   private startEmotionalCycle(): void {
-    setInterval(() => {
-      // Curiosity increases over time (wants to explore/learn)
+    this.emotionalCycleInterval = setInterval(() => {
       this.emotionalState.curiosity = Math.min(100, this.emotionalState.curiosity + 2);
-      
-      // Focus increases when working, decays otherwise
       const store = useStore.getState();
       if (store.isAgentThinking) {
         this.emotionalState.focus = Math.min(100, this.emotionalState.focus + 5);
       } else {
         this.emotionalState.focus = Math.max(20, this.emotionalState.focus - 3);
       }
-
-      // Satisfaction increases on task completion
-      // (handled in task completion callbacks)
-
       console.log('[SentientCore] ❤️ Emotional state:', { ...this.emotionalState });
     }, 5000);
   }
@@ -282,6 +266,11 @@ export class SentientCore {
       timestamp: Date.now(),
     });
 
+    // Cap at 50 tasks to prevent OOM
+    if (this.taskQueue.length > 50) {
+      this.taskQueue.shift();
+    }
+
     console.log('[SentientCore] 📋 Self-task added:', description);
   }
 
@@ -304,18 +293,12 @@ export class SentientCore {
    * Cleanup
    */
   public destroy(): void {
-    if (this.initiativeInterval) {
-      clearInterval(this.initiativeInterval);
-    }
+    if (this.userActivityUnsub) { this.userActivityUnsub(); this.userActivityUnsub = null; }
+    if (this.emotionalCycleInterval) { clearInterval(this.emotionalCycleInterval); this.emotionalCycleInterval = null; }
+    if (this.initiativeInterval) { clearInterval(this.initiativeInterval); this.initiativeInterval = null; }
     console.log('[SentientCore] 🛑 Sentient Core deactivated');
   }
 }
 
 // Export singleton instance
 export const sentientCore = new SentientCore();
-
-// Auto-initialize when loaded
-if (typeof window !== 'undefined') {
-  console.log('[SentientCore] 🌟 Loading AIRI Sentient Core...');
-  sentientCore.initialize().catch(console.error);
-}

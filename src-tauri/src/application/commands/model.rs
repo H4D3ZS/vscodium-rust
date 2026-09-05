@@ -1,47 +1,59 @@
 use tauri::State;
-use crate::EditorState;
 use serde_json::{json, Value};
 use crate::model_manager::{ModelInfo, get_context_window, is_suitable_for_offline, parse_param_count};
 
-/// List all available models from local Ollama
+/// List the local text-generation models Lemonade serves.
+///
+/// Lemonade is the only local backend — it runs real llama.cpp. The catalog at
+/// `/api/v1/models` also lists image/speech recipes (`sd-cpp`, `whispercpp`,
+/// `kokoro`), which are filtered out here so the model picker only offers LLMs.
 #[tauri::command]
-pub async fn list_ollama_models(
-    state: State<'_, EditorState>,
+pub async fn list_local_models(
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Vec<ModelInfo>, String> {
-    let ollama_url = state.ai.ollama_url.lock().await.clone();
+    let base = state.ai.engine.lemonade_base().await;
+    let base = base.trim_end_matches('/');
 
-    // Query Ollama /api/tags endpoint
     let client = reqwest::Client::new();
-    let url = format!("{}/api/tags", ollama_url.trim_end_matches('/'));
-
     let response = client
-        .get(&url)
+        .get(format!("{}/api/v1/models", base))
         .timeout(std::time::Duration::from_secs(5))
         .send()
         .await
-        .map_err(|e| format!("Failed to connect to Ollama: {}", e))?;
+        .map_err(|e| format!("Failed to connect to Lemonade at {}: {}", base, e))?;
 
     let data: Value = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
+        .map_err(|e| format!("Failed to parse Lemonade response: {}", e))?;
+
+    let rows = data
+        .get("data")
+        .and_then(|d| d.as_array())
+        .or_else(|| data.as_array())
+        .cloned()
+        .unwrap_or_default();
 
     let mut models = Vec::new();
-
-    if let Some(model_list) = data.get("models").and_then(|m| m.as_array()) {
-        for model in model_list {
-            if let Some(name) = model.get("name").and_then(|n| n.as_str()) {
-                let context_window = get_context_window(name);
-                let suitable = is_suitable_for_offline(name);
-
-                models.push(ModelInfo {
-                    name: name.to_string(),
-                    context_window,
-                    recommended: suitable && context_window >= 16_384,
-                    supports_12b_and_below: suitable,
-                });
-            }
+    for model in &rows {
+        if !model.get("downloaded").and_then(|d| d.as_bool()).unwrap_or(false) {
+            continue;
         }
+        if model.get("recipe").and_then(|r| r.as_str()) != Some("llamacpp") {
+            continue;
+        }
+        let Some(name) = model.get("id").and_then(|n| n.as_str()) else {
+            continue;
+        };
+        let context_window = get_context_window(name);
+        let suitable = is_suitable_for_offline(name);
+
+        models.push(ModelInfo {
+            name: name.to_string(),
+            context_window,
+            recommended: suitable && context_window >= 16_384,
+            supports_12b_and_below: suitable,
+        });
     }
 
     // Sort: recommended first, then by size
@@ -54,7 +66,10 @@ pub async fn list_ollama_models(
     });
 
     if models.is_empty() {
-        return Err("No models found in Ollama. Run 'ollama pull qwen3.5:12b'".to_string());
+        return Err(format!(
+            "No models found on the Lemonade server at {}. Pull one with `lemonade pull <hf-repo>:<quant>`.",
+            base
+        ));
     }
 
     Ok(models)
@@ -63,7 +78,7 @@ pub async fn list_ollama_models(
 /// Get currently selected model
 #[tauri::command]
 pub async fn get_current_model(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<String, String> {
     let model = state.ai.current_model.lock().await.clone();
     Ok(model)
@@ -72,16 +87,16 @@ pub async fn get_current_model(
 /// Set the model for future inference
 #[tauri::command]
 pub async fn set_current_model(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     model_name: String,
 ) -> Result<ModelInfo, String> {
-    // Verify model exists in Ollama
-    let models = list_ollama_models(state.clone()).await?;
+    // Verify the model is actually served locally
+    let models = list_local_models(state.clone()).await?;
 
     let found = models.iter()
         .find(|m| m.name == model_name)
         .cloned()
-        .ok_or_else(|| format!("Model '{}' not found in Ollama", model_name))?;
+        .ok_or_else(|| format!("Model '{}' is not served by Lemonade", model_name))?;
 
     // Update current model
     {
@@ -119,9 +134,9 @@ pub async fn get_model_info(
 /// Auto-detect best available model for offline work
 #[tauri::command]
 pub async fn detect_best_model(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<String, String> {
-    let models = list_ollama_models(state.clone()).await?;
+    let models = list_local_models(state.clone()).await?;
 
     // Find first recommended model
     if let Some(best) = models.iter().find(|m| m.recommended) {
@@ -141,14 +156,14 @@ pub async fn detect_best_model(
 /// Apply a model to all APEX specialist engines
 #[tauri::command]
 pub async fn apply_model_to_all_engines(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     model_name: String,
 ) -> Result<Value, String> {
-    // Verify model exists in Ollama
-    let models = list_ollama_models(state.clone()).await?;
+    // Verify the model is actually served locally
+    let models = list_local_models(state.clone()).await?;
     let _found = models.iter()
         .find(|m| m.name == model_name)
-        .ok_or_else(|| format!("Model '{}' not found in Ollama", model_name))?;
+        .ok_or_else(|| format!("Model '{}' is not served by Lemonade", model_name))?;
 
     // Apply to all APEX engines
     let engines = vec!["architect", "threat", "perf", "self_improve", "explainer", "multi_system", "predictor"];

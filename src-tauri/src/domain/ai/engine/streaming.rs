@@ -7,6 +7,34 @@ use std::time::Duration;
 use super::types::*;
 use super::sentient::Sentient;
 
+/// Maximum bytes held in the live chat stream buffer. Matches the autonomous
+/// loop (`autonomous.rs`). The frontend drains this every ~200ms via
+/// `chat_stream_drain`, but if the poller is paused (tab hidden, panel closed,
+/// poll error) the buffer must still be bounded or a verbose model can grow it
+/// to hundreds of MB between drains. Keep the tail (most recent tokens) so the
+/// rendered stream stays coherent after a wrap.
+const MAX_CHAT_STREAM_BUF: usize = 512_000;
+
+/// Append `chunk` to the shared chat-stream buffer, keeping it capped to
+/// `MAX_CHAT_STREAM_BUF` bytes (ring buffer: drop oldest excess).
+fn push_chat_stream(buf: &Arc<std::sync::Mutex<String>>, chunk: &str) {
+    if chunk.is_empty() {
+        return;
+    }
+    if let Ok(mut b) = buf.lock() {
+        let new_len = b.len() + chunk.len();
+        if new_len > MAX_CHAT_STREAM_BUF {
+            // Keep the most recent bytes; drop the oldest excess.
+            let keep = MAX_CHAT_STREAM_BUF.saturating_sub(chunk.len());
+            let cur_len = b.len();
+            if keep < cur_len {
+                b.drain(0..(cur_len - keep));
+            }
+        }
+        b.push_str(chunk);
+    }
+}
+
 impl Sentient {
     pub async fn chat_complete(
         self: Arc<Self>, 
@@ -34,39 +62,32 @@ impl Sentient {
             metadata: None,
         });
 
-        let _keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
+        let _keys_path = self.api_keys_path();
         let (provider, model) = if let Some(p) = provider_override {
              // User explicitly specified provider:model
              if let Some((prov, m)) = p.split_once(':') {
                  (prov.to_string(), m.to_string())
              } else {
-                 (p, model_override.unwrap_or_else(|| "qwen3.5:12b".to_string()))
+                 (p, model_override.unwrap_or_else(|| "".to_string()))
              }
         } else if let Ok(p) = std::env::var("AI_PROVIDER") {
              // Environment variable override
-             (p, std::env::var("AI_MODEL").unwrap_or_else(|_| "qwen3.5:12b".to_string()))
+             (p, std::env::var("AI_MODEL").unwrap_or_else(|_| "".to_string()))
         } else {
-            // DEFAULT: Prefer local Ollama for offline-first mode
-            // Priority: Ollama (local) > External APIs (only if configured)
-            ("ollama".to_string(), "qwen3.5:12b".to_string())
+            // DEFAULT: local-first. Lemonade is the only local backend; leaving the
+            // model empty lets the caller's configured Lemonade model win.
+            ("lemonade".to_string(), String::new())
         };
 
-        // Validate selected model exists in local Ollama
-        let model = if provider == "ollama" {
-            // Try to use user's model, fallback to qwen3.5:12b
-            if model.is_empty() || model == "gpt-4o" {
-                "qwen3.5:12b".to_string()
-            } else {
-                model
-            }
+        // A stale cloud default (`gpt-4o`) is not something Lemonade serves; blank
+        // it so the request carries the configured local model instead.
+        let model = if provider == "lemonade" && model == "gpt-4o" {
+            String::new()
         } else {
             model
         };
 
-        let ollama_url = {
-            let u = self.ollama_url.lock().await;
-            normalize_ollama_base_url(&u)
-        };
+        let local_url = self.lemonade_base().await;
 
         let req = AiRequest {
             provider,
@@ -77,7 +98,7 @@ impl Sentient {
             mode: None,
             cyber_mode: None,
             root_access: None,
-            ollama_url: Some(ollama_url),
+            ollama_url: Some(local_url),
             tools: None,
             reasoning_budget: None,
             reasoning_effort: None,
@@ -98,61 +119,59 @@ impl Sentient {
     }
 
     pub async fn optimize_memory(&self) -> Result<()> {
-        let mut state = self.conversation_state.lock().await;
-        // Hard cap: never allow more than 100 messages in conversation state.
-        // Phase-wrap should already keep it tiny, but this catches edge cases.
-        if state.len() > 100 {
-            // Extract system message BEFORE mutating the vec
-            let sys = state.iter().find(|m| m.role == "system").cloned();
-            let keep_from = state.len().saturating_sub(50);
-            let keep: Vec<ChatMessage> = state.drain(keep_from..).collect();
-            state.clear();
-            if let Some(s) = sys { state.push(s); }
-            state.extend(keep);
+        // ── Phase 1: snapshot + truncate under lock (fast, no async I/O) ──
+        let (vault_json, pressure);
+        {
+            let mut state = self.conversation_state.lock().await;
+            // Hard cap: 30 messages for small models, 100 for large.
+            if state.len() > 30 {
+                let sys = state.iter().find(|m| m.role == "system").cloned();
+                let keep_from = state.len().saturating_sub(15);
+                let keep: Vec<ChatMessage> = state.drain(keep_from..).collect();
+                state.clear();
+                if let Some(s) = sys { state.push(s); }
+                state.extend(keep);
+            }
+            if state.len() <= 5 {
+                return Ok(());
+            }
+
+            println!(
+                "[AI] Optimizing memory: summarizing history of {} messages",
+                state.len()
+            );
+
+            vault_json = serde_json::to_string(&*state).unwrap_or_default();
+            pressure = self.perf_monitor.get_memory_pressure().await;
+
+            // Truncate in-place while we hold the lock — cheap O(n) clone.
+            let system_msg = state.iter().find(|m| m.role == "system").cloned();
+            let last_messages: Vec<ChatMessage> = state.iter().rev().take(3).rev().cloned().collect();
+            let mut new_state = Vec::new();
+            if let Some(s) = system_msg { new_state.push(s); }
+            new_state.extend(last_messages);
+            *state = new_state;
         }
-        if state.len() <= 5 {
-            return Ok(());
-        }
+        // Lock is released — vaulting runs without blocking the next turn.
 
-        println!(
-            "[AI] Optimizing memory: summarizing history of {} messages",
-            state.len()
-        );
-
-        // This ensures they stay in RAM but at 4x lower density for 8GB systems.
-        let state_json = serde_json::to_string(&*state).unwrap_or_default();
-
-        let pressure = self.perf_monitor.get_memory_pressure().await;
+        // ── Phase 2: vault the snapshot (CPU-heavy: FHT + quantize + LZ4) ──
         let threshold = match pressure {
             crate::performance::MemoryPressure::Normal => 32768,
             crate::performance::MemoryPressure::Warning => 16384,
             crate::performance::MemoryPressure::Critical => 8192,
         };
 
-        if state_json.len() > threshold {
-            // We vault the full state before truncation if it's large
+        if vault_json.len() > threshold {
             let vault_key = format!("history_vault_{}", self.session_id);
             let _ = self
                 .memory_optimizer
-                .store_high_density(&vault_key, &state_json)
+                .store_high_density(&vault_key, &vault_json)
                 .await;
             println!(
                 "[AI] Session history vaulted via TurboQuant SCQ index: {} (Level: {:?})",
                 vault_key, pressure
             );
         }
-
-        // Keep system prompt, first user message, and last 3 messages
-        let system_msg = state.iter().find(|m| m.role == "system").cloned();
-        let last_messages: Vec<ChatMessage> = state.iter().rev().take(3).rev().cloned().collect();
-
-        let mut new_state = Vec::new();
-        if let Some(s) = system_msg {
-            new_state.push(s);
-        }
-
-        new_state.extend(last_messages);
-        *state = new_state;
 
         Ok(())
     }
@@ -246,14 +265,21 @@ impl Sentient {
     /// Optimized single-turn completion for low-latency FIM (Fill-In-Middle).
     /// Bypasses tool loading, autonomous verification, and memory injection.
     #[allow(unused_assignments)] // has_google_base_url flag is set in a vestigial branch
-    pub async fn single_shot_completion(&self, req: AiRequest) -> Result<String> {
+    pub async fn single_shot_completion(&self, mut req: AiRequest) -> Result<String> {
+        // Resolve Lemonade omni collections → LLM component (see autonomous_loop).
+        if req.provider.to_lowercase() == "lemonade" {
+            let resolved = self.resolve_lemonade_chat_model(&req).await;
+            if resolved != req.model {
+                req.model = resolved;
+            }
+        }
         let effective_provider = if req.model.to_lowercase().contains("claude-opus-4-8") {
             "highwayapi"
         } else {
             req.provider.as_str()
         };
         let effective_provider_lc = effective_provider.to_lowercase();
-        let is_ollama = effective_provider_lc == "ollama" || effective_provider_lc == "antigravity";
+        let is_local = effective_provider_lc == "antigravity" || effective_provider_lc == "lemonade";
         // Use standard chat endpoint for single-turn logic
         let endpoint = self.get_endpoint(effective_provider, &req);
         let key = self.get_key_for_provider(effective_provider).trim().to_string();
@@ -265,7 +291,7 @@ impl Sentient {
             }
         }
         if !has_google_base_url {
-            let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
+            let keys_path = self.api_keys_path();
             if let Ok(content) = std::fs::read_to_string(&keys_path) {
                 if let Ok(keys) = serde_json::from_str::<Value>(&content) {
                     if let Some(custom_url) = keys["google_base_url"].as_str() {
@@ -277,7 +303,7 @@ impl Sentient {
             }
         }
 
-        let payload = if is_ollama {
+        let payload = if is_local {
             let is_vision = Self::is_vision_model(&req.model);
             let ollama_openai_compat =
                 self.ollama_use_openai_compat_endpoint(&req, &req.model).await;
@@ -293,7 +319,7 @@ impl Sentient {
             });
             if !ollama_openai_compat {
                 body["options"] = Self::ollama_inference_options(&req.model, temp, 1024);
-                body["keep_alive"] = json!(crate::ollama_offload::keep_alive());
+                body["keep_alive"] = json!(crate::gpu_offload::keep_alive());
             }
             body
         } else {
@@ -322,11 +348,15 @@ impl Sentient {
                 "messages": api_messages,
                 "stream": false,
             });
+            // Always bound generation. Without a cap, a thinking/reasoning model
+            // (Lemonade Fable/Qwen) can loop indefinitely — the per-chunk stall
+            // timeout never fires because tokens keep arriving. This was the
+            // "thought for 58m → wall of slashes" failure.
+            body["max_tokens"] = json!(16000);
             if use_top_level {
                 if !system_text.trim().is_empty() {
                     body["system"] = json!(system_text);
                 }
-                body["max_tokens"] = json!(16000);
                 if !is_opus_48_model(&req.model) {
                     body["temperature"] = json!(req.temperature.unwrap_or(0.1));
                 }
@@ -336,13 +366,10 @@ impl Sentient {
             body
         };
 
-        let ollama_base_for_auth = if effective_provider_lc == "ollama" {
-            let raw = if let Some(ref u) = req.ollama_url {
-                u.clone()
-            } else {
-                self.ollama_url.lock().await.clone()
-            };
-            normalize_ollama_base_url(&raw)
+        // Local backends resolve their bearer from the base URL (keyless for a
+        // local Lemonade, JWT for a cloud one).
+        let local_base_for_auth = if is_local {
+            self.resolved_local_base(&req).await
         } else {
             String::new()
         };
@@ -357,12 +384,12 @@ impl Sentient {
                              .header("x-goog-api-key", &key);
         } else if matches!(effective_provider_lc.as_str(), "highwayapi" | "interfaceai" | "jiekou") {
             request = apply_highway_auth(request, &key);
-        } else if effective_provider_lc == "ollama" {
-            let k = self.ollama_bearer_for_base(&ollama_base_for_auth);
+        } else if is_local {
+            let k = self.local_bearer_for_base(&local_base_for_auth);
             if !k.trim().is_empty() {
                 request = request.bearer_auth(k.trim());
             }
-        } else if !is_ollama {
+        } else if !key.is_empty() {
             request = request.bearer_auth(&key);
         }
 
@@ -391,24 +418,38 @@ impl Sentient {
             if provider_lc == "google" || provider_lc == "gemini" {
                 fallback_request = fallback_request.bearer_auth(&key)
                                                      .header("x-goog-api-key", &key);
-            } else if provider_lc == "ollama" {
-                let k = self.ollama_bearer_for_base(&ollama_base_for_auth);
+            } else if is_local {
+                let k = self.local_bearer_for_base(&local_base_for_auth);
                 if !k.trim().is_empty() {
                     fallback_request = fallback_request.bearer_auth(k.trim());
                 }
-            } else if !is_ollama {
+            } else if !key.is_empty() {
                 fallback_request = fallback_request.bearer_auth(&key);
             }
             response_result = fallback_request.json(&payload).send().await;
         }
 
-        let resp = response_result.map_err(|e| anyhow!("FIM HTTP request failed: {}", e))?;
+        let mut resp = response_result.map_err(|e| anyhow!("FIM HTTP request failed: {}", e))?;
+        // Lemonade fallback: some deployments (cloud gate / older builds) only
+        // expose /v1/chat/completions instead of /api/v1/chat/completions.
+        if resp.status().as_u16() == 404
+            && effective_provider_lc == "lemonade"
+            && endpoint.contains("/api/v1/chat/completions")
+        {
+            let alt = endpoint.replace("/api/v1/chat/completions", "/v1/chat/completions");
+            let mut retry = self.client.post(alt);
+            if !key.is_empty() {
+                retry = retry.bearer_auth(&key);
+            }
+            resp = retry.json(&payload).send().await
+                .map_err(|e| anyhow!("Lemonade /v1 fallback failed: {}", e))?;
+        }
         if !resp.status().is_success() {
             let body = resp.text().await.unwrap_or_default();
             return Err(anyhow!("Chat request failed: {}", body));
         }
 
-        let chat_stream = is_ollama && req.feature.as_deref() == Some("Chat");
+        let chat_stream = is_local && req.feature.as_deref() == Some("Chat");
         if chat_stream {
             return self.single_shot_ollama_stream(resp).await;
         }
@@ -417,7 +458,7 @@ impl Sentient {
         
         let raw = if effective_provider_lc == "anthropic" {
             val["content"][0]["text"].as_str().unwrap_or("").to_string()
-        } else if is_ollama {
+        } else if is_local {
             // Ollama might be hit via /v1/chat/completions (OpenAI format) or /api/chat (Native format)
             if let Some(content) = val.pointer("/choices/0/message/content").and_then(|v| v.as_str()) {
                 content.to_string()
@@ -427,7 +468,13 @@ impl Sentient {
                 "".to_string()
             }
         } else {
-            val["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string()
+            // Check standard content first, then reasoning_content (Lemonade thinking models)
+            let content = val["choices"][0]["message"]["content"].as_str().unwrap_or("");
+            if content.is_empty() {
+                val["choices"][0]["message"]["reasoning_content"].as_str().unwrap_or("").to_string()
+            } else {
+                content.to_string()
+            }
         };
 
         Ok(raw.trim().to_string())
@@ -439,9 +486,22 @@ impl Sentient {
             b.clear();
         }
         let mut full = String::new();
+        // Reasoning (thinking) tokens are shown in the collapsible thinking
+        // channel, NOT concatenated into the answer — a runaway reasoning loop
+        // was leaking straight into the reply (the "wall of slashes"). Kept as a
+        // fallback only if the model emits no regular content.
+        let mut reasoning_buf = String::new();
         let mut stream = response.bytes_stream();
         let mut line_buf = String::new();
+        // Hard wall-clock cap. The per-chunk stall timeout can't stop a model
+        // that keeps emitting tokens forever, so bound the whole generation.
+        let start = std::time::Instant::now();
+        const MAX_GEN: Duration = Duration::from_secs(600);
         'stream: loop {
+            if start.elapsed() > MAX_GEN {
+                self.emit_event("ai-thinking", json!({ "thought": "[stopped: generation exceeded 10-minute cap]" }));
+                break 'stream;
+            }
             let next = tokio::time::timeout(Duration::from_secs(180), stream.next()).await;
             let chunk = match next {
                 Ok(Some(Ok(c))) => c,
@@ -469,19 +529,34 @@ impl Sentient {
                         self.emit_event("ai-thinking", json!({ "thought": thinking }));
                     }
                 }
-                let content = val.pointer("/choices/0/message/content")
+                // Standard content — OpenAI SSE deltas (Lemonade, compat proxies)
+                // or Ollama NDJSON message objects.
+                let content = val.pointer("/choices/0/delta/content")
                     .and_then(|v| v.as_str())
+                    .or_else(|| val.pointer("/choices/0/message/content").and_then(|v| v.as_str()))
                     .or_else(|| val.pointer("/message/content").and_then(|v| v.as_str()))
                     .unwrap_or("");
                 if !content.is_empty() {
                     full.push_str(content);
-                    if let Ok(mut b) = self.chat_stream_buf.lock() {
-                        b.push_str(content);
+                    push_chat_stream(&self.chat_stream_buf, content);
+                } else {
+                    // Lemonade reasoning_content format (thinking models)
+                    let reasoning = val.pointer("/choices/0/delta/reasoning_content")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| val.pointer("/choices/0/message/reasoning_content").and_then(|v| v.as_str()))
+                        .or_else(|| val.pointer("/message/reasoning_content").and_then(|v| v.as_str()))
+                        .unwrap_or("");
+                    if !reasoning.is_empty() {
+                        self.emit_event("ai-thinking", json!({ "thought": reasoning }));
+                        reasoning_buf.push_str(reasoning);
                     }
                 }
             }
         }
-        Ok(full.trim().to_string())
+        // Fall back to the reasoning text only when the model produced no real
+        // answer content (some thinking models put everything in that channel).
+        let out = if full.trim().is_empty() { reasoning_buf } else { full };
+        Ok(out.trim().to_string())
     }
 
 }

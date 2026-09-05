@@ -360,10 +360,10 @@ export const GrepTool: ToolDef = {
             });
             return ok(results || []);
         } catch (e: any) {
-            // Fallback: use search_project if grep_files not available
+            // Fallback: use grep_files directly
             try {
-                const results = await invoke<any[]>('search_project', {
-                    query: input.pattern,
+                const results = await invoke<any[]>('grep_files', {
+                    pattern: input.pattern,
                 });
                 return ok(results || []);
             } catch (e2: any) {
@@ -705,6 +705,46 @@ export const SpawnSubAgentTool: ToolDef = {
             return ok({ agentResult: result });
         } catch (e: any) {
             return fail(`Sub-agent failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 16b. ExploreRepositoryTool — FastContext exploration subagent
+// ---------------------------------------------------------------------------
+export const ExploreRepositoryTool: ToolDef = {
+    name: 'explore_repository',
+    description: `FastContext repository explorer — lightweight subagent that does parallel READ/GLOB/GREP and returns compact file citations. Use this INSTEAD of doing your own exploration when you need to find relevant code across a large codebase. Returns file paths, line ranges, and key snippets. Much faster and cheaper than manual exploration. Pull the model first: ollama pull hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            query: {
+                type: 'string',
+                description: 'What to find in the repository (e.g. "authentication middleware", "error handling in parser")',
+            },
+            max_results: {
+                type: 'number',
+                description: 'Maximum number of file citations to return (default 10)',
+                default: 10,
+            },
+            file_pattern: {
+                type: 'string',
+                description: 'Optional glob pattern to scope search (e.g. "*.rs", "src/**/*.ts")',
+            },
+        },
+        required: ['query'],
+    },
+    isReadOnly: true,
+    execute: async (input, ctx) => {
+        try {
+            const result = await invoke<any>('explore_repository', {
+                query: input.query,
+                max_results: input.max_results || 10,
+                file_pattern: input.file_pattern || null,
+            });
+            return ok(result);
+        } catch (e: any) {
+            return fail(`Explore failed: ${e.message || e}`);
         }
     },
 };
@@ -2262,6 +2302,7 @@ const ALL_TOOLS: ToolDef[] = [
 
     // Multi-agent
     SpawnSubAgentTool,
+    ExploreRepositoryTool,
     BrowserSubAgentTool,
     AskUserQuestionTool,
     SendMessageTool,

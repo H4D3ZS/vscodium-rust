@@ -258,14 +258,16 @@ export async function wireExtHostBridge(): Promise<() => void> {
     await invoke('check_activation_event', { event: 'onStartupFinished' }).catch(() => {});
 
     // Forward settings changes to extensions (hades.settings.onChange).
-    window.addEventListener('hades:settings-changed', (e: Event) => {
+    const settingsHandler = (e: Event) => {
         const detail = (e as CustomEvent).detail as { key: string; value: unknown };
         void extHostSend({ type: 'settingsChanged', key: detail.key, value: detail.value });
-    });
+    };
+    window.addEventListener('hades:settings-changed', settingsHandler);
 
     return () => {
         bridgeWired = false;
         unlistenMsg();
         unlistenLog();
+        window.removeEventListener('hades:settings-changed', settingsHandler);
     };
 }

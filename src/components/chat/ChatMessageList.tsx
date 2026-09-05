@@ -4,7 +4,7 @@
  */
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import ChatMessage from './ChatMessage';
-import AgentToolBlocks from './AgentToolBlocks';
+import ActivityPanel from './ActivityPanel';
 import ComposerThinkingBlock from './ComposerThinkingBlock';
 import type { AgentMessage } from '../../store';
 import { useStore } from '../../store';
@@ -72,6 +72,7 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
         if (last?.role !== 'assistant') return `0:0:${blocks}`;
         return `${last.content?.length ?? 0}:${last.thoughts?.length ?? 0}:${blocks}`;
     });
+    const lastMessageRole = messages[messages.length - 1]?.role;
 
     const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
         const container = scrollContainerRef?.current ?? findScrollParent(endRef.current);
@@ -143,12 +144,14 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
                     onEditCancel={onEditCancel}
                 />
             ))}
+            {/* Live reasoning now streams inline on the in-progress message (ChatMessage),
+                so we only render the activity panel here — tool activity is separate from chat. */}
             {(isAgentThinking || liveBlocks.length > 0) && (
                 <>
-                    {isAgentThinking && lastAssistantThoughts && (
+                    {isAgentThinking && lastAssistantThoughts && lastMessageRole !== 'assistant' && (
                         <ComposerThinkingBlock thoughts={lastAssistantThoughts} isStreaming />
                     )}
-                    <AgentToolBlocks blocks={liveBlocks} />
+                    <ActivityPanel isAgentThinking={isAgentThinking} />
                 </>
             )}
             {showJumpToBottom && (

@@ -16,7 +16,7 @@ function ollamaShouldInferScheme(s: string): boolean {
 
 export function normalizeOllamaUrl(raw: string): string {
     const s = raw.trim().replace(/\/+$/, '');
-    if (!s) return 'http://127.0.0.1:11434';
+    if (!s) return 'http://127.0.0.1:13305';
     if (/^https?:\/\//i.test(s)) return s;
     if (s.startsWith('//')) return `https:${s}`.replace(/\/+$/, '');
     if (!ollamaShouldInferScheme(s)) return s;

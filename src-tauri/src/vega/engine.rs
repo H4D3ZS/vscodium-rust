@@ -14,6 +14,14 @@ use std::time::Duration;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
+fn now_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// Active/passive scan orchestrator.
 pub struct ScanEngine {
     registry: AlertRegistry,
@@ -45,80 +53,189 @@ impl ScanEngine {
         JsModuleHost::new(self.registry.clone()).run_response_module(source, request, response)
     }
 
-    /// Full injection-module pipeline for one path state.
+    /// Full injection-module pipeline for one path state, driven the way Vega
+    /// drives modules: `initialize()` submits requests, the engine fetches them,
+    /// `process()` runs per response and may submit *more* requests, looping
+    /// until the module stops submitting. Bounded by `MAX_FETCHES`/`MAX_ROUNDS`
+    /// so a runaway module can't scan forever.
     pub async fn run_injection_module(
         &self,
         source: &str,
         ps: &PathState,
     ) -> Result<ModuleRunResult, String> {
-        let baseline_req = baseline_request(ps)?;
-        let baseline_res = self.fetch(&baseline_req).await?;
-        let baseline_fp = ResponseFingerprint::compute(&baseline_res);
+        let baseline_res = self.fetch(&baseline_request(ps)?).await?;
+        self.run_injection_with_baseline(source, ps, &baseline_res).await
+    }
+
+    /// Run every injection module against one path, fetching the baseline once
+    /// and sharing it across modules (instead of one redundant baseline fetch per
+    /// module). Returns the merged alerts.
+    pub async fn run_injection_modules(
+        &self,
+        sources: &[(String, String)],
+        ps: &PathState,
+    ) -> Vec<Alert> {
+        let Ok(baseline_res) = self.fetch(&match baseline_request(ps) {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        }).await else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for (_rel, src) in sources {
+            if let Ok(r) = self.run_injection_with_baseline(src, ps, &baseline_res).await {
+                out.extend(r.alerts);
+            }
+        }
+        out
+    }
+
+    /// The event-driven core, given an already-fetched baseline response.
+    async fn run_injection_with_baseline(
+        &self,
+        source: &str,
+        ps: &PathState,
+        baseline_res: &HttpResponse,
+    ) -> Result<ModuleRunResult, String> {
+        use crate::vega::injection_host::RoundKind;
+        use std::collections::BTreeMap;
+
+        const MAX_FETCHES: usize = 96;
+        const MAX_ROUNDS: usize = 64;
+
+        let baseline_fp = ResponseFingerprint::compute(baseline_res).raw();
 
         let host = InjectionModuleHost::new(self.registry.clone());
-        let plan = host.collect_plan(source, ps, baseline_fp)?;
 
-        if plan.is_empty() {
-            return Ok(ModuleRunResult::default());
-        }
+        let mut saved_req: BTreeMap<u32, HttpRequest> = BTreeMap::new();
+        let mut saved_res: BTreeMap<u32, HttpResponse> = BTreeMap::new();
+        let mut fps: BTreeMap<u32, u64> = BTreeMap::new();
 
-        let max_index = plan
-            .iter()
-            .map(|s| match s {
-                PlanStep::Altered { index, .. } | PlanStep::Request { index, .. } => *index,
-            })
-            .max()
-            .unwrap_or(0);
+        // Round 0: initialize() collects the first batch of submissions.
+        let mut round = host.run_round(
+            source,
+            ps,
+            baseline_fp,
+            baseline_res,
+            &saved_req,
+            &saved_res,
+            &fps,
+            "{}",
+            RoundKind::Init,
+        )?;
 
-        let mut saved_req = vec![HttpRequest::default(); (max_index as usize) + 1];
-        let mut saved_res = vec![HttpResponse::default(); (max_index as usize) + 1];
-
-        // Index 0 reserved for baseline when modules reference fingerprint comparisons.
-        saved_req[0] = baseline_req;
-        saved_res[0] = baseline_res;
-
-        for step in &plan {
-            match step {
-                PlanStep::Altered {
-                    payload,
-                    append,
-                    index,
-                } => {
-                    let req = build_altered_request(ps, payload, *append)?;
-                    let res = self.fetch(&req).await?;
-                    let i = *index as usize;
-                    if i < saved_req.len() {
-                        saved_req[i] = req;
-                        saved_res[i] = res;
-                    }
+        let mut fetched = 0usize;
+        for _ in 0..MAX_ROUNDS {
+            // Fetch every newly-submitted request that hasn't been sent yet.
+            let mut new_indices: Vec<u32> = Vec::new();
+            for step in &round.plan {
+                let idx = step.index();
+                if saved_res.contains_key(&idx) {
+                    continue;
                 }
-                PlanStep::Request {
-                    index,
-                    method,
-                    uri,
-                    headers,
-                    body,
-                } => {
-                    let mut req = HttpRequest {
-                        method: method.clone(),
+                if fetched >= MAX_FETCHES {
+                    break;
+                }
+                let req = match step {
+                    PlanStep::Altered { payload, append, .. } => {
+                        build_altered_request(ps, payload, *append)?
+                    }
+                    PlanStep::Request { method, uri, headers, body, .. } => HttpRequest {
+                        method: if method.is_empty() { "GET".into() } else { method.clone() },
                         uri: uri.clone(),
                         headers: headers.clone(),
                         body: body.clone(),
+                    },
+                };
+                let res = self.fetch(&req).await?;
+                fps.insert(idx, ResponseFingerprint::compute(&res).raw());
+                saved_req.insert(idx, req);
+                saved_res.insert(idx, res);
+                new_indices.push(idx);
+                fetched += 1;
+            }
+
+            if new_indices.is_empty() {
+                break;
+            }
+
+            // Deliver those responses to process(); it may submit more.
+            round = host.run_round(
+                source,
+                ps,
+                baseline_fp,
+                baseline_res,
+                &saved_req,
+                &saved_res,
+                &fps,
+                &round.scratch,
+                RoundKind::Process(new_indices),
+            )?;
+        }
+
+        let (mut result, response_checks) = host.finalize(&round.scratch);
+
+        // Honor ctx.responseChecks(i): run passive response modules on the named
+        // saved responses, exactly as Vega folds passive checks into an injection
+        // scan. Best-effort and deduped against the module's own alerts.
+        if !response_checks.is_empty() {
+            let passive = self.passive_sources();
+            if !passive.is_empty() {
+                let mut seen: std::collections::HashSet<String> =
+                    result.alerts.iter().map(|a| a.key.clone()).collect();
+                for i in response_checks {
+                    let (Some(req), Some(res)) = (saved_req.get(&i), saved_res.get(&i)) else {
+                        continue;
                     };
-                    if req.method.is_empty() {
-                        req.method = "GET".into();
-                    }
-                    let res = self.fetch(&req).await?;
-                    let i = *index as usize;
-                    if i < saved_req.len() {
-                        saved_req[i] = req;
-                        saved_res[i] = res;
+                    for a in self.run_all_passive(
+                        &passive.iter().map(|(n, s)| (n.as_str(), s.as_str())).collect::<Vec<_>>(),
+                        req,
+                        res,
+                    ) {
+                        if a.key.is_empty() || seen.insert(a.key.clone()) {
+                            result.alerts.push(a);
+                        }
                     }
                 }
             }
         }
 
-        host.run_process_phase(source, ps, baseline_fp, &saved_req, &saved_res)
+        Ok(result)
+    }
+
+    /// Load passive (response-processor) module sources, skipping any that need
+    /// the Rhino `importPackage` shim. Cached read from `resources/vega`.
+    fn passive_sources(&self) -> Vec<(String, String)> {
+        crate::vega::campaign::passive_module_sources()
+    }
+
+    /// Built-in, deterministic error-based SQL injection check for one path
+    /// state. Sends the unaltered request once, then a handful of
+    /// syntax-breaking payloads on the active parameter, and raises a
+    /// high-confidence alert if a DB error string appears that the baseline
+    /// lacked. Independent of the JS differential modules — this is what catches
+    /// the common DVWA-style case reliably. Stops at the first hit per param.
+    pub async fn run_error_based_sqli(&self, ps: &PathState) -> Option<Alert> {
+        use crate::vega::error_based::{detect_sql_error, sql_alert, SQL_PROBE_PAYLOADS};
+
+        let param = ps.fuzzable_parameter()?.name.clone();
+        let baseline = self.fetch(&baseline_request(ps).ok()?).await.ok()?;
+        if baseline.fetch_fail {
+            return None;
+        }
+        let resource = ps.uri.split('?').next().unwrap_or(&ps.uri).to_string();
+
+        for payload in SQL_PROBE_PAYLOADS {
+            let Ok(req) = build_altered_request(ps, payload, true) else {
+                continue;
+            };
+            let Ok(res) = self.fetch(&req).await else { continue };
+            if let Some(sig) = detect_sql_error(&baseline, &res) {
+                let ts = now_ms();
+                return Some(sql_alert(&resource, &param, sig, &res.body, ts));
+            }
+        }
+        None
     }
 
     /// Run all response-processor modules against one pair; merge alerts.
@@ -139,7 +256,7 @@ impl ScanEngine {
     }
 
     pub async fn fetch(&self, req: &HttpRequest) -> Result<HttpResponse, String> {
-        let method = req.method.to_uppercase();
+        let method = if req.method.is_empty() { "GET".to_string() } else { req.method.to_uppercase() };
         let mut builder = self.client.request(
             reqwest::Method::from_bytes(method.as_bytes())
                 .map_err(|e| format!("bad method: {e}"))?,
@@ -152,6 +269,7 @@ impl ScanEngine {
             builder = builder.body(req.body.clone());
         }
 
+        let started = std::time::Instant::now();
         match builder.send().await {
             Ok(resp) => {
                 let status = resp.status().as_u16();
@@ -171,43 +289,60 @@ impl ScanEngine {
                     headers,
                     body,
                     fetch_fail: false,
+                    elapsed_ms: started.elapsed().as_millis() as u64,
                 })
             }
             Err(e) => Ok(HttpResponse {
                 status: 0,
                 fetch_fail: true,
                 body: e.to_string(),
+                elapsed_ms: started.elapsed().as_millis() as u64,
                 ..Default::default()
             }),
         }
     }
 }
 
+/// Baseline (unaltered) request — sends the full parameter set exactly as
+/// harvested, so the baseline response is directly comparable to the fuzzed ones.
 fn baseline_request(ps: &PathState) -> Result<HttpRequest, String> {
-    Ok(HttpRequest {
-        method: if ps.is_post_target {
-            "POST".into()
-        } else {
-            "GET".into()
-        },
-        uri: ps.uri.clone(),
-        body: if ps.is_post_target {
-            ps.params
-                .iter()
-                .map(|p| {
-                    format!(
-                        "{}={}",
-                        urlencoding::encode(&p.name),
-                        urlencoding::encode(&p.value)
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("&")
-        } else {
-            String::new()
-        },
-        ..Default::default()
-    })
+    let encoded = ps
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "{}={}",
+                urlencoding::encode(&p.name),
+                urlencoding::encode(&p.value)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("&");
+
+    let base = ps.uri.split('?').next().unwrap_or(&ps.uri);
+
+    if ps.is_post_target {
+        let mut req = HttpRequest {
+            method: "POST".into(),
+            uri: base.to_string(),
+            body: encoded,
+            ..Default::default()
+        };
+        req.add_header("Content-Type", "application/x-www-form-urlencoded");
+        Ok(req)
+    } else if encoded.is_empty() {
+        Ok(HttpRequest {
+            method: "GET".into(),
+            uri: ps.uri.clone(),
+            ..Default::default()
+        })
+    } else {
+        Ok(HttpRequest {
+            method: "GET".into(),
+            uri: format!("{}?{}", base, encoded),
+            ..Default::default()
+        })
+    }
 }
 
 #[cfg(test)]
@@ -253,6 +388,80 @@ mod tests {
             .join("resources/vega/scripts/modules")
             .join(rel);
         std::fs::read_to_string(p).ok()
+    }
+
+    /// Every default-enabled injection module must run end-to-end against a live
+    /// target without the JS host throwing — proves the full `ctx`/`ps` API
+    /// surface is implemented (no `submitMultipleAlteredRequests is not a
+    /// function`-style failures that silently kill detection).
+    #[tokio::test]
+    async fn all_default_injection_modules_run_without_error() {
+        let mods = crate::vega::campaign::default_injection_modules();
+        if mods.is_empty() {
+            eprintln!("[vega] resources missing — skip");
+            return;
+        }
+
+        let (addr, _srv) = start_test_server().await;
+        let registry = AlertRegistry::load_default().unwrap_or_default();
+        let engine = ScanEngine::new(registry);
+
+        let ps = PathState {
+            uri: format!("http://{addr}/sqli?id=1"),
+            is_post_target: false,
+            params: vec![FuzzableParam {
+                name: "id".into(),
+                value: "1".into(),
+                location: ParamLocation::Query,
+            }],
+            fuzz_index: Some(0),
+            ..Default::default()
+        };
+
+        for rel in &mods {
+            let Some(src) = load_module(rel) else { continue };
+            let res = engine.run_injection_module(&src, &ps).await;
+            assert!(res.is_ok(), "module {rel} failed to run: {:?}", res.err());
+        }
+    }
+
+    /// A module that submits a follow-up request from inside `process()` must be
+    /// driven iteratively (Vega's event loop), not collect-once.
+    #[tokio::test]
+    async fn iterative_submission_during_process_is_supported() {
+        // Inline module: initialize submits idx 0; process submits idx 1 once,
+        // then alerts on idx 1. Exercises the submit-during-process path.
+        let src = r#"
+            var module = { name: "iter", category: "Injection Modules" };
+            function initialize(ctx) {
+                ctx.submitAlteredRequest(process, "a", true, 0);
+            }
+            function process(req, res, ctx) {
+                var i = ctx.getCurrentIndex();
+                if (i === 0) { ctx.submitAlteredRequest(process, "b", true, 1); return; }
+                if (i === 1) {
+                    ctx.alert("vinfo-headers", req, res, { key: "iter:1", resource: "/x" });
+                }
+            }
+        "#;
+        let (addr, _srv) = start_test_server().await;
+        let registry = AlertRegistry::load_default().unwrap_or_default();
+        let engine = ScanEngine::new(registry);
+        let ps = PathState {
+            uri: format!("http://{addr}/sqli?id=1"),
+            params: vec![FuzzableParam {
+                name: "id".into(),
+                value: "1".into(),
+                location: ParamLocation::Query,
+            }],
+            fuzz_index: Some(0),
+            ..Default::default()
+        };
+        let result = engine.run_injection_module(src, &ps).await.expect("run");
+        assert!(
+            result.alerts.iter().any(|a| a.key == "iter:1"),
+            "follow-up request submitted during process() was not delivered"
+        );
     }
 
     #[tokio::test]

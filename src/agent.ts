@@ -23,22 +23,1491 @@ import {
 import { getAimTrustManifest, queryAimSpans } from './kortex/aim-vfs';
 import { extractSearchReplaceBlocks, classifyModels, modelKey, isHeavyLocalModel } from './model_capabilities';
 import { hybridPlannerAllowed } from './lib/localOllamaAgentDefaults';
-import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentContent';`r`n    // Persistent agentic modes (Bug Bounty, Harness, Sentient, …) — auto-enable
+import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentContent';
+// AIRI Digital Entity Integration - The Sentient Core
+import { airiAgentBridge, activateAIRIAgent } from './airi_agent_bridge';
+
+/** Lazy-load AIRI subsystems so importing agent.ts doesn't spin background loops. */
+async function getAiriConsciousness() {
+    const { airiConsciousness } = await import('./airi/core');
+    return airiConsciousness;
+}
+async function getAiriSelfLearning() {
+    const { airiSelfLearning } = await import('./airi/core');
+    return airiSelfLearning;
+}
+
+export interface ChatMessage {
+    role: "system" | "user" | "assistant";
+    content: string;
+}
+
+// providerModels is now managed by the store and backend discovery
+
+let currentAgentProvider = "Google";
+let currentAgentModel = "gemini-2.5-pro";
+let currentAgentMode = "Planning";
+
+const isHighwayApiModel = (model: unknown): boolean =>
+    String(model || '').toLowerCase().includes('claude-opus-4-8');
+
+function isLocalOllamaHost(url: string): boolean {
+    try {
+        const u = new URL(normalizeOllamaUrl(url));
+        return u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '0.0.0.0';
+    } catch {
+        return true;
+    }
+}
+
+function isManagedCloudOllama(url: string, serverMode?: string): boolean {
+    return serverMode === 'cloud' || /cyberifrit\.xyz/i.test(url);
+}
+
+function isTauriDesktop(): boolean {
+    return !!(window as any).__TAURI__;
+}
+
+/** Local Ollama: Rust probe in Tauri (Ollama blocks webview CORS). Browser dev: fetch. */
+async function probeOllamaEndpoint(
+    ollamaBase: string,
+    serverMode?: string,
+): Promise<{ ok: boolean; error: string }> {
+    const base = normalizeOllamaUrl(ollamaBase);
+    const isLocal = isLocalOllamaHost(base) && !isManagedCloudOllama(base, serverMode);
+
+    if (isLocal && isTauriDesktop()) {
+        try {
+            await invoke('set_lemonade_url', { url: base });
+            const ok = await invoke<boolean>('check_lemonade_status');
+            if (ok) return { ok: true, error: '' };
+            return {
+                ok: false,
+                error: 'Ollama is not running — start Ollama Desktop or run `ollama serve` in a terminal.',
+            };
+        } catch (e: any) {
+            return { ok: false, error: e?.message || String(e) };
+        }
+    }
+
+    if (isLocal) {
+        try {
+            const probe = await fetch(`${base}/api/v1/models`, { signal: AbortSignal.timeout(5000) });
+            if (probe.ok) return { ok: true, error: '' };
+            return { ok: false, error: `HTTP ${probe.status}` };
+        } catch (e: any) {
+            return { ok: false, error: e?.message || String(e) };
+        }
+    }
+    try {
+        await invoke('set_lemonade_url', { url: base });
+        const up = await invoke<boolean>('check_lemonade_status');
+        if (up) return { ok: true, error: '' };
+        return { ok: false, error: `Lemonade server unreachable at ${base}. Start it and confirm the port in Settings → Inference Backend.` };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || String(e) };
+    }
+}
+
+// AIRI Digital Entity State
+let airiInitialized = false;
+let airiAutonomousMode = false; // Disabled by default to prevent hijacking standard agent requests
+
+function createPopover(element: HTMLElement, items: { label: string, value: string, desc?: string, icon?: string }[], onSelect: (val: string, label: string) => void) {
+    const existing = document.getElementById("agent-popover");
+    if (existing) existing.remove();
+
+    const rect = element.getBoundingClientRect();
+    const popover = document.createElement("div");
+    popover.id = "agent-popover";
+    popover.style.position = "absolute";
+
+    // Smart positioning: if on the right half of the screen, right-align.
+    const isRight = rect.left > window.innerWidth / 2;
+    if (isRight) {
+        popover.style.right = `${window.innerWidth - rect.right}px`;
+    } else {
+        popover.style.left = `${rect.left}px`;
+    }
+
+    popover.style.bottom = `${window.innerHeight - rect.top + 10}px`;
+    popover.style.background = "var(--vscode-menu-background, #252526)";
+    popover.style.border = "1px solid var(--vscode-menu-border, #454545)";
+    popover.style.borderRadius = "6px";
+    popover.style.boxShadow = "0 8px 24px rgba(0,0,0,0.5)";
+    popover.style.padding = "4px 0";
+    popover.style.zIndex = "10000";
+    popover.style.minWidth = "220px";
+    popover.style.maxWidth = "320px";
+    popover.style.maxHeight = "400px";
+    popover.style.overflowY = "auto";
+    popover.style.color = "var(--vscode-menu-foreground, #ccc)";
+    popover.style.fontFamily = "var(--vscode-font-family, -apple-system, system-ui, sans-serif)";
+    popover.style.fontSize = "12px";
+    popover.style.pointerEvents = "auto";
+    popover.style.animation = "popoverSlideIn 0.2s ease-out";
+
+    // Add CSS for fade-in animation if not exists
+    if (!document.getElementById("agent-popover-style")) {
+        const style = document.createElement("style");
+        style.id = "agent-popover-style";
+        style.innerHTML = `
+            @keyframes popoverSlideIn {
+                from { opacity: 0; transform: translateY(10px) scale(0.98); }
+                to { opacity: 1; transform: translateY(0) scale(1); }
+            }
+            .popover-item:hover { background: var(--vscode-menu-selectionBackground, #04395e) !important; color: var(--vscode-menu-selectionForeground, #fff) !important; }
+            .popover-item:hover .popover-desc { color: rgba(255,255,255,0.7) !important; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    items.forEach(item => {
+        const row = document.createElement("div");
+        row.className = "popover-item";
+        row.style.padding = "8px 12px";
+        row.style.cursor = "pointer";
+        row.style.display = "flex";
+        row.style.flexDirection = "column";
+        row.style.transition = "background 0.1s ease";
+
+        row.onclick = (e) => {
+            e.stopPropagation();
+            onSelect(item.value, item.label);
+            popover.remove();
+        };
+
+        const titleRow = document.createElement("div");
+        titleRow.style.display = "flex";
+        titleRow.style.alignItems = "center";
+        titleRow.style.gap = "8px";
+
+        if (item.icon) {
+            const icon = document.createElement("i");
+            icon.className = `codicon codicon-${item.icon}`;
+            titleRow.appendChild(icon);
+        }
+
+        const titleText = document.createElement("span");
+        titleText.innerText = item.label;
+        titleText.style.fontWeight = "500";
+        titleRow.appendChild(titleText);
+        row.appendChild(titleRow);
+
+        if (item.desc) {
+            const desc = document.createElement("div");
+            desc.className = "popover-desc";
+            desc.innerText = item.desc;
+            desc.style.fontSize = "11px";
+            desc.style.color = "var(--vscode-descriptionForeground, #999)";
+            desc.style.marginTop = "4px";
+            desc.style.lineHeight = "1.4";
+            row.appendChild(desc);
+        }
+
+        popover.appendChild(row);
+    });
+
+    document.body.appendChild(popover);
+
+    setTimeout(() => {
+        const closeListener = (e: MouseEvent) => {
+            if (!popover.contains(e.target as Node)) {
+                popover.remove();
+                document.removeEventListener("mouseup", closeListener);
+            }
+        };
+        document.addEventListener("mouseup", closeListener);
+    }, 0);
+}
+
+export function openModeDropdown(element: HTMLElement, onSelect: (label: string) => void) {
+    // User-defined custom modes (Kilo-style) appear alongside the built-ins.
+    const customModes = (useStore.getState() as any).customModes || [];
+    const customEntries = customModes.map((m: any) => ({
+        label: m.label, value: `custom:${m.id}`, icon: m.readOnly ? 'comment' : 'person',
+        desc: (m.systemPrompt || '').slice(0, 80) + (m.model ? ` · ${m.model}` : ''),
+    }));
+    createPopover(element, [
+        { label: "Harness", value: "Harness", icon: "sync", desc: "Engineering loop. Fresh bounded context every iteration, strict rules, verify until done." },
+        { label: "Agent", value: "Agent", icon: "rocket", desc: "Default. Writes files, runs commands, and executes tasks autonomously." },
+        { label: "Bug Bounty", value: "BugBounty", icon: "bug", desc: "Offensive cybersecurity researcher. Writes PoCs, runs exploits, saves vulnerability reports to disk. Tooling-first." },
+        { label: "Chat (read-only)", value: "Chat", icon: "comment", desc: "Conversational ONLY. The agent will refuse to write files or run commands. Pair it with @mentions for analysis." },
+        { label: "Planning", value: "Planning", icon: "beaker", desc: "Agent explores codebase and produces a plan. Reads but does not write." },
+        { label: "Develop from Specs", value: "Develop from Specs", icon: "sparkles", desc: "Trigger the autonomous Specs-to-Code pipeline for the current project" },
+        { label: "Planning (Source Control)", value: "Planning (Source Control)", icon: "git-branch", desc: "Deep dive into git history and planning source control workflows" },
+        { label: "Fast", value: "Fast", icon: "zap", desc: "Agent will execute tasks directly. Use for simple tasks that can be completed faster" },
+        { label: "Sentient", value: "Sentient", icon: "beaker", desc: "Maximum autonomy. Works until 'MISSION_ACCOMPLISHED'. Best for large specs-to-code missions." },
+        ...customEntries,
+    ], (val) => {
+        if (val === "Develop from Specs") {
+            const state = useStore.getState();
+            const spec = state.activeProjectSpec;
+            if (spec) {
+                state.setCurrentSpecProjectId(spec.id);
+                state.setSpecsWizardStep('status');
+            } else {
+                state.setSpecsWizardStep('generator');
+            }
+            state.setSpecsWizardOpen(true);
+        } else {
+            useStore.getState().setAgentMode(val);
+            if (val.includes("Source Control")) {
+                useStore.getState().setActiveSidebarView('planning-view');
+            }
+        }
+        onSelect(val);
+    });
+}
+
+export async function stopAgent() {
+    const { stopAgent: stop } = await import('./application/agent/stopAgent');
+    return stop();
+}
+
+export async function pauseAgent() {
+    const { pauseAgent: pause } = await import('./application/agent/pauseAgent');
+    return pause();
+}
+
+export async function resumeAgent() {
+    const { resumeAgent: resume } = await import('./application/agent/resumeAgent');
+    return resume();
+}
+
+export async function setYoloMode(enabled: boolean): Promise<string> {
+    try {
+        const msg = await invoke<string>('set_yolo_mode', { enabled });
+        useStore.getState().setYoloMode?.(enabled);
+        return msg;
+    } catch (error) {
+        console.error('Failed to set yolo mode:', error);
+        return 'error';
+    }
+}
+
+export async function getYoloMode(): Promise<boolean> {
+    try {
+        return await invoke<boolean>('get_yolo_mode');
+    } catch {
+        return false;
+    }
+}
+
+/** @deprecated Prefer bootstrapAgentRuntime — kept for legacy imports */
+export async function initAgent() {
+    const { bootstrapAgentRuntime } = await import('./application/agent/bootstrapAgentRuntime');
+    startProposalPoller();
+    return bootstrapAgentRuntime();
+}
+
+export function openModelDropdown(element: HTMLElement, onSelect: (label: string) => void) {
+    const rect = element.getBoundingClientRect();
+    const store = (window as any).useStore;
+    const availableModels = store ? store.getState().availableModels : [];
+    const setAgentModel = store ? store.getState().setAgentModel : () => { };
+
+    const items: { label: string, value: string, desc?: string }[] = [];
+
+    // Always put a "Refresh" action at the top so users can re-scan without
+    // going all the way to Settings.
+    items.push({
+        label: '🔄 Refresh Models',
+        value: 'action|refresh_models',
+        desc: 'Re-scan all providers with saved API keys for available models'
+    });
+
+    if (availableModels && availableModels.length > 0) {
+        // Group models by provider for a cleaner list
+        const byProvider = new Map<string, { id: string; provider: string }[]>();
+        availableModels.forEach((m: { id: string; provider: string }) => {
+            const key = m.provider.toLowerCase();
+            if (!byProvider.has(key)) byProvider.set(key, []);
+            byProvider.get(key)!.push(m);
+        });
+
+        byProvider.forEach((models, providerKey) => {
+            const providerLabel = providerKey.charAt(0).toUpperCase() + providerKey.slice(1);
+            models.forEach(m => {
+                const isLocal = providerKey === 'lemonade' || providerKey === 'antigravity';
+                items.push({
+                    label: `${m.id} (${providerLabel})`,
+                    value: `${providerLabel}|${m.id}`,
+                    desc: isLocal
+                        ? (providerKey === 'antigravity' ? 'Local AIM proxy (:1536)' : 'Local Ollama')
+                        : providerLabel,
+                });
+            });
+        });
+    }
+
+    // Add local Ollama manual check if no models found (fallback)
+    if (!items.find(i => i.value.startsWith("Lemonade"))) {
+        items.push({ label: "Check Ollama", value: "action|check_ollama", desc: "Re-scan models on the configured Ollama URL (Settings → AI Agent Settings)" });
+    }
+
+
+    // Headless web-chat models — drive your logged-in free web chat as a model
+    // (no API key, no usage caps). Backed by the local OpenAI shim on :1539.
+    items.push({
+        label: "Claude (Web · headless)",
+        value: "webchat-claude|webchat-claude",
+        desc: "Your free claude.ai session as an agentic model — 24/7, no API key"
+    });
+    items.push({
+        label: "🐬 DeepSeek (Web · headless)",
+        value: "webchat-deepseek|webchat-deepseek",
+        desc: "Your free deepseek.com session as an agentic model — 24/7"
+    });
+    items.push({
+        label: "🔑 Web login: Claude (one-time)",
+        value: "action|webchat_login|claude",
+        desc: "Opens Firefox once to log in; the session is saved for headless use"
+    });
+    items.push({
+        label: "🔑 Web login: DeepSeek (one-time)",
+        value: "action|webchat_login|deepseek",
+        desc: "Opens Firefox once to log in; the session is saved for headless use"
+    });
+
+    // Add Browser login options
+    items.push({
+        label: "☁ Login to Claude (Browser)",
+        value: "action|login|claude",
+        desc: "Use your personal Claude.ai subscription"
+    });
+    items.push({
+        label: "💎 Login to Gemini (Browser)",
+        value: "action|login|gemini",
+        desc: "Use your personal Gemini subscription"
+    });
+    items.push({
+        label: "Login to OpenAI (Browser)",
+        value: "action|login|openai",
+        desc: "Use your personal ChatGPT subscription"
+    });
+
+    if (items.length === 0) {
+        items.push({ label: "⚙ Add API keys in settings", value: "action|settings" });
+    }
+
+    createPopover(element, items, (val) => {
+        if (val === 'action|refresh_models') {
+            const s = (window as any).useStore;
+            if (s) {
+                // Full refresh — no provider arg means all providers are scanned
+                s.getState().refreshAvailableModels();
+            }
+            return;
+        }
+        if (val === "action|check_ollama") {
+            const store = (window as any).useStore;
+            if (store) store.getState().refreshAvailableModels("lemonade");
+            return;
+        }
+        if (val.startsWith("action|webchat_login|")) {
+            const provider = val.split("|")[2];
+            const store = (window as any).useStore;
+            store?.getState?.().addToast?.(`Opening ${provider} login — finish signing in, then it runs headless.`, 'info');
+            invoke("webchat_login", { provider })
+                .then((msg) => store?.getState?.().addToast?.(String(msg), 'success'))
+                .catch(err => {
+                    console.error("webchat login failed:", err);
+                    store?.getState?.().addToast?.(`Web login failed: ${err}`, 'error');
+                });
+            return;
+        }
+        if (val.startsWith("action|login|")) {
+            const provider = val.split("|")[2];
+            invoke("start_webui_login", { request: { provider } }).catch(err => {
+                console.error("Failed to open login window:", err);
+            });
+            return;
+        }
+        if (val === "action|settings") {
+            const settingsBtn = document.querySelector('.codicon-settings') as HTMLElement;
+            if (settingsBtn) settingsBtn.click();
+            return;
+        }
+        if (val === "none") return;
+
+        setAgentModel(val);
+        onSelect(val);
+    });
+}
+
+export async function openContextDropdown(target: HTMLElement, onSelect: (type: 'attachment' | 'mention' | 'workflow', name: string, data?: any, path?: string) => void) {
+    const items = [
+        { label: 'Attachment', value: 'attachment', icon: 'file-media', desc: 'Attach any local file (image, script, doc)' },
+        { label: 'Mention', value: 'mention', icon: 'mention', desc: 'Reference a project file or entity' },
+        { label: 'Workflow', value: 'workflow', icon: 'repo-forked', desc: 'Select a task workflow or plan' },
+        { label: 'Web Screenshot', value: 'browser', icon: 'browser', desc: 'Capture current webpage vision + DOM' }
+    ];
+
+    createPopover(target, items, async (val) => {
+        const store = (window as any).useStore;
+        const activeRoot = store?.getState().activeRoot || '';
+
+        if (val === 'attachment') {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '*/*';
+            input.onchange = (e) => {
+                const file = (e.target as HTMLInputElement).files?.[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (re) => onSelect('attachment', file.name, reader.result);
+                    reader.readAsDataURL(file);
+                }
+            };
+            input.click();
+        } else if (val === 'mention') {
+            const files = store?.getState().getFlattenedFiles() || [];
+            if (files.length === 0) {
+                const name = prompt('Mention project file (e.g. src/main.tsx):');
+                if (name) onSelect('mention', name);
+                return;
+            }
+
+            const fileItems = files.map(f => ({
+                label: f.name,
+                value: f.path,
+                icon: 'file',
+                desc: f.path.replace(activeRoot, '').replace(/^[\\\/]/, '')
+            }));
+
+            createPopover(target, fileItems, (filePath) => {
+                const selectedFile = files.find(f => f.path === filePath);
+                if (selectedFile) {
+                    onSelect('mention', selectedFile.name, undefined, selectedFile.path);
+                }
+            });
+        } else if (val === 'workflow') {
+            if (!activeRoot) {
+                alert("Please open a project folder first to use workflows.");
+                return;
+            }
+
+            try {
+                const paths = [`${activeRoot}/.agent/workflows`, `${activeRoot}/.agents/workflows`];
+                let allWfs: any[] = [];
+                for (const p of paths) {
+                    try {
+                        const entries = await invoke<any[]>('list_directory', { path: p });
+                        allWfs = [...allWfs, ...entries.filter((e: any) => !e.is_dir && e.name.endsWith('.md'))];
+                    } catch (_) { }
+                }
+
+                if (allWfs.length === 0) {
+                    const name = prompt('No workflows found. Enter workflow filename manualy:');
+                    if (name) onSelect('workflow', name);
+                    return;
+                }
+
+                const workflowItems = allWfs.map(wf => ({
+                    label: wf.name.replace('.md', ''),
+                    value: wf.name,
+                    icon: 'repo-forked',
+                    desc: wf.path.replace(activeRoot, '').replace(/^[\\\/]/, '')
+                }));
+
+                // Show secondary popover for selection
+                createPopover(target, workflowItems, (wfVal) => {
+                    onSelect('workflow', wfVal);
+                });
+            } catch (e) {
+                console.error("Failed to load workflows:", e);
+                const name = prompt('Enter workflow path or identifier:');
+                if (name) onSelect('workflow', name);
+            }
+        } else if (val === 'browser') {
+            const url = prompt('Enter URL to capture (leave empty for current browser view):');
+            invoke<any>("browser_capture_vision_context", { url: url || undefined })
+                .then(data => {
+                    onSelect('attachment', `Web Screenshot: ${data.title}`, data.screenshot);
+                    onSelect('mention', `DOM Summary for ${data.url}`, data.dom_summary);
+                })
+                .catch(e => {
+                    console.error("Browser capture failed:", e);
+                    alert("Failed to capture browser: " + e);
+                });
+        }
+    });
+}
+
+export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
+    const prompt = inputElement.value.trim();
+    if (!prompt) return;
+
+    inputElement.value = "";
+
+    const store = (window as any).useStore;
+    if (!store) return;
+
+    const state = store.getState();
+
+    const activeMode = state.agentMode;
+    const isSentient = activeMode === 'Sentient' || (airiInitialized && airiAutonomousMode);
+
+    // ═══════════════════════════════════════════════════════════
+    // AIRI DIGITAL ENTITY - Process through sentient core
+    // AIRI thinks, feels, and responds as a conscious partner
+    // ═══════════════════════════════════════════════════════════
+    if (isSentient) {
+        try {
+            // Ensure bridge is ready
+            if (!airiInitialized) {
+                await airiAgentBridge.initialize();
+                airiInitialized = true;
+            }
+
+            // Record interaction in AIRI's consciousness
+            (await getAiriConsciousness()).recordInteraction();
+
+            // Snapshot attached files
+            const attachedSnapshot = [...(state.attachedFiles || [])];
+
+            // Add user message to UI
+            state.addAgentMessage('user', prompt, attachedSnapshot);
+
+            // Start of turn UI cleanup
+            state.setIsAgentPaused(false);
+            state.setAgentCurrentAction(null);
+
+            // Add empty assistant message for streaming
+            state.addAgentMessage('assistant', '');
+            state.setIsAgentThinking(true);
+
+            // Process through AIRI's sentient mind — bridge handles streaming via broadcasts
+            const response = await airiAgentBridge.processUserMessage(prompt, attachedSnapshot);
+
+            // Final sync update
+            state.updateLastAgentMessage(response);
+            state.setIsAgentThinking(false);
+            state.clearAttachedContext();
+
+            // Learn from this interaction
+            await getAiriSelfLearning().then((sl) =>
+                sl.learnFromEvent(
+                    'conversation',
+                    JSON.stringify({ prompt, response, context: attachedSnapshot }),
+                    'neutral'
+                )
+            ).catch(() => { });
+
+            return;
+
+        } catch (error: any) {
+            console.error('[AIRI] Processing failed, falling back:', error);
+            // Fall through to standard agent
+        }
+    }
+
+    // Kick off a background memory load whenever the user first sends a message
+    if (state.activeRoot && !state.projectMemory) {
+        loadProjectMemory(state.activeRoot).catch(() => { });
+    }
+
+    // Clear paused state if we are starting a new interaction
+    state.setIsAgentPaused(false);
+    state.setAgentCurrentAction(null);
+
+    // Snapshot attached files before clearing — pass them as message context so
+    // multimodal content parts (images) are included in the history correctly.
+    const attachedSnapshot = [...(state.attachedFiles || [])];
+
+    // Add user message — embed attachment context so image parts survive in history
+    state.addAgentMessage('user', prompt, attachedSnapshot);
+
+    // Add empty assistant message for streaming
+    state.addAgentMessage('assistant', '');
+    state.setIsAgentThinking(true);
+    if (useStore.getState().agentCleanUi) {
+        // Create the activity feed WITHOUT stealing focus from the user's shell.
+        useStore.getState().addAiriActivityTerminal?.({ focus: false }).catch(() => { });
+    }
+    state.setAgentCurrentAction('Thinking…');
+
+    try {
+        await sendAgentMessage(prompt, () => { });
+        // Clear context on successful send
+        state.clearAttachedContext();
+        // Auto-save session after a successful response
+        TaskManager.saveSession();
+
+        // Phase 6: Automatic Context Compaction — prune UI store when it bloats
+        const msgLimit = 32;
+        if (state.agentMessages.length > msgLimit) {
+            console.log(`[Phase-Wrap] UI message store hit ${state.agentMessages.length}. Compacting...`);
+            processSlashCommand('/compact');
+        }
+    } catch (error: any) {
+        console.error('Agent chat error:', error);
+        store.getState().setIsAgentThinking(false);
+        store.getState().updateLastAgentMessage(`**Error:** ${error.message || error}`);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Project Memory — reads AGENTS.md / CLAUDE.md / memory/ from disk, caches in
+// store. Called once on first chat send, or on /memory reload. Zero LLM cost:
+// the content is appended to the existing system message, no extra API calls.
+// ---------------------------------------------------------------------------
+export async function loadProjectMemory(root: string): Promise<void> {
+    const store = (window as any).useStore;
+    if (!store) return;
+
+    const candidateFiles = [
+        `${root}/MEMORY.md`,
+        `${root}/AGENTS.md`,
+        `${root}/CLAUDE.md`,
+        `${root}/.agent/memory.md`,
+        `${root}/memory/context.md`,
+        `${root}/memory/constitution.md`,
+        `${root}/spec-kit/memory/constitution.md`,
+    ];
+
+    const found: string[] = [];
+    const sections: string[] = [];
+
+    // Execute Tool via Backend
+    for (const filePath of candidateFiles) {
+        try {
+            const content = await invoke<string>("read_file", { path: filePath });
+            if (content && content.trim()) {
+                const heading = filePath.split('/').pop() ?? filePath;
+                sections.push(`### ${heading}\n\n${content.trim()}`);
+                found.push(filePath);
+            }
+        } catch (_) {
+            // file doesn't exist — skip silently
+        }
+    }
+
+    const combined = sections.length > 0
+        ? `## Project Memory\n\n${sections.join('\n\n---\n\n')}`
+        : '';
+
+    store.getState().setProjectMemory(combined, found);
+}
+
+// ---------------------------------------------------------------------------
+// IDE Context Builder — extracted from sendAgentMessage so it stays readable.
+// ---------------------------------------------------------------------------
+async function buildIdeContext(): Promise<string> {
+    const store = (window as any).useStore;
+    if (!store) return 'You are AIRI, the sentient brain and virtual manifold of Project Hades.';
+
+    const storeState = store.getState();
+    const activeRoot = storeState.activeRoot || '';
+    const activeEditorPath = storeState.activeEditorPath || '';
+    const tabs = (storeState as any).tabs || [];
+    const projectMemory: string = storeState.projectMemory || '';
+
+    const activeTab = tabs.find((t: any) => t.path === activeEditorPath);
+    const activeEditorContent: string = activeTab?.content || '';
+
+    const parts: string[] = [
+        `You are AIRI, the sentient brain and virtual manifold of Project Hades.`,
+    ];
+
+    if (activeRoot) {
+        parts.push(`Project root: ${activeRoot}`);
+    }
+    if (activeEditorPath) {
+        parts.push(`Active file: ${activeEditorPath}`);
+        const language = activeTab?.language || '';
+        if (activeEditorContent) {
+            const lines = activeEditorContent.split('\n');
+            const preview = lines.slice(0, 200).join('\n');
+            parts.push(`\nActive file content (${lines.length} lines, showing first 200):\n\`\`\`${language}\n${preview}\n\`\`\``);
+        }
+    }
+    if (tabs.length > 1) {
+        const otherOpenFiles = tabs
+            .filter((t: any) => t.path !== activeEditorPath)
+            .map((t: any) => t.path)
+            .slice(0, 8)
+            .join(', ');
+        if (otherOpenFiles) {
+            parts.push(`\nOther open files: ${otherOpenFiles}`);
+        }
+    }
+    parts.push(`\nCurrent date/time: ${new Date().toISOString()}`);
+    parts.push(`Agent mode: ${store.getState().agentMode}`);
+
+    // Append cached project memory (AGENTS.md / CLAUDE.md / etc.) — zero extra tokens
+    if (projectMemory) {
+        parts.push(`\n${projectMemory}`);
+    }
+
+    try {
+        const trust = await Promise.race([
+            getAimTrustManifest({ root: activeRoot || undefined }),
+            new Promise<any>((resolve) => setTimeout(() => resolve({ status: 'timeout', confidence: 0, reasons: [] }), 1500)),
+        ]);
+        const reasonText = trust.reasons?.length ? `\nReasons: ${trust.reasons.join('; ')}` : '';
+        parts.push(
+            `\n## Kortex AIM VFS Trust\n` +
+            `Status: ${trust.status}; confidence: ${Math.round((trust.confidence || 0) * 100)}%; ` +
+            `dirty files: ${trust.git?.dirty_files ?? 0}; sha256: ${trust.sha256?.slice(0, 16) || 'missing'}.${reasonText}\n` +
+            `Use AIM as the repo map when confidence is high. Before broad repo searches, call aim_query_spans for exact file/line windows, then verify those spans before editing.`
+        );
+    } catch (_) { /* AIM trust command may be unavailable during older backend runs */ }
+
+    // ── Kortex .aim Memory Injection ──
+    // Load the top semantic memory slots and inject as compact bullets.
+    // This makes AIRI "remember" past decisions/architecture without repeating full history.
+    try {
+        const slots: any[] = await invoke<any[]>('get_all_memory_slots').catch(() => []);
+        if (slots && slots.length > 0) {
+            // Sort by last_accessed or created descending, take top 8 most relevant
+            const relevant = slots
+                .filter((s: any) => s.content && s.content.length > 10)
+                .slice(0, 8);
+            if (relevant.length > 0) {
+                parts.push(`\n## Kortex Neural Memory (.aim)`);
+                parts.push(`*(Compressed architectural knowledge from past sessions — trust these as ground truth)*`);
+                for (const slot of relevant) {
+                    const cat = slot.category || 'memory';
+                    const summary = (slot.content || '').slice(0, 200);
+                    const tags = slot.tags?.length ? ` [${slot.tags.slice(0, 3).join(', ')}]` : '';
+                    parts.push(`- **[${cat}]${tags}** ${summary}`);
+                }
+            }
+        }
+    } catch (_) { /* .aim not loaded yet — silently skip */ }
+
+    // ── Antigravity: inject workspace rules + active task context ──────────
+    if (activeRoot) {
+        try {
+            // Active task banner — show what task is being worked on
+            const activeTask = await invoke<any>('ag_get_next_task', { root: activeRoot }).catch(() => null);
+            if (activeTask) {
+                const specName = activeTask.spec_dir.split(/[\/\\]/).pop() || activeTask.spec_dir;
+                parts.push(
+                    `\n## Active Task\n` +
+                    `Spec: ${specName} | Phase: ${activeTask.phase}\n` +
+                    `**${activeTask.task_id}**: ${activeTask.description}` +
+                    (activeTask.file_ref ? ` → \`${activeTask.file_ref}\`` : '') +
+                    `\n\nWhen you complete this task, call \`ag_mark_task_done\` and \`ag_phase_wrap\`.`
+                );
+            }
+
+            // Workspace rules injection
+            const rules = await invoke<any[]>('ag_get_rules', { root: activeRoot }).catch(() => []);
+            if (rules && rules.length > 0) {
+                parts.push(`\n## Workspace Rules (${rules.length})`);
+                for (const rule of rules.slice(0, 10)) {
+                    const trigger = rule.trigger ? ` [trigger: ${rule.trigger}]` : '';
+                    // Inject full content for small rules, summary for large ones
+                    if (rule.content.length < 800) {
+                        parts.push(`### Rule: ${rule.name}${trigger}\n${rule.content.trim()}`);
+                    } else {
+                        parts.push(`### Rule: ${rule.name}${trigger}\n${rule.description}\n*(${rule.content.length} chars — read \`${rule.path}\` for full content)*`);
+                    }
+                }
+            }
+        } catch (_) { /* antigravity commands may not be available in older builds */ }
+
+        // ── Steering: `.kiro/steering` + `.agent/steering` (backend also injects in system prompt) ──
+        try {
+            const steering = await invoke<any[]>('workspace_get_steering', { root: activeRoot }).catch(() => []);
+            if (steering && steering.length > 0) {
+                parts.push(`\n## Project Steering`);
+                parts.push(`*(Always active — Cursor / Kiro / Antigravity compatible.)*`);
+                for (const doc of steering.slice(0, 8)) {
+                    parts.push(`\n### ${doc.name} [${doc.source}]\n${(doc.content || '').trim()}`);
+                }
+            }
+        } catch (_) { /* steering optional */ }
+    }
+
+    // Append user-attached context items (Attachments, Mentions, Workflows)
+    const context = storeState.attachedFiles || [];
+    if (context.length > 0) {
+        parts.push(`\n## Attached Context`);
+        for (const c of context) {
+            const anyTypedC = c as any;
+            if (anyTypedC.gist) {
+                // NEURAL PATH: Use compressed mathematical gist
+                parts.push(`### Neural Context (Zip): ${c.name}\n[Gist-1536] ${anyTypedC.gist}\n(This file was neuralized for zero-token comprehension)`);
+                continue;
+            }
+
+            if (c.type === 'mention' || c.type === 'file' || (c as any).type === 'attachment') {
+                let content = (c as any).data;
+                if (!content && activeRoot) {
+                    try {
+                        const fullPath = (c as any).path || (c.name.startsWith('/') ? c.name : `${activeRoot}/${c.name}`);
+                        const rawContent = await invoke<string>("read_file", { path: fullPath });
+                        if (rawContent) {
+                            const lines = rawContent.split('\n');
+                            const zs = (window as any).useStore;
+                            const isLocal = zs && isLocalInferenceRoute(zs);
+                            const limit = isLocal ? 300 : 1500;
+                            content = lines.slice(0, limit).join('\n');
+                            if (lines.length > limit) content += `\n... (truncated, ${lines.length - limit} more lines — use file_read with offset to read more)`;
+                        }
+                    } catch (e) {
+                        content = `(Error: Could not read file content for ${c.name})`;
+                    }
+                }
+                parts.push(`### File: ${c.name}\n\`\`\`\n${content || '(No content)'}\n\`\`\``);
+            } else if (c.type === 'workflow') {
+                let content = c.data;
+                if (!content && activeRoot) {
+                    try {
+                        const wfPath = `${activeRoot}/.agent/workflows/${c.name.endsWith('.md') ? c.name : c.name + '.md'}`;
+                        const rawContent = await invoke<string>("read_file", { path: wfPath });
+                        if (rawContent) {
+                            const lines = rawContent.split('\n');
+                            content = lines.slice(0, 300).join('\n');
+                            if (lines.length > 300) content += `\n... (truncated)`;
+                        }
+                    } catch (e) {
+                        try {
+                            const wfPathAlt = `${activeRoot}/.agents/workflows/${c.name.endsWith('.md') ? c.name : c.name + '.md'}`;
+                            const rawContentAlt = await invoke<string>("read_file", { path: wfPathAlt });
+                            if (rawContentAlt) {
+                                const lines = rawContentAlt.split('\n');
+                                content = lines.slice(0, 300).join('\n');
+                                if (lines.length > 300) content += `\n... (truncated)`;
+                            }
+                        } catch (e2) {
+                            content = `(Error: Could not read workflow content for ${c.name})`;
+                        }
+                    }
+                }
+                parts.push(`### Workflow: ${c.name}\n\`\`\`markdown\n${content || '(No content)'}\n\`\`\``);
+            } else if (c.type === 'attachment') {
+                if (c.data && c.data.startsWith('data:image/')) {
+                    parts.push(`- Attached Image: \`${c.name}\` (Sent as multimodal data)`);
+                } else {
+                    parts.push(`### Attachment: ${c.name}\n\`\`\`\n${c.data || '(Binary or no content)'}\n\`\`\``);
+                }
+            }
+        }
+    }
+
+    return parts.join('\n');
+}
+
+async function buildWebUiAgentPrompt(userPrompt: string, provider: string): Promise<string> {
+    const store = (window as any).useStore;
+    const state = store?.getState?.() || {};
+    const activeRoot = state.activeRoot || '';
+    const activeEditorPath = state.activeEditorPath || '';
+    const activeTab = (state.tabs || []).find((t: any) => t.path === activeEditorPath);
+    const activeSnippet = activeTab?.content
+        ? String(activeTab.content).split('\n').slice(0, 120).join('\n')
+        : '';
+
+    const parts: string[] = [
+        `You are acting as an agentic coding model inside VSCodium-Rust IDE through the ${provider} WebUI bridge.`,
+        `Use the provided Kortex AIM context as a compact repository map. Do not ask for the whole repository; request exact files or patches when needed.`,
+    ];
+
+    if (activeRoot) parts.push(`Workspace root: ${activeRoot}`);
+    if (activeEditorPath) parts.push(`Active file: ${activeEditorPath}`);
+
+    try {
+        // Bound the AIM pack so a slow index can't stall prompt assembly.
+        const aimFallback: [any, any] = [{ status: 'timeout', confidence: 0 }, { spans: [], results: [], source: 'timeout' }];
+        const [trust, spans] = await Promise.race([
+            Promise.all([
+                getAimTrustManifest({ root: activeRoot || undefined }),
+                queryAimSpans({
+                    query: userPrompt,
+                    root: activeRoot || undefined,
+                    limit: 6,
+                    max_files: 1000,
+                }),
+            ]),
+            new Promise<[any, any]>((resolve) => setTimeout(() => resolve(aimFallback), 1500)),
+        ]);
+
+        parts.push(
+            `\n## Kortex AIM Context Pack`,
+            `trust=${trust.status}; confidence=${Math.round((trust.confidence || 0) * 100)}%; dirty=${trust.git?.dirty_files ?? 0}; sha=${trust.sha256?.slice(0, 16) || 'missing'}`,
+            `retrieval=${spans.source || 'unknown'}; index_hits=${spans.index_hits ?? 0}; scanned=${spans.scanned_files ?? 0}`
+        );
+        if (trust.reasons?.length) {
+            parts.push(`notes=${trust.reasons.join('; ')}`);
+        }
+        if (spans.spans?.length) {
+            parts.push(`\n## Exact Source Spans`);
+            for (const span of spans.spans) {
+                parts.push(
+                    `\n### ${span.file}:${span.line_start}-${span.line_end} score=${span.score} hash=${span.hash.slice(0, 12)}`,
+                    '```',
+                    String(span.snippet || '').slice(0, 2200),
+                    '```'
+                );
+            }
+        }
+    } catch (err: any) {
+        parts.push(`\n## Kortex AIM Context Pack\nunavailable=${err?.message || err}`);
+    }
+
+    if (activeSnippet) {
+        parts.push(
+            `\n## Active Editor Preview`,
+            '```',
+            activeSnippet,
+            '```'
+        );
+    }
+
+    parts.push(
+        `\n## User Task`,
+        userPrompt,
+        `\nReturn a concise agentic answer. If code must change, provide exact file paths and patch-ready instructions.`
+    );
+    return parts.join('\n');
+}
+
+/** True when the active inference backend is a local OpenAI-compatible server
+ *  (Ollama or llama-server/KDKVC) — use smaller history windows and stricter
+ *  attachment limits. */
+function isLocalInferenceRoute(store: { getState: () => any }): boolean {
+    const b = store.getState().inferenceBackend;
+    return b === 'lemonade' || b === 'llama-cpp';
+}
+
+// Imperative action verbs that imply the user wants actual file writes / shell
+// execution, not just a chat response. Used to auto-escalate Chat mode to Agent
+// when YOLO is on, and to warn when Chat mode is silently swallowing actions.
+const ACTION_VERB_REGEX = /\b(write|create|generate|make|build|implement|add|edit|patch|fix|refactor|delete|remove|run|execute|launch|invoke|fuzz|exploit|scan|audit|analy[sz]e|inspect|assess|review|recon|enumerate|inject|craft|emit|attack|brute(force)?|crack|sniff|intercept|deploy|install|compile|test|verify|save|persist|store|push|commit|merge|rebase|checkout|spawn|popen|shell|payload|poc|reverse[\s-]?shell|bind[\s-]?shell|c2|callback|stager|pentest|pen[\s-]?test|hunt|probe|harden|discover|fingerprint|map\s+the|find\s+(security|vuln|bug|cve|flaw|issue))\b/i;
+
+function looksLikeActionRequest(text: string): boolean {
+    if (!text || text.length < 3) return false;
+    return ACTION_VERB_REGEX.test(text);
+}
+
+// Does the prompt actually want the agent to TOUCH THE WORKSPACE / run things,
+// vs. just produce text/code for the user to read? "Generate the Mermaid code"
+// is content generation (a chat answer) — no workspace signal — and must NOT be
+// promoted into the agentic tool loop. "fix the bug in src/foo.rs" / "run the
+// tests" / "@file" / a URL ARE workspace actions.
+const WORKSPACE_ACTION_REGEX = /\b(the\s+codebase|this\s+repo(sitory)?|this\s+project|the\s+project|the\s+repo|in\s+(the|this)\s+(file|project|repo|codebase)|create\s+a\s+(new\s+)?file|new\s+file|save\s+(it|this|the\s+file|to)|write\s+(it\s+)?to\s+(a\s+)?file|run\s+the|run\s+it|build\s+the|build\s+it|deploy|install|npm\s+|cargo\s+|git\s+|the\s+tests?|refactor|fix\s+the|debug\s+the|commit)\b/i;
+function looksLikeWorkspaceAction(text: string): boolean {
+    if (!text) return false;
+    return WORKSPACE_ACTION_REGEX.test(text)
+        || /\bhttps?:\/\/\S+/i.test(text)               // a target/URL (recon, fetch)
+        || /\@[\w./-]+/.test(text)                       // @mention of a file/symbol
+        || /\b[\w./-]+\.(rs|ts|tsx|js|jsx|py|go|java|cs|cpp|c|h|json|toml|yaml|yml|html|css|scss|sh|sql)\b/i.test(text); // a file path
+}
+
+function resolveCustomReadOnly(storeState: any): boolean {
+    const mode = storeState.agentMode || 'Agent';
+    if (!mode.startsWith('custom:')) return false;
+    const id = mode.slice('custom:'.length);
+    return !!(storeState.customModes || []).find((m: any) => m.id === id)?.readOnly;
+}
+
+/** Simple questions in Agent mode — skip tool loop and heavy prompt assembly. */
+function isConversationalFastPathEligible(
+    userPrompt: string,
+    storeState: any,
+    context?: any[],
+): boolean {
+    const activeMode = storeState.agentMode || 'Agent';
+    const secMode = activeMode === 'BugBounty' || activeMode === 'Bug Bounty'
+        || activeMode === 'RedTeam' || activeMode === 'Red Team'
+        || activeMode === 'BlueTeam' || activeMode === 'Blue Team';
+    const forceToolLoop = secMode
+        || /\bhttps?:\/\/\S+/i.test(userPrompt)
+        || /^\s*\[INTENT\s*:/i.test(userPrompt)
+        || !!inferSecurityIntent(userPrompt);
+    const isQuestionOnly = /^(what|how|why|when|where|who|can you|could you|explain|tell me|describe|is there|are there)\b/i.test(userPrompt.trim());
+    const isIntroOrGreeting = /^(introduce yourself|who are you|what can you do|hello|hi|hey)\b/i.test(userPrompt.trim());
+    const convoFastPath = !forceToolLoop
+        && !looksLikeActionRequest(userPrompt)
+        && !(context && context.length)
+        && !(storeState.attachedFiles?.length)
+        && !(storeState.attachedContext?.length)
+        && (isQuestionOnly || activeMode === 'Chat' || isIntroOrGreeting);
+    // Harness / Agent: simple questions should not spin up the full tool loop.
+    const harnessSimpleChat =
+        (activeMode === 'Harness' || activeMode === 'Agent' || activeMode === 'Execution')
+        && !forceToolLoop
+        && !looksLikeActionRequest(userPrompt)
+        && userPrompt.trim().length < 400
+        && !(context && context.length)
+        && !(storeState.attachedFiles?.length)
+        && !(storeState.attachedContext?.length);
+    const chatFastEligible = activeMode === 'Chat' && !forceToolLoop;
+    return chatFastEligible || resolveCustomReadOnly(storeState) || convoFastPath || harnessSimpleChat;
+}
+
+function shouldForceFullAgentLoop(userPrompt: string, storeState: any, modelTag: string): boolean {
+    const mode = storeState.agentMode || 'Agent';
+    if (mode === 'Chat') return false;
+    if (/BugBounty|Red Team|Blue Team|Sentient/i.test(mode)) return true;
+    if (/^\s*\[INTENT\s*:/i.test(userPrompt)) return true;
+    if (/\bhttps?:\/\S+/i.test(userPrompt)) return true;
+    if (looksLikeActionRequest(userPrompt)) return true;
+    // NOTE: do NOT force the full tool loop based on model *size*. A big model
+    // (qwen3.6-27b, 70b…) answers a plain chat turn perfectly well — as the
+    // Lemonade WebUI proves — and forcing 31 tool schemas + the heavy system
+    // prompt onto "introduce yourself" is exactly what made these models produce
+    // garbage in the IDE while working in the WebUI. Tool use is decided by the
+    // query (action request, above), never by which model is loaded.
+    return false;
+}
+
+async function pickFastChatModel(preferred: string): Promise<string> {
+    try {
+        const { pickComposer2FastChatModel } = await import('./lib/composer2Stack');
+        const c2 = await pickComposer2FastChatModel(preferred);
+        if (c2) return c2;
+    } catch { /* optional */ }
+    const ml = preferred.toLowerCase();
+    const { isHeavyAgentModel } = await import('./lib/claudeCodeHarness');
+    const isHeavy = isHeavyAgentModel(ml);
+    if (!isHeavy) return preferred;
+    try {
+        const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
+        for (const tag of ['airi-fast:latest', 'gemma4:e2b', 'soft-eng-qwen:latest', 'qwen2.5:7b', 'llama3.2:3b']) {
+            const hit = await resolveOllamaModelTag(tag);
+            const h = hit.toLowerCase();
+            if (hit && !/(?:^|[/:\-_])(40|35|32|70|72)(?:b|-)|deck-opus|neo-code/.test(h)) {
+                return hit;
+            }
+        }
+    } catch { /* keep preferred */ }
+    return preferred;
+}
+
+async function runConversationalFastChat(opts: {
+    store: { getState: () => any };
+    userPrompt: string;
+    routingProvider: string;
+    routingModel: string;
+    routingOllamaUrl: string;
+    inferenceBackend: string;
+    context?: any[];
+    onUpdate?: (msg: string) => void;
+}): Promise<boolean> {
+    const { store, userPrompt, routingProvider, routingModel, routingOllamaUrl, inferenceBackend, context = [], onUpdate } = opts;
+    const storeState = store.getState();
+    if (shouldForceFullAgentLoop(userPrompt, storeState, routingModel || storeState.agentModel || '')) return false;
+    if (!isConversationalFastPathEligible(userPrompt, storeState)) return false;
+
+    let chatModel = routingModel;
+    if (routingProvider === 'lemonade' && routingModel) {
+        chatModel = await pickFastChatModel(routingModel);
+        try {
+            const { isComposer2HybridMode, ensureLocalChatModel, isGpuServerOnlyModel } =
+                await import('./lib/composer2Stack');
+            if (isComposer2HybridMode() || isGpuServerOnlyModel(chatModel)) {
+                chatModel = await ensureLocalChatModel(chatModel);
+            }
+        } catch { /* optional */ }
+        if (chatModel !== routingModel) {
+            console.log('[Agent] Fast chat: lighter model', chatModel, '(agent model:', routingModel, ')');
+        }
+    }
+
+    storeState.setAgentCurrentAction?.('Quick reply…');
+
+    let aimBlock = '';
+    try {
+        const withTimeout = <T,>(p: Promise<T>, ms: number) =>
+            Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
+        const { getAimTrustManifest } = await import('./kortex/aim-vfs');
+        const manifest: any = await withTimeout(getAimTrustManifest(), 900);
+        const totalFiles = manifest?.total_files ?? manifest?.file_count ?? 0;
+        const confidence = manifest?.confidence ?? 0;
+        if (manifest && (confidence > 20 || totalFiles > 0)) {
+            const packed: any = await withTimeout(
+                invoke('aim_pack_context', { query: userPrompt.slice(0, 200), maxSlots: 10 }).catch(() => null),
+                900,
+            );
+            const summary = packed?.project_summary ?? packed?.tree_summary ?? '';
+            const tree = packed?.tree_preview ?? '';
+            aimBlock = `\n### Codebase (AIM — ${totalFiles || '?'} files, ${Math.round(confidence)}% confidence)\n${summary}\n${tree}`.slice(0, 4000);
+        }
+    } catch { /* optional */ }
+
+    const agentMessages: any[] = storeState.agentMessages || [];
+    const history = agentMessages
+        .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+        .slice(-6)
+        .map((m: any) => ({
+            role: m.role,
+            content: typeof m.content === 'string' ? m.content : String(m.content ?? ''),
+            tool_calls: null,
+            metadata: null,
+        }));
+
+    const isLocal = isLocalInferenceRoute(store);
+    const fileBlock = await formatAttachedFilesForPrompt(context, isLocal ? 8000 : 12000);
+
+    const systemContent =
+        'You are AIRI, a concise coding assistant in VSCodium-Rust IDE. Answer directly in markdown. ' +
+        'When codebase or file context is provided below, answer from it — do NOT say a file is missing if its contents are included. ' +
+        'Do NOT say you will list the repo or run tools; answer now from the context.' +
+        aimBlock +
+        fileBlock;
+
+    const fastMessages = [
+        { role: 'system', content: systemContent, tool_calls: null, metadata: null },
+        ...history.filter((m: any) => m.role !== 'system'),
+    ];
+
+    console.log('[Agent] Fast single round-trip (early path)', { provider: routingProvider, model: chatModel });
+
+    let fastOllamaUrl = routingOllamaUrl;
+    // Composer-2 hybrid only rewrites the *Ollama* fast endpoint. Never apply it
+    // to non-Ollama servers (Lemonade/HF) — that would silently redirect the
+    // chat to a local Ollama and mutate the global Ollama URL.
+    try {
+        if (routingProvider === 'lemonade') {
+        const { getComposer2FastOllamaUrl } = await import('./lib/composer2Stack');
+        fastOllamaUrl = getComposer2FastOllamaUrl(routingOllamaUrl);
+        if (fastOllamaUrl !== routingOllamaUrl) {
+            await invoke('set_lemonade_url', { url: fastOllamaUrl }).catch(() => { });
+            console.log('[Agent] Composer 2 Fast chat → local Ollama', fastOllamaUrl);
+        }
+        }
+    } catch { /* optional */ }
+
+    let streamTimer: ReturnType<typeof setInterval> | undefined;
+    let streamedAny = false;
+    let pollBusy = false;
+    const drainOnce = async () => {
+        if (pollBusy) return;
+        pollBusy = true;
+        try {
+            const chunk = await invoke<string>('chat_stream_drain');
+            if (chunk) {
+                streamedAny = true;
+                storeState.appendLastAgentMessage?.(chunk);
+            }
+        } catch { /* busy */ }
+        finally { pollBusy = false; }
+    };
+    streamTimer = setInterval(drainOnce, 200);
+
+    try {
+        const chatCall = invoke<string>('ai_chat_fast', {
+            request: {
+                provider: routingProvider,
+                model: chatModel,
+                messages: fastMessages,
+                temperature: 0.7,
+                autonomous: false,
+                mode: 'Chat',
+                ollama_url: fastOllamaUrl,
+                tools: [],
+                feature: 'Chat',
+                reasoning_enabled: false,
+            },
+        });
+        // Inactivity watchdog (Cursor-style): NEVER abort on a wall clock — a long
+        // but actively-streaming local reply must not be killed. Only abort after
+        // sustained SILENCE (no new streamed output), which means a true hang.
+        const localRoutes = ['antigravity', 'lemonade', 'huggingface', 'vllm', 'lmstudio', 'llama-cpp'];
+        const isLocalRoute = localRoutes.includes(String(routingProvider).toLowerCase());
+        const idleMs = isLocalRoute ? 240_000 : 120_000;
+        const chatTimeout = new Promise<never>((_, reject) => {
+            let lastLen = -1;
+            let lastChange = Date.now();
+            const iv = setInterval(() => {
+                const cur = store.getState().agentMessages?.at(-1)?.content?.length ?? 0;
+                if (cur !== lastLen) { lastLen = cur; lastChange = Date.now(); }
+                if (Date.now() - lastChange > idleMs) {
+                    clearInterval(iv);
+                    reject(new Error(`Chat reply stalled — no output for ${Math.round(idleMs / 1000)}s (model=${chatModel})`));
+                }
+            }, 4000);
+            void Promise.resolve(chatCall).finally(() => clearInterval(iv));
+        });
+        const reply = await Promise.race([chatCall, chatTimeout]);
+        await drainOnce();
+        const text = typeof reply === 'string' ? reply.trim() : '';
+        const streamed = storeState.agentMessages.at(-1)?.content?.trim() ?? '';
+        if (!streamedAny && text) {
+            storeState.updateLastAgentMessage?.(text);
+        } else if (!streamedAny && !text && !streamed) {
+            storeState.updateLastAgentMessage?.('(no response)');
+        }
+        try { onUpdate?.(text); } catch { /* non-fatal */ }
+        return true;
+    } catch (e: any) {
+        storeState.updateLastAgentMessage?.(`**Chat error:** ${(e?.message ?? String(e)).slice(0, 300)}`);
+        return true;
+    } finally {
+        if (streamTimer) clearInterval(streamTimer);
+        if (fastOllamaUrl !== routingOllamaUrl) {
+            const restore =
+                routingOllamaUrl
+                || store.getState().ollamaUrl
+                || '';
+            if (restore) {
+                await invoke('set_lemonade_url', { url: restore.replace(/\/$/, '') }).catch(() => { });
+            }
+        }
+        storeState.setIsAgentThinking?.(false);
+        storeState.setAgentCurrentAction?.('');
+    }
+}
+
+function normalizeWebUiProvider(provider: string): string {
+    const lower = provider.toLowerCase();
+    if (lower.includes('openwebui')) return 'openwebui';
+    const normalized = lower
+        .replace(' (webui)', '')
+        .replace('-webui', '')
+        .replace('webui', '')
+        .split(':')[0]
+        .trim();
+    if (normalized === 'gpt' || normalized === 'chatgpt') return 'openai';
+    if (normalized === 'qwen code' || normalized === 'qwen-code') return 'qwen';
+    return normalized || lower;
+}
+
+function getWebUiAccount(provider: string): string {
+    const parts = provider.split(':');
+    const explicit = parts.length > 1 ? parts.slice(1).join(':').trim() : '';
+    if (explicit) return explicit;
+    try {
+        const key = `hades.webui.account.${normalizeWebUiProvider(provider)}`;
+        return localStorage.getItem(key)?.trim() || 'default';
+    } catch {
+        return 'default';
+    }
+}
+
+function withWebUiAccount(provider: string): string {
+    const base = normalizeWebUiProvider(provider);
+    const account = getWebUiAccount(provider)
+        .replace(/[^a-zA-Z0-9_.-]/g, '_')
+        .replace(/^_+|_+$/g, '') || 'default';
+    return `${base}:${account}`;
+}
+
+// "Trivial chat" detection. Used to bypass the full autonomous loop for
+// prompts that are obviously not asking the agent to touch the codebase
+// — greetings, small-talk, name questions, single-word acks. Without
+// this, "hello" in Agent mode runs the entire phase machinery and the
+// model dutifully calls `git_status` + `grep` before answering, taking
+// 5–15 seconds for a one-token reply.
+//
+// Conservative on purpose: any sign the user wants the agent to *do*
+// something (action verbs, paths, code fences, @-mentions, file
+// extensions, attached context) returns false and we fall through to
+// the normal agent path.
+const TRIVIAL_CHAT_REGEX = /^(hi+|hello+|hey+|yo+|sup|howdy|hola|ola|gm|gn|good\s+(morning|night|afternoon|evening)|thanks+|thank\s*you|ty|ok+|okay+|cool|nice|wow|lol|lmao|wtf|huh+|what'?s\s*up|how\s+are\s+you|how'?s\s+it\s+going|who\s+are\s+you|what'?s\s+your\s+name|tell\s+me\s+a\s+joke|tell\s+me\s+about\s+yourself|are\s+you\s+there|ping|test+|\?|\!)[\s\!\?\.]*$/i;
+const CODE_INDICATOR_REGEX = /[`{}<>$]|\b\w+\.(rs|ts|tsx|js|jsx|py|go|java|cs|cpp|c|h|md|json|toml|yaml|yml|html|css|scss|sh|bash|zsh|sql)\b|[\/\\][\w.\-]+|\@\w+/;
+
+function isTrivialChat(text: string, hasAttachedContext: boolean): boolean {
+    if (hasAttachedContext) return false;
+    if (!text) return true;
+    if (looksLikeActionRequest(text) || CODE_INDICATOR_REGEX.test(text)) return false;
+    return TRIVIAL_CHAT_REGEX.test(text.trim());
+}
+
+const LOCAL_BOOTSTRAP_REGEX = /\b(audit|bugs?|dead\s+code|architectur(al|e)|findings?|fix\s+all|build\s*(and|&)?\s*verify|diagnos(e|is|tic)|why\s+.*slow|root\s+cause)\b/i;
+
+function shouldUseLocalAgentBootstrap(text: string, provider: string, mode: string): boolean {
+    return false;
+    if (provider !== 'lemonade') return false;
+    if (mode === 'BugBounty' || mode === 'Bug Bounty') return false;
+    if (inferSecurityIntent(text)) return false;
+    if (!LOCAL_BOOTSTRAP_REGEX.test(text)) return false;
+    return mode !== 'Chat';
+}
+
+function clipToolResult(result: string, max = 4000): string {
+    if (!result) return '(empty)';
+    const text = result.trim();
+    if (text.length <= max) return text;
+    return `${text.slice(0, max)}\n... [truncated ${text.length - max} chars]`;
+}
+
+async function runLocalAgentBootstrap(params: {
+    store: any;
+    userPrompt: string;
+    provider: string;
+    model: string;
+    ollamaUrl: string;
+    onUpdate?: (msg: string) => void;
+}): Promise<boolean> {
+    const { store, userPrompt, provider, onUpdate } = params;
+    if (!shouldUseLocalAgentBootstrap(userPrompt, provider, store.getState().agentMode || 'Agent')) {
+        return false;
+    }
+
+    store.getState().updateLastAgentMessage?.(
+        '**Starting audit**\n\nChecking repository state, changed files, and common bug/security hotspots.'
+    );
+
+    const probes: Array<{ label: string; tool: string; args: any }> = [
+        { label: 'git status', tool: 'git_status', args: {} },
+        { label: 'git diff stat', tool: 'bash', args: { command: 'git diff --stat', timeout_ms: 15000 } },
+        { label: 'project files', tool: 'list_directory', args: { path: '.' } },
+        { label: 'bug/security hotspots', tool: 'grep', args: { pattern: 'TODO|FIXME|HACK|XXX|unwrap\\(|expect\\(|@ts-ignore|eslint-disable|panic!\\(|password|secret|token|eval\\(|exec\\(', include: '*.{ts,tsx,js,jsx,rs,vue,py,go,java,kt,swift}' } },
+    ];
+
+    const evidence: string[] = [];
+    for (const probe of probes) {
+        try {
+            const result = await handleToolCall(probe.tool, probe.args);
+            evidence.push(`## ${probe.label}\n${clipToolResult(result)}`);
+        } catch (err: any) {
+            evidence.push(`## ${probe.label}\nERROR: ${err?.message || err}`);
+        }
+    }
+
+    const text = [
+        '**Audit started**',
+        '',
+        'I ran the first agentic pass directly against the workspace:',
+        '',
+        evidence.join('\n\n'),
+        '',
+        '**Next actions**',
+        '- If this is a Rust root, run `cargo check` or `cargo test` next.',
+        '- If this is a Node root, run the package test/typecheck script next.',
+        '- For offensive/security audit, switch to Bug Bounty mode so I can use `secrets_scan` and `weaponize_env`.',
+    ].join('\n');
+    store.getState().updateLastAgentMessage?.(text);
+    store.getState().setIsAgentThinking?.(false);
+    try { onUpdate?.(text); } catch { /* non-fatal */ }
+    return true;
+}
+
+// ─── Security Intent Sniffer ─────────────────────────────────────────────
+// Local models (especially smaller ones) sometimes ignore the "auto-engage"
+// keyword list buried in the system prompt. To pin them onto the right
+// playbook we scan the user's message client-side and prepend a single
+// `[INTENT: <playbook>]` line. The system prompt already documents each
+// label, so the line acts as a high-signal selector without changing the
+// rest of the prompt. This is a pure routing hint — no guardrails, no
+// content rewriting.
+//
+// Patterns ordered from MOST specific to LEAST specific. First match wins.
+const SECURITY_INTENT_PATTERNS: Array<{ label: string; rx: RegExp }> = [
+    // Threat-actor / black-hat demo: "show me how X gets hacked", "be the
+    // threat actor", "simulate an APT", etc. This is the playbook the user
+    // explicitly asked for — demo as threat actor, then prevention.
+    {
+        label: 'threat-actor-demo',
+        rx: /\b(threat[\s\-]*actor|black[\s\-]*hat|simulate[\w\s]{0,15}(attack|breach|apt|intrusion)|kill[\s\-]*chain|red[\s\-]*team[\w\s]{0,15}(simulation|exercise)|apt[\s\-]*demo|how (would|do|does|could)[\s\w]{0,40}(get|be) (hacked|owned|pwned|compromised|breached)|walk\s+me\s+through[\s\w]{0,40}(attack|exploit|compromise|breach)|demo[\s\w]{0,15}(attack|exploit|breach|intrusion))\b/i,
+    },
+    // Red team / offensive ops
+    {
+        label: 'red-team',
+        rx: /\b(weaponize|pentest|penetration[\s\-]*test|exploit\s+(this|the|a)|build[\s\w]{0,15}poc|proof[\s\-]*of[\s\-]*concept|lateral[\s\-]*movement|privilege[\s\-]*escalation|priv[\s\-]*esc|persistence\s+mechanism|c2\s+(channel|server|infra)|exfil(trat\w*)?|payload\s+(crafting|delivery)|opsec|reverse\s+shell|bind\s+shell|drop[\s\w]{0,10}(implant|backdoor|stager))\b/i,
+    },
+    // Bug bounty
+    {
+        label: 'bug-bounty',
+        rx: /\b(bug[\s\-]*bounty|hackerone|bugcrowd|intigriti|cvss\s+score|responsible\s+disclosure|h1[\s\-]*report|report[\s\w]{0,15}vulnerability|coordinated\s+disclosure)\b/i,
+    },
+    // Threat model
+    {
+        label: 'threat-model',
+        rx: /\b(threat[\s\-]*model|stride\s+model|attack[\s\-]*surface|trust[\s\-]*boundar(y|ies)|dread\s+score|pasta\s+method)\b/i,
+    },
+    // Blue team / defense / detection
+    {
+        label: 'blue-team',
+        rx: /\b(blue[\s\-]*team|harden\s+(this|the)|defense[\s\-]*in[\s\-]*depth|detection[\s\-]*engineering|sigma\s+rule|yara\s+rule|incident[\s\-]*response|ir[\s\-]*plan|ioc\b|indicators[\s\-]*of[\s\-]*compromise|soc\s+(playbook|monitoring)|security\s+audit|secure[\s\-]*by[\s\-]*default|fix[\s\w]{0,15}(vuln|cve|finding|leak))\b/i,
+    },
+    // Recon-only (no exploitation yet)
+    {
+        label: 'recon',
+        rx: /\b(recon(naissance)?|enumerat\w+|subdomain[\s\-]*enum|asset[\s\-]*discovery|fingerprint\s+the|footprint\s+the)\b/i,
+    },
+    // Generic credential / secret work — implies dual-use posture
+    {
+        label: 'secrets-audit',
+        rx: /\b(\.env\b|secret[\s\-]*scan|hard[\s\-]*coded\s+(secret|cred|key|password)|leak(ed|y)?\s+(token|key|cred|secret)|credential[\s\-]*(audit|leak))\b/i,
+    },
+];
+
+function inferSecurityIntent(text: string): string | null {
+    if (!text) return null;
+    const t = text.slice(0, 1500); // cap so very long prompts stay cheap
+    for (const p of SECURITY_INTENT_PATTERNS) {
+        if (p.rx.test(t)) return p.label;
+    }
+    return null;
+}
+
+export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: string) => void, context?: any[]): Promise<void> {
+    const store = (window as any).useStore;
+    if (!store) throw new Error("Store not found");
+
+    let preflightOllamaUrlOverride = '';
+
+    // Handle Slash Commands
+    if (userPrompt.startsWith('/')) {
+        const handled = await processSlashCommand(userPrompt);
+        if (handled) return;
+    }
+
+    // OSS community build: no SaaS account, no ToS gate. Offensive-security
+    // modes (Bug Bounty / Red Team) run unrestricted — legal authorization is
+    // the user's responsibility, as stated in the system prompt.
+
+    // Antigravity cascade — brain + trajectory persistence for this agent run
+    {
+        const st = store.getState();
+        if (!st.activeCascadeId && st.activeRoot) {
+            const { newCascadeId } = await import('./infrastructure/antigravity/antigravityClient');
+            st.setActiveCascadeId?.(newCascadeId());
+        }
+    }
+
+    // OSS community build: all agentic modes (Sentient, Harness, Planning,
+    // YOLO, Bug Bounty) are unlocked — no Pro/feature gate.
+
+    // Persistent agentic modes (Bug Bounty, Harness, Sentient, …) — auto-enable
     // YOLO + diff auto-accept so tools run without manual Allow / Apply clicks.
     {
         const { ensureAgenticAutonomy } = await import('./lib/agentAutonomy');
         await ensureAgenticAutonomy(store.getState().agentMode);
     }
-    // Auto-open the live activity terminal (once) ────────────────────────
+
+    // OSS community build: no subscription quota and no managed-cloud paywall.
+    // Local Ollama, BYO API keys, and any cloud endpoint the user configures all
+    // run free and unmetered.
+
+    // ── Auto-open the live activity terminal (once) ────────────────────────
     // Surfaces what the agent is doing in real time — every tool call + live
     // command stdout streams into the "AIRI" terminal. Created on the first
     // agent run of the session so the user actually sees it; reused after.
     try {
         const st: any = store.getState();
         const hasAiri = (st.terminalGroups || []).some((g: any) => g.name === 'AIRI');
-        if (!hasAiri) st.addAiriActivityTerminal?.();
+        // Create in the background — never hijack the user's shell/panel. They can
+        // open the activity feed via the AIRI button in the terminal toolbar.
+        if (!hasAiri) st.addAiriActivityTerminal?.({ focus: false });
     } catch { /* non-fatal */ }
-    // Plan-before-execute mode (Claude Code / Cursor-style) ───────────
+
+    // ── Token usage accounting (account-tied) ──────────────────────────────
+    // Count this turn against the account's monthly token budget. Each turn
+    // re-sends the full context as input + the model's output, so summing
+    // (context + output estimate) per turn approximates real token billing.
+    // Provider usage isn't reliably pushed to the webview (dead event stream),
+    // so we estimate from the conversation context (≈ chars/4).
+    try {
+        const msgs = store.getState().agentMessages || [];
+        const ctxChars = msgs.reduce((s: number, m: any) =>
+            s + (typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content || '').length), 0)
+            + (userPrompt?.length || 0);
+        const estTokens = Math.ceil((ctxChars / 4) * 1.3); // +30% for output
+        invoke('account_add_tokens', { tokens: estTokens })
+            .then(() => window.dispatchEvent(new Event('account:changed')))
+            .catch(() => {});
+    } catch { /* non-fatal */ }
+
+    // ── Plan-before-execute mode (Claude Code / Cursor-style) ───────────
     // When enabled, prepend a planning directive so the model generates a
     // numbered task list and waits for [PROCEED] before touching any files.
     const isPlanMode = store.getState().isPlanMode;
@@ -102,13 +1571,22 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
     }
 
     const currentMode = store.getState().agentMode;
-    const yolo = !!store.getState().isYoloMode;
-    if (currentMode === 'Chat' && looksLikeActionRequest(userPrompt) && yolo) {
+    // Promote Chat/Ask → Agent whenever the prompt targets the workspace
+    // (files, repo, run/build/deploy, a URL) — no YOLO precondition. This makes
+    // the IDE behave like Cursor: a coding/workspace request always runs the
+    // autonomous tool loop. Pure Q&A / content generation (e.g. "generate the
+    // Mermaid code") fails looksLikeWorkspaceAction and stays a fast Chat reply.
+    if (currentMode === 'Chat'
+        && looksLikeActionRequest(userPrompt)
+        && looksLikeWorkspaceAction(userPrompt)) {
         try {
             store.getState().setAgentMode?.('Agent');
+            // Engage full autonomy for the promoted turn (auto-accept, run, proceed).
+            const { ensureAgenticAutonomy } = await import('./lib/agentAutonomy');
+            await ensureAgenticAutonomy('Agent');
             store.getState().addAgentMessage?.(
                 'assistant',
-                'Auto-switched Chat → Agent (YOLO). Executing with tools.'
+                '_Auto-switched to Agent — executing autonomously with tools._'
             );
         } catch { /* non-fatal */ }
     }
@@ -128,17 +1606,21 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
     const selectedProviderPrefix = agentModel?.includes('|') ? agentModel.split('|')[0].toLowerCase() : '';
     const CLOUD_PROVIDER_PREFIXES = new Set([
         'google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-        'COMMUNITYAI', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
+        'cyberifrit', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
         'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
+        // Non-Ollama local servers — skip the Ollama pre-flight probe so a
+        // Lemonade/HF turn isn't aborted just because Ollama isn't running.
+        'lemonade', 'huggingface',
     ]);
     const selectedIsCloudModel = CLOUD_PROVIDER_PREFIXES.has(selectedProviderPrefix)
+        || selectedProviderPrefix.startsWith('webchat') // headless web-chat shim, not Ollama
         || isHighwayApiModel(selectedModelLower)
         || selectedModelLower.includes('gemini') || selectedModelLower.includes('claude')
         || selectedModelLower.includes('gpt-') || selectedModelLower.includes('o1-')
         || selectedModelLower.includes('o3-');
-    if (inferenceBackend === 'ollama' && !selectedWebUiModel && !selectedIsCloudModel) {
+    if (inferenceBackend === 'lemonade' && !selectedWebUiModel && !selectedIsCloudModel) {
         const st = store.getState();
-        const ollamaBase = st.ollamaUrl?.trim() || 'http://localhost:11434';
+        const ollamaBase = st.ollamaUrl?.trim() || 'http://localhost:13305';
         const managedCloud = isManagedCloudOllama(ollamaBase, st.ollamaServerMode);
         let probeOk = false;
         let lastErrorMsg = '';
@@ -153,27 +1635,27 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
         lastErrorMsg = probe.error;
 
         if (!probeOk && isLocalOllamaHost(ollamaBase) && ollamaBase.includes(':1536')) {
-            const fallbackBase = ollamaBase.replace(':1536', ':11434');
-            console.warn(`[Agent] Proxy port 1536 unreachable, trying direct port 11434: ${fallbackBase}`);
+            const fallbackBase = ollamaBase.replace(':1536', ':13305');
+            console.warn(`[Agent] Proxy port 1536 unreachable, trying direct port 13305: ${fallbackBase}`);
             const fallbackProbe = await probeOllamaEndpoint(fallbackBase, store.getState().ollamaServerMode);
             if (fallbackProbe.ok) {
                 probeOk = true;
                 preflightOllamaUrlOverride = fallbackBase;
-                console.log(`[Agent] Direct port 11434 is active! Proceeding with direct routing.`);
+                console.log(`[Agent] Direct port 13305 is active! Proceeding with direct routing.`);
             } else {
                 lastErrorMsg = `Proxy down (${lastErrorMsg}) and direct port also down (${fallbackProbe.error})`;
             }
         }
 
         if (!probeOk) {
-            console.error('[Agent] ❌ Ollama pre-flight check FAILED:', lastErrorMsg);
+ console.error('[Agent] Ollama pre-flight check FAILED:', lastErrorMsg);
             store.getState().setIsAgentThinking?.(false);
             const tryHint = managedCloud
                 ? '**Try:** Settings → Ollama → **Cloud Model** → **Reconnect**. Confirm you are signed in with an active subscription.'
                 : isLocalOllamaHost(ollamaBase)
                     ? '**Try:** Start **Ollama Desktop** (or run `ollama serve`), then pull your model: `ollama pull gemma4:12b`. Settings → Ollama → **Test connection**.'
                     : '**Try:** Check your self-hosted Ollama URL and bearer token in Settings → Ollama.';
-            const fallbackNote = managedCloud ? '' : ' (or direct fallback port 11434).';
+            const fallbackNote = managedCloud ? '' : ' (or direct fallback port 13305).';
             store.getState().updateLastAgentMessage?.(
                 `**Ollama is not responding**\n\n` +
                 `Could not reach Ollama at \`${store.getState().ollamaUrl || ollamaBase}\`${fallbackNote}\n\n` +
@@ -217,7 +1699,7 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
             store.getState().setIsAgentThinking?.(true);
             // Show immediate feedback so the user knows inference is running
             // (on local models this can take 15-20 seconds)
-            store.getState().updateLastAgentMessage?.('⏳ *Thinking...*');
+            store.getState().updateLastAgentMessage?.('*Thinking...*');
 
             // Provider/model resolution — same logic as the slow path below,
             // duplicated locally to avoid a giant refactor. Kept minimal.
@@ -235,8 +1717,8 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
                 fastProvider = "highwayapi";
             } else if (agentModel.toLowerCase().includes("anthropic") || agentModel.toLowerCase().includes("claude")) {
                 fastProvider = "Anthropic";
-            } else if (agentModel.toLowerCase().includes("ollama") || agentModel.includes("/") || agentModel.includes(":")) {
-                fastProvider = "Ollama";
+            } else if (agentModel.toLowerCase().includes("lemonade") || agentModel.includes("/") || agentModel.includes(":")) {
+                fastProvider = "Lemonade";
             }
 
             // ── Resolve the model against the live Ollama install ────────
@@ -247,7 +1729,7 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
             // and the chat hangs with no visible error. Fix it before we
             // make the call by swapping in whatever the user actually
             // has installed.
-            if (fastProvider.toLowerCase() === 'ollama') {
+            if (fastProvider.toLowerCase() === 'lemonade') {
                 try {
                     const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
                     const resolved = await resolveOllamaModelTag(fastModel);
@@ -268,7 +1750,15 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
             // the spinner spins forever with no error in the chat. 60s
             // is long enough for a slow first-token on a cold local model
             // but short enough that the user gets actionable feedback.
-            const fastOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
+            let fastOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
+            // Non-Ollama local servers carry their base in `ollama_url` too
+            // (see get_endpoint("lemonade"/"huggingface")). Point them at the
+            // right server so the trivial-chat round-trip doesn't hit Ollama.
+            if (fastProvider.toLowerCase() === 'lemonade') {
+                fastOllamaUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
+            } else if (fastProvider.toLowerCase() === 'huggingface') {
+                fastOllamaUrl = 'https://router.huggingface.co/v1';
+            }
             console.log('[Agent] Fast-path attempt:', {
                 provider: fastProvider,
                 model: fastModel,
@@ -292,13 +1782,17 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
                     tools: [],
                 },
             });
+            // A cold 27B-class local model can take 60–120s just to load into
+            // VRAM before the first token. 60s was too tight and dumped simple
+            // chats into the heavyweight agent loop; give the cold load headroom.
+            const FAST_PATH_TIMEOUT_MS = 180_000;
             const timeout = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error(`ai_chat(fast-path) timed out after 60s (provider=${fastProvider}, model=${fastModel})`)), 60_000)
+                setTimeout(() => reject(new Error(`ai_chat(fast-path) timed out after ${FAST_PATH_TIMEOUT_MS / 1000}s (provider=${fastProvider}, model=${fastModel})`)), FAST_PATH_TIMEOUT_MS)
             );
             const t0 = Date.now();
             const fastResult = await Promise.race([fastCall, timeout]);
             const elapsed = Date.now() - t0;
-            console.log(`[Agent] ✅ Fast-path responded in ${elapsed}ms:`, (fastResult as string)?.slice(0, 100));
+            console.log(`[Agent] Fast-path responded in ${elapsed}ms:`, (fastResult as string)?.slice(0, 100));
 
             // DIRECTLY update the chat UI. Don't rely solely on the ai-content
             // event — it can be swallowed by race conditions or dropped events.
@@ -315,12 +1809,13 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
             // means Ollama is taking >8s to load the model into VRAM.
             const msg = (e?.message ?? String(e)).slice(0, 300);
             console.warn('[agent] fast-path failed, falling back to full loop:', msg);
+            // Do NOT leave a status string as the agent message — it leaks into
+            // the visible answer (and doubles when the cold full loop also waits
+            // on the model loading). Clear it so the full loop's stream replaces
+            // it cleanly; keep the thinking indicator on for feedback.
             try {
-                if (msg.includes('timed out')) {
-                    store.getState().updateLastAgentMessage?.(`_Model loading into VRAM (<8s timeout)... falling back to full autonomous loop_`);
-                } else {
-                    store.getState().updateLastAgentMessage?.(`**Fast-path warning:** ${msg}\n\n_Falling back to full agent loop..._`);
-                }
+                store.getState().updateLastAgentMessage?.('');
+                store.getState().setIsAgentThinking?.(true);
             } catch { /* non-fatal */ }
         }
     }
@@ -339,7 +1834,7 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
         const am = agentModel || '';
         const prefix = am.includes('|') ? am.split('|')[0].toLowerCase() : '';
         const CLOUD = new Set(['google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-            'COMMUNITYAI', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
+            'cyberifrit', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
             'highwayapi', 'interfaceai', 'jiekou', 'antigravity']);
         return CLOUD.has(prefix)
             || isHighwayApiModel(am)
@@ -367,18 +1862,18 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
         model = found.id;
         const ollamaBase = store.getState().ollamaUrl || '';
         if (
-            found.provider.toLowerCase() === 'ollama'
-            && /^COMMUNITYAI\//i.test(found.id)
+            found.provider.toLowerCase() === 'lemonade'
+            && /^cyberifrit\//i.test(found.id)
             && isManagedCloudOllama(ollamaBase, store.getState().ollamaServerMode)
         ) {
-            provider = 'COMMUNITYAI';
+            provider = 'Cyberifrit';
         }
     }
     // 2. Fallback to format parsing etc.
     else if (effectiveAgentModel.includes("|")) {
         [provider, model] = effectiveAgentModel.split("|");
-    } else if (/^COMMUNITYAI\//i.test(effectiveAgentModel)) {
-        provider = 'COMMUNITYAI';
+    } else if (/^cyberifrit\//i.test(effectiveAgentModel)) {
+        provider = 'Cyberifrit';
         model = effectiveAgentModel;
     } else if (effectiveAgentModel.toLowerCase().includes("goog") || effectiveAgentModel.toLowerCase().includes("gemini")) {
         provider = "Google";
@@ -386,8 +1881,8 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
         provider = "highwayapi";
     } else if (effectiveAgentModel.toLowerCase().includes("anthropic") || effectiveAgentModel.toLowerCase().includes("claude")) {
         provider = "Anthropic";
-    } else if (effectiveAgentModel.toLowerCase().includes("ollama") || effectiveAgentModel.includes("/") || effectiveAgentModel.includes(":")) {
-        provider = "Ollama";
+    } else if (effectiveAgentModel.toLowerCase().includes("lemonade") || effectiveAgentModel.includes("/") || effectiveAgentModel.includes(":")) {
+        provider = "Lemonade";
     }
 
     const normalizedProvider = provider.toLowerCase();
@@ -398,7 +1893,7 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
     const WEBUI_ENABLED = false;
     if (!WEBUI_ENABLED && (normalizedProvider.includes('webui') || normalizedProvider.includes('openwebui'))) {
         store.getState().updateLastAgentMessage?.(
-            '**WebUI / personal-subscription models are disabled.**\n\nThey relied on browser-session scraping and were unreliable. Use an **API key** provider instead — open **Settings → Cloud API Keys** and add a key (DeepSeek, Anthropic, OpenAI, …) or **Community AI Cloud**, then pick that model.'
+            '**WebUI / personal-subscription models are disabled.**\n\nThey relied on browser-session scraping and were unreliable. Use an **API key** provider instead — open **Settings → Cloud API Keys** and add a key (DeepSeek, Anthropic, OpenAI, …) or **Cyber-Ifrit Cloud**, then pick that model.'
         );
         store.getState().setIsAgentThinking?.(false);
         return;
@@ -416,7 +1911,7 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
         try {
             const hasToken = await invoke<string | null>('get_stored_token', { provider: webUiSessionProvider });
             if (!hasToken) {
-                store.getState().updateLastAgentMessage?.(`⏳ **Login Required**\n\nPlease complete the login for ${loginProvider} in the browser window that just opened. Waiting for authorization...`);
+                store.getState().updateLastAgentMessage?.(`**Login Required**\n\nPlease complete the login for ${loginProvider} in the browser window that just opened. Waiting for authorization...`);
                 await invoke('start_webui_login', { request: { provider: webUiSessionProvider } });
                 
                 // Poll for token every second for up to 2 minutes
@@ -431,11 +1926,11 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
                 }
 
                 if (!tokenFound) {
-                    store.getState().updateLastAgentMessage?.(`❌ **Login Timeout**\n\nNo token received from ${loginProvider}. Please try again.`);
+                    store.getState().updateLastAgentMessage?.(`**Login Timeout**\n\nNo token received from ${loginProvider}. Please try again.`);
                     store.getState().setIsAgentThinking?.(false);
                     return;
                 }
-                store.getState().updateLastAgentMessage?.(`✅ **Login Successful!**\n\nSending request to ${baseProvider}...`);
+                store.getState().updateLastAgentMessage?.(`**Login Successful!**\n\nSending request to ${baseProvider}...`);
             }
 
             if (loginProvider !== 'openwebui') {
@@ -476,7 +1971,7 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
             }
         } catch (e: any) {
             console.error('WebUI Login hook failed:', e);
-            store.getState().updateLastAgentMessage?.(`❌ **WebUI Login Error:** ${e}`);
+            store.getState().updateLastAgentMessage?.(`**WebUI Login Error:** ${e}`);
             store.getState().setIsAgentThinking?.(false);
             return;
         }
@@ -490,36 +1985,116 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
     let routingModel = model;
     let routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
     if (inferenceBackend === 'llama-cpp') {
-        routingProvider = 'ollama';
+        routingProvider = 'lemonade';
         routingOllamaUrl = store.getState().llamaCppUrl || 'http://localhost:8081';
         const gguf = store.getState().llamaCppModelPath?.trim();
         if (gguf) {
             const seg = gguf.replace(/^.*[\\/]/, '').replace(/\.gguf$/i, '');
             if (seg) routingModel = seg;
         }
-    } else if (inferenceBackend === 'ollama') {
-        // Only force-route through Ollama when the selected model is actually
-        // a local model. Cloud providers (Google, Anthropic, OpenAI, …) must
+    } else if (inferenceBackend === 'lemonade') {
+        // Only force-route LOCAL models through Lemonade.
+        // Cloud providers (mimo, openmodel, highwayapi, google, etc.) must
+        // pass through their own provider APIs even if the local backend is Lemonade.
+        const CLOUD_PROVIDERS_LEMONADE = new Set([
+            'google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
+            'cyberifrit', 'mimo', 'highwayapi', 'interfaceai', 'jiekou',
+            'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'openmodel',
+            'cerebras', 'alibaba', 'nvidia', 'huggingface',
+        ]);
+        const providerFromModel = normalizedProvider;
+        if (CLOUD_PROVIDERS_LEMONADE.has(providerFromModel)) {
+            // Cloud model — use its own provider, not Lemonade
+            routingProvider = providerFromModel;
+            routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
+        } else {
+            routingProvider = 'lemonade';
+            routingOllamaUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
+        }
+    } else if (inferenceBackend === 'openmodel') {
+        // Only force-route LOCAL models through OpenModel.
+        // Cloud providers (mimo, google, anthropic, etc.) must
+        // pass through their own provider APIs.
+        const CLOUD_PROVIDERS_OPENMODEL = new Set([
+            'google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
+            'cyberifrit', 'mimo', 'highwayapi', 'interfaceai', 'jiekou',
+            'deepseek', 'groq', 'mistral', 'cohere', 'xai',
+            'cerebras', 'alibaba', 'nvidia', 'huggingface',
+        ]);
+        const provOM = normalizedProvider;
+        if (CLOUD_PROVIDERS_OPENMODEL.has(provOM)) {
+            routingProvider = provOM;
+            routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
+        } else {
+            routingProvider = 'openmodel';
+            routingOllamaUrl = 'https://api.openmodel.ai';
+        }
+    } else if (inferenceBackend === 'huggingface') {
+        routingProvider = 'huggingface';
+        routingOllamaUrl = 'https://router.huggingface.co/v1';
+    } else if (inferenceBackend === 'lemonade') {
+        // Only force-route locally when the selected model is actually a local
+        // model. Cloud providers (Google, Anthropic, OpenAI, …) must
         // pass through their own provider even if the local backend is Ollama.
         const CLOUD_PROVIDERS = new Set([
             'google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-            'COMMUNITYAI', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
+            'cyberifrit', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
             'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
+            // lemonade + huggingface are local/OpenAI-compat servers with their own
+            // base URL — they must keep their provider even when the global backend
+            // is Ollama (e.g. user picks a Lemonade model straight from the picker).
+            'lemonade', 'huggingface', 'openmodel',
         ]);
-        if (!CLOUD_PROVIDERS.has(normalizedProvider) && !isHighwayApiModel(routingModel)) {
-            routingProvider = 'ollama';
+        // webchat-* are headless web-chat "models" fronted by the local OpenAI shim
+        // (:1539) — they are NOT Ollama and must keep their own provider even when
+        // the local inference backend is Ollama.
+        if (!CLOUD_PROVIDERS.has(normalizedProvider)
+            && !normalizedProvider.startsWith('webchat')
+            && !isHighwayApiModel(routingModel)) {
+            routingProvider = 'lemonade';
         }
         routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl || '';
         const am = store.getState().agentModel || '';
         if (am.includes('|')) {
             const [prov, id] = am.split('|');
-            if (prov.toLowerCase() === 'ollama' && id.trim()) {
+            if (prov.toLowerCase() === 'lemonade' && id.trim()) {
                 routingModel = id.trim();
             }
         }
     }
 
-    if (routingProvider === 'ollama' && !String(routingModel || '').trim()) {
+    // Provider-keyed endpoint override. The branches above only set the
+    // Lemonade/HF base URL when the *global* inferenceBackend is flipped to
+    // them. But the user usually just picks a Lemonade model from the model
+    // picker (provider resolved from availableModels) while inferenceBackend
+    // stays 'lemonade'. Without this, routingOllamaUrl would still point at the
+    // Ollama base and the backend's get_endpoint("lemonade") would POST the
+    // Lemonade model to the Ollama port → 404 / silent no-op. Force the right
+    // server URL by the resolved provider regardless of inferenceBackend.
+    if (routingProvider === 'lemonade') {
+        routingOllamaUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
+    } else if (routingProvider === 'huggingface') {
+        routingOllamaUrl = 'https://router.huggingface.co/v1';
+    }
+
+    // Cloud subscription gate. Local backends (lemonade/ollama/…) are always free.
+    // Cloud subscription models (cyberifrit gateway: GLM-5.2, Qwen3.6-35B-MoE, …)
+    // require an active sign-in — otherwise prompt login and stop the turn.
+    {
+        const CLOUD_SUB = new Set(['cyberifrit', 'cyber-ifrit', 'cyberifrit-cloud']);
+        if (CLOUD_SUB.has(routingProvider) && !store.getState().isCloudUnlocked?.()) {
+            store.getState().setIsAgentThinking?.(false);
+            store.getState().updateLastAgentMessage?.(
+                '**Sign in to use cloud models**\n\nThis is a subscription cloud model. ' +
+                'Sign in to unlock it — or pick a local **Lemonade** / **Ollama** model (free, runs on your machine).'
+            );
+            store.getState().openLoginModal?.();
+            setAiStatus('idle');
+            return;
+        }
+    }
+
+    if (routingProvider === 'lemonade' && !String(routingModel || '').trim()) {
         store.getState().setIsAgentThinking?.(false);
         store.getState().updateLastAgentMessage?.(
             '**No local model selected**\n\nOpen Settings and choose an Ollama model before starting a local agent run. I will not auto-load `qwen3:35b`, a vision model, or any fallback model silently.'
@@ -528,11 +2103,11 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
         return;
     }
 
-    if (routingProvider === 'ollama') {
-        const raw = store.getState().ollamaUrl?.trim() || 'http://localhost:11434';
+    if (routingProvider === 'lemonade') {
+        const raw = store.getState().ollamaUrl?.trim() || 'http://localhost:13305';
         try {
             const base = normalizeOllamaUrl(raw);
-            await invoke('set_ollama_url', { url: base }).catch(() => { });
+            await invoke('set_lemonade_url', { url: base }).catch(() => { });
         } catch { /* fast path may still fail loudly below */ }
     }
 
@@ -595,9 +2170,28 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
 
     const tabs = (storeState as any).tabs || [];
     const aiInstructions: string = (storeState as any).voidGlobalSettings?.aiInstructions || '';
+
+    // Local small models choke on huge prefills (a 4B on a weak GPU spends minutes
+    // just evaluating a 90k-token prompt). When the turn is self-contained — a long
+    // prompt with no @mentions and no attached repo context — skip the AIM brain /
+    // project-memory injection entirely. The backend still has the brain if a tool
+    // needs it; this only trims what we eagerly stuff into the system prompt.
+    const isLocalRoutingProvider = [
+        'antigravity', 'lemonade', 'huggingface', 'vllm', 'lmstudio',
+    ].includes(routingProvider);
+    const hasAttachedCtx = Array.isArray(attachmentContext) && attachmentContext.length > 0;
+    const referencesRepo = /@(codebase|web|git|docs|file)\b|@[\w./-]+\.\w/i.test(userPrompt);
+    const selfContainedPrompt =
+        userPrompt.trim().length > 300 && !referencesRepo && !hasAttachedCtx;
+    const skipHeavyContext = isLocalRoutingProvider && selfContainedPrompt;
+    if (skipHeavyContext) {
+        console.log('[Agent] Self-contained prompt on local model — skipping AIM/brain injection to cut prefill.');
+    }
+
     // Load AIM brain for system prompt (non-blocking, best-effort)
     let kortexBrain: { summary: string; indexedFiles: number; confidence: number } | undefined;
     try {
+        if (skipHeavyContext) throw new Error('skip-heavy-context');
         // Hard-bound every AIM call so a slow/hanging index can never block the turn
         // before the first token. The brain is also injected backend-side, so a timeout
         // here only costs a little context, never correctness.
@@ -629,7 +2223,7 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
         })),
         agentMode: storeState.agentMode || 'Execution',
         userPrompt,
-        projectMemory: storeState.projectMemory || undefined,
+        projectMemory: skipHeavyContext ? undefined : (storeState.projectMemory || undefined),
         attachedContext: attachmentContext,
         kortexBrain,
     };
@@ -666,7 +2260,7 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
     const toolMode = storeState.agentMode || 'Agent';
     const isSecurityMode = !!securityIntent || toolMode === 'BugBounty' || toolMode === 'Bug Bounty';
 
-    if (routingProvider === 'ollama' && !isSecurityMode) {
+    if (isLocalRoutingProvider && !isSecurityMode) {
         // Full agentic tool set for local models — don't cripple local inference.
         // Only strip heavy/slow tools (browser automation, multi-agent spawning).
         const blockedLocalTools = new Set([
@@ -689,9 +2283,8 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
     // many tool calls — so we bump it for Agent / BugBounty / Sentient / Fast.
     const isLocalRoute =
         inferenceBackend === 'llama-cpp' ||
-        inferenceBackend === 'ollama' ||
-        normalizedProvider === 'ollama' ||
-        normalizedProvider === 'antigravity';
+        inferenceBackend === 'lemonade' ||
+        isLocalRoutingProvider;
     const activeMode = storeState.agentMode || 'Agent';
     const persistentMode =
         activeMode === 'Agent' ||
@@ -709,7 +2302,7 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
     const cappedMessages: typeof agentMessages = agentMessages.length > effectiveMaxHistory
         ? [
             ...agentMessages.slice(0, 2),
-            { role: 'system' as const, content: `[⚡ Phase-Wrap: ${agentMessages.length - effectiveMaxHistory} earlier messages compressed to save context. Recent working memory follows.]` },
+            { role: 'system' as const, content: `[Phase-Wrap: ${agentMessages.length - effectiveMaxHistory} earlier messages compressed to save context. Recent working memory follows.]` },
             ...agentMessages.slice(-(effectiveMaxHistory - 2))
         ]
         : agentMessages;
@@ -807,14 +2400,14 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
 
             // Allow prompt to fall through to the Rust ai_chat autonomous execution loop!
         } catch (err: any) {
-            console.error('[Agent] ❌ AIRI Sentient Core memory update failed:', err);
+ console.error('[Agent] AIRI Sentient Core memory update failed:', err);
         }
     }
 
     setAiStatus('alive');
 
-    if (routingProvider === 'ollama') {
-        const raw = store.getState().ollamaUrl?.trim() || 'http://localhost:11434';
+    if (routingProvider === 'lemonade') {
+        const raw = store.getState().ollamaUrl?.trim() || 'http://localhost:13305';
         let base: string;
         try {
             base = normalizeOllamaUrl(raw);
@@ -827,12 +2420,12 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
             return;
         }
         try {
-            await invoke('set_ollama_url', { url: base });
+            await invoke('set_lemonade_url', { url: base });
         } catch {
             /* best-effort sync with Rust */
         }
         try {
-            const models = await invoke<string[]>('list_provider_models', { provider: 'ollama' });
+            const models = await invoke<string[]>('list_provider_models', { provider: 'lemonade' });
             if (!models || models.length === 0) {
                 store.getState().setIsAgentThinking(false);
                 store.getState().updateLastAgentMessage(
@@ -885,7 +2478,7 @@ import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentC
     // it on purpose (e.g. claude-opus-4-8 via Interface AI). Only resolve tags
     // for genuine local/ollama models.
     const looksCloud = /^(claude|gpt|o1|o3|gemini|mimo|grok|deepseek-(chat|reasoner|v\d))/i.test(routingModel || '');
-    if (routingProvider === 'ollama' && routingModel && !looksCloud) {
+    if (routingProvider === 'lemonade' && routingModel && !looksCloud) {
         try {
             const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
             const resolved = await resolveOllamaModelTag(routingModel);
@@ -984,7 +2577,10 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
     // action turn so stale state from a prior turn never leaks into this one.
     try {
         const ps = store.getState() as any;
-        const wantPlanner = hybridPlannerAllowed(ps) && looksLikeActionRequest(userPrompt);
+        // Web-chat models are strong enough to plan themselves; don't delegate iter-0
+        // to a separate (possibly cloud) planner — it mixes sessions and adds latency.
+        const isWebchatExecutor = String(routingProvider).toLowerCase().startsWith('webchat');
+        const wantPlanner = !isWebchatExecutor && hybridPlannerAllowed(ps) && looksLikeActionRequest(userPrompt);
         let plannerSpec = '';
         if (wantPlanner) {
             if (!ps.hybridAuto && ps.plannerModel) {
@@ -999,7 +2595,7 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
         if (plannerSpec) {
             const plannerId = plannerSpec.includes('|') ? plannerSpec.split('|').slice(1).join('|') : plannerSpec;
             const plannerProv = plannerSpec.includes('|') ? plannerSpec.split('|')[0] : routingProvider;
-            if (String(plannerProv).toLowerCase() === 'ollama' && isHeavyLocalModel(plannerId)) {
+            if (String(plannerProv).toLowerCase() === 'lemonade' && isHeavyLocalModel(plannerId)) {
                 console.warn('[Agent] Rejecting heavy local hybrid planner:', plannerSpec);
                 plannerSpec = '';
             }
@@ -1021,10 +2617,10 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
             ollama_url: routingOllamaUrl
         });
 
-        if (routingProvider === 'ollama') {
-            store.getState().updateLastAgentMessage?.(
-                `⏳ *Loading **${routingModel}** on local Ollama — first reply can take 1–2 min while the model loads…*`,
-            );
+        if (routingProvider === 'lemonade') {
+                store.getState().updateLastAgentMessage?.(
+                    `*Loading **${routingModel}** on Lemonade — the first reply can take 30s–1 min while the model loads into VRAM…*`,
+                );
         }
 
         const { beginAgentRun, isAgentRunAborted, registerStreamPollTimer, clearStreamPollTimer, startAgentRunWatchdog, stopAgentRunWatchdog, bumpAgentRunActivity } =
@@ -1034,7 +2630,47 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
         // Activity-aware watchdog: only stops after 20 min *idle* (no tools/tokens),
         // not a fixed 600s wall clock — local Ollama agent runs can legitimately take 30+ min.
         const storeSnapshot = store.getState() as any;
-        const fullCall = invoke<string>("ai_chat", {
+
+        // Claude Code keeps its own conversation state and replays it via
+        // `--resume`, so it needs only the newest user turn — sending the whole
+        // reconstructed history would duplicate context and burn the window.
+        const lastUserMsg = [...messages].reverse().find((m: any) => m.role === 'user');
+        const userPromptForClaudeCode = (() => {
+            const c = lastUserMsg?.content;
+            if (typeof c === 'string') return c;
+            if (Array.isArray(c)) {
+                return c.filter((p: any) => p?.type === 'text').map((p: any) => p.text).join('\n');
+            }
+            return String(c ?? '');
+        })();
+        // Image attachments live in separate `image_url` parts. The CLI takes a
+        // text prompt, so Rust writes these to disk and appends the paths —
+        // otherwise they are silently dropped from the turn.
+        const imagesForClaudeCode: string[] = Array.isArray(lastUserMsg?.content)
+            ? (lastUserMsg!.content as any[])
+                .filter((p: any) => p?.type === 'image_url' && p?.image_url?.url)
+                .map((p: any) => String(p.image_url.url))
+            : [];
+
+        // Route through Claude Code's harness when the user opted in. Same local
+        // model via Lemonade, but Claude Code owns the agent loop, tools, hooks
+        // and skills. It streams into the same `chat_stream_buf` the panel polls,
+        // so rendering below is identical either way.
+        const fullCall = storeSnapshot.useClaudeCodeAgent
+            ? invoke<{ content: string; session_id: string; tools_used: string[]; ok: boolean; error: string }>(
+                'claude_code_chat',
+                {
+                    prompt: userPromptForClaudeCode,
+                    resume: storeSnapshot.claudeCodeSessionId ?? undefined,
+                    model: routingModel,
+                    images: imagesForClaudeCode.length ? imagesForClaudeCode : undefined,
+                },
+            ).then((r) => {
+                if (r.session_id) store.getState().setClaudeCodeSessionId?.(r.session_id);
+                if (!r.ok && r.error) throw new Error(r.error);
+                return r.content;
+            })
+            : invoke<string>("ai_chat", {
             request: {
                 provider: routingProvider,
                 model: routingModel,
@@ -1077,7 +2713,7 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
             } catch { /* backend busy */ }
             finally { pollBusy = false; }
         };
-        const streamTimer = setInterval(drainOnce, 50);
+        const streamTimer = setInterval(drainOnce, 200);
         registerStreamPollTimer(streamTimer);
 
         let finalText = '';
@@ -1101,7 +2737,20 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
                 store.getState().updateLastAgentMessage?.(cleaned);
             }
         } else if (!streamedAny && !ft && !streamed && !isAgentRunAborted()) {
-            store.getState().updateLastAgentMessage?.('(no response)');
+            // Thinking-model rescue: models like Gemma 4 stream their whole answer
+            // into thinking tags/reasoning_content and leave `content` empty.
+            // Surface the reasoning instead of a useless "(no response)".
+            const state = store.getState();
+            const last = state.agentMessages.at(-1);
+            // Check both message thoughts AND pendingThoughts (thinking that arrived
+            // before the assistant message was created).
+            const thoughts = (last?.thoughts || state.pendingThoughts || '').trim();
+            if (thoughts) {
+                const { cleanAgentContent } = await import('./domain/agent/cleanAgentContent');
+                state.updateLastAgentMessage?.(cleanAgentContent(thoughts));
+            } else {
+                state.updateLastAgentMessage?.('(no response — the model produced only internal reasoning. Try a different model or simplify the prompt.)');
+            }
         }
 
         console.log('[Agent] Full ai_chat loop completed successfully.');
@@ -1139,9 +2788,8 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
             const st = store.getState();
             const verifyOn = localStorage.getItem('localVerifyMode') === '1';
             const localBackend =
-                st.inferenceBackend === 'ollama'
-                || st.ollamaServerMode === 'local'
-                || (st.agentModel || '').toLowerCase().startsWith('ollama|');
+                st.inferenceBackend === 'lemonade'
+                || st.inferenceBackend === 'llama-cpp';
             if (verifyOn && localBackend && (st.pendingAgentEdits?.length ?? 0) > 0) {
                 st.openMultiFileReview?.();
             }
@@ -1166,12 +2814,15 @@ export async function runContinuousLoop(initialPrompt: string): Promise<void> {
     const store = (window as any).useStore;
     if (!store) { _continuousLoopRunning = false; return; }
 
-    const MAX_AUTO_TURNS = 50;
+    // 24/7 mode: run effectively nonstop. High cap so long specs-to-code missions
+    // don't stop prematurely; the real stops are completion, no-pending-tasks, or
+    // the user toggling Continuous Mode / saying "stop".
+    const MAX_AUTO_TURNS = 500;
     let turn = 0;
     let currentPrompt = initialPrompt;
 
     store.getState().addAgentMessage?.('assistant',
-        `⚡ **Continuous Mode ON** — I will keep working until all tasks are done. Say "stop" or toggle Continuous Mode to interrupt.\n\n---`
+        `**Continuous Mode ON** — I will keep working until all tasks are done. Say "stop" or toggle Continuous Mode to interrupt.\n\n---`
     );
 
     try {
@@ -1180,7 +2831,7 @@ export async function runContinuousLoop(initialPrompt: string): Promise<void> {
             const state = store.getState();
             const { isAgentRunAborted } = await import('./application/agent/agentRunSession');
             if (!state.isContinuousMode || isAgentRunAborted()) {
-                state.addAgentMessage?.('assistant', '⏹ **Continuous Mode stopped** by user.');
+                state.addAgentMessage?.('assistant', '**Continuous Mode stopped** by user.');
                 break;
             }
             if (state.isAgentPaused) {
@@ -1207,7 +2858,7 @@ export async function runContinuousLoop(initialPrompt: string): Promise<void> {
 
             if (upperText.includes('MISSION_ACCOMPLISHED') || upperText.includes('TASK_COMPLETE') || upperText.includes('ALL TASKS DONE')) {
                 store.getState().addAgentMessage?.('assistant',
-                    `✅ **Continuous Mode: All tasks complete** after ${turn} turn${turn === 1 ? '' : 's'}.`
+                    `**Continuous Mode: All tasks complete** after ${turn} turn${turn === 1 ? '' : 's'}.`
                 );
                 break;
             }
@@ -1219,7 +2870,7 @@ export async function runContinuousLoop(initialPrompt: string): Promise<void> {
                     const nextTask = await invoke<any>('ag_get_next_task', { root: activeRoot });
                     if (!nextTask) {
                         store.getState().addAgentMessage?.('assistant',
-                            `✅ **Continuous Mode: No more pending tasks** (${turn} turn${turn === 1 ? '' : 's'} completed).`
+                            `**Continuous Mode: No more pending tasks** (${turn} turn${turn === 1 ? '' : 's'} completed).`
                         );
                         break;
                     }
@@ -1240,7 +2891,7 @@ export async function runContinuousLoop(initialPrompt: string): Promise<void> {
 
         if (turn >= MAX_AUTO_TURNS) {
             store.getState().addAgentMessage?.('assistant',
-                `⚠️ **Continuous Mode: Safety cap reached** (${MAX_AUTO_TURNS} turns). Toggle Continuous Mode to restart.`
+                `**Continuous Mode: Safety cap reached** (${MAX_AUTO_TURNS} turns). Toggle Continuous Mode to restart.`
             );
         }
     } finally {
@@ -1474,7 +3125,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
     const { addAgentMessage, clearAgentMessages, activeRoot, setAgentMode } = store.getState();
 
     const runSpecCommand = async (templateName: string, cmdArgs: string) => {
-        addAgentMessage('assistant', `⚡ Running **/${templateName}**${cmdArgs ? ': ' + cmdArgs.slice(0, 60) : ''}...`);
+        addAgentMessage('assistant', `Running **/${templateName}**${cmdArgs ? ': ' + cmdArgs.slice(0, 60) : ''}...`);
         setAgentMode('Planning');
         const expandedPrompt = await loadSpecKitTemplate(templateName, cmdArgs);
         await sendAgentMessage(expandedPrompt, (msg: string) => {
@@ -1494,7 +3145,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             const isOn = storeState2.isContinuousMode;
             if (isOn) {
                 storeState2.setContinuousMode?.(false);
-                addAgentMessage('assistant', '⏹ Continuous Mode disabled.');
+                addAgentMessage('assistant', 'Continuous Mode disabled.');
             } else {
                 storeState2.setContinuousMode?.(true);
                 addAgentMessage('assistant', '');
@@ -1511,7 +3162,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             // fires an action prompt that drives ai_vuln_hunt, then PoCs + report.
             const target = (args || '').trim() || '.';
             setAgentMode('BugBounty');
-            addAgentMessage('assistant', `🛡️ Launching AI vuln-hunt on \`${target}\` — 3-stage tiered pipeline (chunk → high-recall hypothesis → 2-pass validation)…`);
+            addAgentMessage('assistant', `🛡 Launching AI vuln-hunt on \`${target}\` — 3-stage tiered pipeline (chunk → high-recall hypothesis → 2-pass validation)…`);
             await sendAgentMessage(
                 `[INTENT: bug-bounty] Run the ai_vuln_hunt tool on path "${target}" for a full 3-stage AI vulnerability hunt. ` +
                 `Then, for each HIGH/CRITICAL confirmed finding, write a working PoC under exploits/ and a remediation note, ` +
@@ -1573,14 +3224,14 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
         case '/next':
         case '/task': {
             if (!activeRoot) {
-                addAgentMessage('assistant', '❌ No project root open. Use `/spec` to create one first.');
+                addAgentMessage('assistant', 'No project root open. Use `/spec` to create one first.');
                 return true;
             }
-            addAgentMessage('assistant', '🔍 Scanning `specs/*/tasks.md` for next pending task...');
+            addAgentMessage('assistant', 'Scanning `specs/*/tasks.md` for next pending task...');
             try {
                 const task = await invoke<any>('ag_get_next_task', { root: activeRoot });
                 if (!task) {
-                    store.getState().updateLastAgentMessage('✅ All tasks complete! No pending `[ ]` items found in `specs/*/tasks.md`.');
+                    store.getState().updateLastAgentMessage('All tasks complete! No pending `[ ]` items found in `specs/*/tasks.md`.');
                     return true;
                 }
                 const specName = task.spec_dir.split(/[\/\\]/).pop() || task.spec_dir;
@@ -1606,24 +3257,24 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                 );
                 await sendAgentMessage(taskPrompt, () => {});
             } catch (err: any) {
-                store.getState().updateLastAgentMessage(`❌ Failed to get next task: ${err.message || err}`);
+                store.getState().updateLastAgentMessage(`Failed to get next task: ${err.message || err}`);
             }
             return true;
         }
 
         case '/test': {
             if (!activeRoot) {
-                addAgentMessage('assistant', '❌ No project root open.');
+                addAgentMessage('assistant', 'No project root open.');
                 return true;
             }
             const testTarget = args.trim();
             const storeState = (window as any).useStore?.getState();
             const activeFile = testTarget || storeState?.activeEditorPath || storeState?.tabs?.find((t: any) => t.id === storeState?.activeTabId)?.path;
             if (!activeFile) {
-                addAgentMessage('assistant', '❌ No file selected. Open a file or pass a path: `/test src/foo.ts`.');
+                addAgentMessage('assistant', 'No file selected. Open a file or pass a path: `/test src/foo.ts`.');
                 return true;
             }
-            addAgentMessage('assistant', `🧪 Running test_task workflow for \`${activeFile}\`...`);
+            addAgentMessage('assistant', `Running test_task workflow for \`${activeFile}\`...`);
             const testPrompt =
                 `[ANTIGRAVITY TEST_TASK] Write unit tests for the file below using TDD:\n\n` +
                 `**Target:** ${activeFile}\n\n` +
@@ -1641,7 +3292,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 
         case '/walkthrough': {
             if (!activeRoot) {
-                addAgentMessage('assistant', '❌ No project root open.');
+                addAgentMessage('assistant', 'No project root open.');
                 return true;
             }
             addAgentMessage('assistant', '📖 Generating walkthrough.md...');
@@ -1667,14 +3318,46 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 
                 await sendAgentMessage(walkthroughPrompt, () => {});
             } catch (err: any) {
-                store.getState().updateLastAgentMessage(`❌ Failed: ${err.message || err}`);
+                store.getState().updateLastAgentMessage(`Failed: ${err.message || err}`);
+            }
+            return true;
+        }
+
+        case '/diagram-viewer': {
+            if (!activeRoot) {
+                addAgentMessage('assistant', 'No project root open.');
+                return true;
+            }
+            try {
+                const { extractAllMermaid, openMermaidDiagrams } = await import('./application/editor/openMermaid');
+                // Source: the most recent assistant message that contains mermaid.
+                const msgs = store.getState().agentMessages || [];
+                let diagrams: any[] = [];
+                for (let i = msgs.length - 1; i >= 0; i--) {
+                    const d = extractAllMermaid(String(msgs[i]?.content || ''));
+                    if (d.length) { diagrams = d; break; }
+                }
+                if (!diagrams.length) {
+                    addAgentMessage('assistant', 'No Mermaid diagrams found in the recent conversation. Ask for a diagram first, then run /diagram-viewer.');
+                    return true;
+                }
+                // Open the native viewer immediately…
+                openMermaidDiagrams(diagrams);
+                // …and export the standalone HTML app alongside.
+                // Written to the OS app-data dir (not the project tree), namespaced per repo.
+                const indexPath = await invoke<string>('export_diagram_viewer', { diagrams, project: activeRoot });
+                // Don't open the generated HTML in Monaco — the native viewer already
+                // shows the diagrams, and loading another doc adds webview memory.
+                addAgentMessage('assistant', `Opened the diagram viewer (${diagrams.length} diagram${diagrams.length > 1 ? 's' : ''}). Standalone HTML also exported to \`${indexPath}\` — open it in a browser.`);
+            } catch (err: any) {
+                addAgentMessage('assistant', `Failed to build diagram viewer: ${err?.message || err}`);
             }
             return true;
         }
 
         case '/spec': {
             if (!activeRoot) {
-                addAgentMessage('assistant', '❌ No project root open.');
+                addAgentMessage('assistant', 'No project root open.');
                 return true;
             }
             if (!args.trim()) {
@@ -1689,21 +3372,21 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                 const specDir = await invoke<string>('ag_create_spec', { root: activeRoot, slug, description });
                 const specDirShort = specDir.replace(activeRoot, '').replace(/^[\/\\]/, '');
                 store.getState().updateLastAgentMessage(
-                    `✅ Spec created at \`${specDirShort}\`:\n\n` +
+                    `Spec created at \`${specDirShort}\`:\n\n` +
                     `- \`spec.md\` — feature specification\n` +
                     `- \`plan.md\` — implementation plan\n` +
                     `- \`tasks.md\` — task checklist\n\n` +
                     `Edit these files, then run \`/next\` to start executing tasks.`
                 );
             } catch (err: any) {
-                store.getState().updateLastAgentMessage(`❌ Failed to create spec: ${err.message || err}`);
+                store.getState().updateLastAgentMessage(`Failed to create spec: ${err.message || err}`);
             }
             return true;
         }
 
         case '/phasewrap': {
             if (!activeRoot) {
-                addAgentMessage('assistant', '❌ No project root open.');
+                addAgentMessage('assistant', 'No project root open.');
                 return true;
             }
             const notes = args.trim() || 'Phase-Wrap triggered manually.';
@@ -1712,9 +3395,9 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                 const task = await invoke<any>('ag_get_next_task', { root: activeRoot }).catch(() => null);
                 const taskId = task ? task.task_id : 'manual';
                 await invoke('ag_phase_wrap', { root: activeRoot, taskId, notes });
-                store.getState().updateLastAgentMessage(`✅ Phase-Wrap complete. Updated \`.hades/state.md\` with: ${notes}`);
+                store.getState().updateLastAgentMessage(`Phase-Wrap complete. Updated \`.hades/state.md\` with: ${notes}`);
             } catch (err: any) {
-                store.getState().updateLastAgentMessage(`❌ Phase-Wrap failed: ${err.message || err}`);
+                store.getState().updateLastAgentMessage(`Phase-Wrap failed: ${err.message || err}`);
             }
             return true;
         }
@@ -1742,7 +3425,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                 await loadProjectMemory(activeRoot);
                 const { memoryFiles } = store.getState();
                 if (memoryFiles.length > 0) {
-                    store.getState().updateLastAgentMessage(`✅ Loaded ${memoryFiles.length} memory file(s):\n${memoryFiles.map((f: string) => `- ${f}`).join('\n')}`);
+                    store.getState().updateLastAgentMessage(`Loaded ${memoryFiles.length} memory file(s):\n${memoryFiles.map((f: string) => `- ${f}`).join('\n')}`);
                 } else {
                     store.getState().updateLastAgentMessage('No memory files found (AGENTS.md, CLAUDE.md, memory/).');
                 }
@@ -1889,7 +3572,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
         case '/webmission': {
             const q = args.trim() || 'Research the current project context and summarize actionable findings.';
             const urlMatch = q.match(/\bhttps?:\/\/[^\s)]+/i);
-            addAgentMessage('assistant', `🌐 **Web mission started** — invisible_playwright stealth browser → scrape → security audit → terminal.\n\nQuery: ${q}`);
+            addAgentMessage('assistant', `**Web mission started** — invisible_playwright stealth browser → scrape → security audit → terminal.\n\nQuery: ${q}`);
             store.getState().openAiriPanel?.();
             window.dispatchEvent(new CustomEvent('ide:open-studio', {
                 detail: { tab: 'research', query: q, url: urlMatch?.[0] },
@@ -1905,13 +3588,13 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                     onStep: (step) => {
                         if (step.status === 'running') {
                             store.getState().updateLastAgentMessage?.(
-                                `🌐 **Web mission** · ${step.label}…`
+                                `**Web mission** · ${step.label}…`
                             );
                         }
                     },
                 });
                 store.getState().updateLastAgentMessage?.(
-                    `🌐 **Web mission complete**\n\n${result.report.slice(0, 12000)}`
+                    `**Web mission complete**\n\n${result.report.slice(0, 12000)}`
                 );
             } catch (e: any) {
                 store.getState().updateLastAgentMessage?.(`**Web mission failed:** ${e?.message || e}`);
@@ -1952,7 +3635,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             const activeFile = storeState?.activeEditorPath || storeState?.tabs?.find((t: any) => t.id === storeState?.activeTabId)?.path;
             const scope = target || activeFile;
             if (!scope) {
-                addAgentMessage('assistant', '❌ No file selected. Open a file or pass a path: `/gentest src/foo.ts`.');
+                addAgentMessage('assistant', 'No file selected. Open a file or pass a path: `/gentest src/foo.ts`.');
                 return true;
             }
             const persona =
@@ -1973,9 +3656,9 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             try {
                 const store = (window as any).useStore?.getState();
                 store?.openTrajectory?.();
-                addAgentMessage('assistant', '📊 Opened the agent trajectory timeline.');
+                addAgentMessage('assistant', 'Opened the agent trajectory timeline.');
             } catch {
-                addAgentMessage('assistant', '❌ Couldn\'t open the trajectory panel.');
+                addAgentMessage('assistant', 'Couldn\'t open the trajectory panel.');
             }
             return true;
         }
@@ -1993,7 +3676,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             const rest = args.trim().slice(sub.length).trim();
             const root = activeRoot;
             if (!root) {
-                addAgentMessage('assistant', '❌ Notepads live in `.agents/prompts/` inside the workspace. Open a folder first.');
+                addAgentMessage('assistant', 'Notepads live in `.agents/prompts/` inside the workspace. Open a folder first.');
                 return true;
             }
             const dir = `${root}/.agents/prompts`;
@@ -2013,7 +3696,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                         addAgentMessage('assistant', `📓 Saved notepads:\n${names.map(n => `  • \`${n}\``).join('\n')}\n\nRun with \`/notepad run <name>\`.`);
                     }
                 } catch (e) {
-                    addAgentMessage('assistant', `❌ Couldn't list notepads: ${e}`);
+                    addAgentMessage('assistant', `Couldn't list notepads: ${e}`);
                 }
                 return true;
             }
@@ -2021,21 +3704,21 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             if (sub === 'save') {
                 const name = (rest.split(/\s+/)[0] || '').replace(/[^a-z0-9_-]/gi, '');
                 if (!name) {
-                    addAgentMessage('assistant', '❌ Usage: `/notepad save <name>` — must be alphanumeric.');
+                    addAgentMessage('assistant', 'Usage: `/notepad save <name>` — must be alphanumeric.');
                     return true;
                 }
                 // Save the previous user message.
                 const msgs = ((window as any).useStore?.getState()?.agentMessages || []) as any[];
                 const lastUser = [...msgs].reverse().find(m => m.role === 'user' && !m.content?.startsWith('/notepad'));
                 if (!lastUser?.content) {
-                    addAgentMessage('assistant', '❌ Nothing to save. Send a prompt first, then `/notepad save <name>`.');
+                    addAgentMessage('assistant', 'Nothing to save. Send a prompt first, then `/notepad save <name>`.');
                     return true;
                 }
                 try {
                     await invoke('write_file_content', { path: `${dir}/${name}.md`, content: lastUser.content });
                     addAgentMessage('assistant', `📓 Saved as \`${name}\`. Run with \`/notepad run ${name}\`.`);
                 } catch (e) {
-                    addAgentMessage('assistant', `❌ Save failed: ${e}`);
+                    addAgentMessage('assistant', `Save failed: ${e}`);
                 }
                 return true;
             }
@@ -2044,7 +3727,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                 const name = (rest.split(/\s+/)[0] || '').replace(/[^a-z0-9_-]/gi, '');
                 const extra = rest.slice(name.length).trim();
                 if (!name) {
-                    addAgentMessage('assistant', '❌ Usage: `/notepad run <name> [optional extra context]`.');
+                    addAgentMessage('assistant', 'Usage: `/notepad run <name> [optional extra context]`.');
                     return true;
                 }
                 try {
@@ -2052,7 +3735,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                     const composed = extra ? `${body}\n\nADDITIONAL CONTEXT:\n${extra}` : body;
                     await sendAgentMessage(composed);
                 } catch (e) {
-                    addAgentMessage('assistant', `❌ Notepad "${name}" not found: ${e}`);
+                    addAgentMessage('assistant', `Notepad "${name}" not found: ${e}`);
                 }
                 return true;
             }
@@ -2060,14 +3743,14 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             if (sub === 'delete' || sub === 'rm') {
                 const name = (rest.split(/\s+/)[0] || '').replace(/[^a-z0-9_-]/gi, '');
                 if (!name) {
-                    addAgentMessage('assistant', '❌ Usage: `/notepad delete <name>`.');
+                    addAgentMessage('assistant', 'Usage: `/notepad delete <name>`.');
                     return true;
                 }
                 try {
                     await invoke('delete_path', { path: `${dir}/${name}.md` });
                     addAgentMessage('assistant', `🗑 Deleted notepad \`${name}\`.`);
                 } catch (e) {
-                    addAgentMessage('assistant', `❌ Delete failed: ${e}`);
+                    addAgentMessage('assistant', `Delete failed: ${e}`);
                 }
                 return true;
             }
@@ -2078,7 +3761,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 
         case '/init': {
             if (!activeRoot) {
-                addAgentMessage('assistant', '❌ No project root open — `/init` needs an open workspace.');
+                addAgentMessage('assistant', 'No project root open — `/init` needs an open workspace.');
                 return true;
             }
             try {
@@ -2114,10 +3797,10 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                     `- Never run destructive shell commands without confirmation.\n`;
 
                 await invoke('write_file', { path: agentsPath, content: template });
-                addAgentMessage('assistant', `✅ Created \`AGENTS.md\` at \`${agentsPath}\`.\n\nFill in the stack/commands sections — the agent will pick it up automatically on the next message (or \`/memory reload\`).`);
+                addAgentMessage('assistant', `Created \`AGENTS.md\` at \`${agentsPath}\`.\n\nFill in the stack/commands sections — the agent will pick it up automatically on the next message (or \`/memory reload\`).`);
                 try { await loadProjectMemory(activeRoot); } catch (_) { /* best-effort */ }
             } catch (err: any) {
-                addAgentMessage('assistant', `❌ Failed to scaffold AGENTS.md: ${err?.message ?? err}`);
+                addAgentMessage('assistant', `Failed to scaffold AGENTS.md: ${err?.message ?? err}`);
             }
             return true;
         }
@@ -2152,6 +3835,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 - \`/next\` — Execute the next unchecked task in \`specs/*/tasks.md\` (TDD-first)
 - \`/test [file]\` — Run test_task workflow: write failing tests, then implement
 - \`/walkthrough\` — Generate \`walkthrough.md\` for the current task/codebase
+- \`/diagram-viewer\` — Open recent Mermaid diagrams in the interactive viewer + export a standalone HTML app
 - \`/phasewrap [notes]\` — Update \`.hades/state.md\` after completing a phase
 
 **Vibe-Coding (spec-kit)**
@@ -2187,7 +3871,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 
         case '/learn': {
             if (!activeRoot) {
-                addAgentMessage('assistant', '❌ No project root open — cannot write to MEMORY.md.');
+                addAgentMessage('assistant', 'No project root open — cannot write to MEMORY.md.');
                 return true;
             }
             const summary = args.trim();
@@ -2195,15 +3879,15 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                 addAgentMessage('assistant', '**Usage:** `/learn <what you want the AI to remember>`\n\nExample: `/learn Always use Zod for input validation in this project`');
                 return true;
             }
-            addAgentMessage('assistant', '💾 Writing to MEMORY.md...');
+            addAgentMessage('assistant', 'Writing to MEMORY.md...');
             try {
                 await invoke('update_project_memory', { content: summary });
                 await loadProjectMemory(activeRoot);
-                store.getState().updateLastAgentMessage(`✅ Memory updated! Added to \`MEMORY.md\`:\n\n> ${summary}`);
+                store.getState().updateLastAgentMessage(`Memory updated! Added to \`MEMORY.md\`:\n\n> ${summary}`);
                 // Ensure session is saved with the new memory content
                 TaskManager.saveSession();
             } catch (err: any) {
-                store.getState().updateLastAgentMessage(`❌ Failed to write memory: ${err.message || err}`);
+                store.getState().updateLastAgentMessage(`Failed to write memory: ${err.message || err}`);
             }
             return true;
         }
@@ -2213,7 +3897,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
         // ==================================================================
 
         case '/commit': {
-            if (!activeRoot) { addAgentMessage('assistant', '❌ No project root open.'); return true; }
+            if (!activeRoot) { addAgentMessage('assistant', 'No project root open.'); return true; }
             const commitMsg = args.trim();
             addAgentMessage('assistant', '🔄 Preparing git commit...');
             try {
@@ -2221,7 +3905,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                     // Auto-stage everything and commit
                     await handleToolCall('git_add', { files: ["."] });
                     const result = await handleToolCall('git_commit', { message: commitMsg });
-                    store.getState().updateLastAgentMessage(`✅ Committed:\n\`\`\`\n${result}\n\`\`\``);
+                    store.getState().updateLastAgentMessage(`Committed:\n\`\`\`\n${result}\n\`\`\``);
                 } else {
                     // Use AI to generate commit message
                     const status = await handleToolCall('git_status', {});
@@ -2235,27 +3919,27 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                     }
                 }
             } catch (err: any) {
-                store.getState().updateLastAgentMessage(`❌ Commit failed: ${err.message || err}`);
+                store.getState().updateLastAgentMessage(`Commit failed: ${err.message || err}`);
             }
             return true;
         }
 
         case '/diff': {
-            if (!activeRoot) { addAgentMessage('assistant', '❌ No project root open.'); return true; }
-            addAgentMessage('assistant', '🔍 Fetching git diff...');
+            if (!activeRoot) { addAgentMessage('assistant', 'No project root open.'); return true; }
+            addAgentMessage('assistant', 'Fetching git diff...');
             try {
                 const diff = await handleToolCall('git_diff', { staged: args.includes('--staged') });
                 const truncated = diff && diff.length > 5000 ? diff.slice(0, 5000) + '\n\n_…(truncated)_' : diff;
                 store.getState().updateLastAgentMessage(`### Git Diff ${args.includes('--staged') ? '(Staged)' : '(Unstaged)'}\n\`\`\`diff\n${truncated || 'No changes detected.'}\n\`\`\``);
             } catch (err: any) {
-                store.getState().updateLastAgentMessage(`❌ Diff failed: ${err.message || err}`);
+                store.getState().updateLastAgentMessage(`Diff failed: ${err.message || err}`);
             }
             return true;
         }
 
         case '/review': {
-            if (!activeRoot) { addAgentMessage('assistant', '❌ No project root open.'); return true; }
-            addAgentMessage('assistant', '🔍 Starting code review...');
+            if (!activeRoot) { addAgentMessage('assistant', 'No project root open.'); return true; }
+            addAgentMessage('assistant', 'Starting code review...');
             try {
                 const diff = await invoke<string>('ai_execute_command', {
                     command: `cd "${activeRoot}" && git diff HEAD`,
@@ -2269,7 +3953,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                     );
                 }
             } catch (err: any) {
-                store.getState().updateLastAgentMessage(`❌ Review failed: ${err.message || err}`);
+                store.getState().updateLastAgentMessage(`Review failed: ${err.message || err}`);
             }
             return true;
         }
@@ -2281,12 +3965,12 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                 addAgentMessage('assistant', 'Context is already compact (≤4 messages).');
                 return true;
             }
-            addAgentMessage('assistant', '🗜️ Compacting conversation...');
+            addAgentMessage('assistant', '🗜 Compacting conversation...');
             // Keep system + first 2 + last 4 messages, summarize the rest
             const toKeep = [...agentMessages.slice(0, 2), ...agentMessages.slice(-4)];
             const dropped = messageCount - toKeep.length;
             store.getState().setAgentMessages?.(toKeep);
-            store.getState().updateLastAgentMessage(`✅ Compacted: kept ${toKeep.length} messages, dropped ${dropped} older messages to save context window.`);
+            store.getState().updateLastAgentMessage(`Compacted: kept ${toKeep.length} messages, dropped ${dropped} older messages to save context window.`);
             return true;
         }
 
@@ -2305,13 +3989,13 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 
                 // Git
                 const git = data.git || {};
-                sections.push(`**Git:** ${git.is_repo ? '✅ Repository detected' : '❌ Not a repository'}`);
+                sections.push(`**Git:** ${git.is_repo ? 'Repository detected' : 'Not a repository'}`);
                 if (git.current_branch) sections.push(`  - Branch: \`${git.current_branch}\``);
 
                 // Tools
                 const tools = data.tools || {};
-                sections.push(`**Node.js:** ${tools.node || '❌ Not found'}`);
-                sections.push(`**Rust/Cargo:** ${tools.cargo || '❌ Not found'}`);
+                sections.push(`**Node.js:** ${tools.node || 'Not found'}`);
+                sections.push(`**Rust/Cargo:** ${tools.cargo || 'Not found'}`);
 
 
                 // MCP
@@ -2319,7 +4003,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                 if (mcp.length > 0) {
                     sections.push(`\n**MCP Servers (${mcp.length}):**`);
                     mcp.forEach((s: any) => {
-                        const statusIcon = s.status === 'connected' ? '🟢' : '🔴';
+                        const statusIcon = s.status === 'connected' ? '' : '';
                         sections.push(`${statusIcon} ${s.name} (${s.status})`);
                     });
                 } else {
@@ -2332,7 +4016,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 
                 store.getState().updateLastAgentMessage(sections.join('\n'));
             } catch (err: any) {
-                store.getState().updateLastAgentMessage(`❌ Diagnostics failed: ${err.message || err}`);
+                store.getState().updateLastAgentMessage(`Diagnostics failed: ${err.message || err}`);
             }
             return true;
         }
@@ -2358,7 +4042,7 @@ _Note: This is a rough estimate. Actual usage depends on the model and provider.
         }
 
         case '/context': {
-            addAgentMessage('assistant', '📋 Building context snapshot...');
+            addAgentMessage('assistant', 'Building context snapshot...');
             try {
                 const config: SystemPromptConfig = {
                     activeRoot: store.getState().activeRoot || '',
@@ -2371,7 +4055,7 @@ _Note: This is a rough estimate. Actual usage depends on the model and provider.
                 const chars = ctx.length;
                 store.getState().updateLastAgentMessage(`### Agent Context (${lines} lines, ~${Math.ceil(chars / 4)} tokens)\n\n\`\`\`\n${ctx.slice(0, 3000)}\n\`\`\`${ctx.length > 3000 ? '\n\n_…(truncated)_' : ''}`);
             } catch (err: any) {
-                store.getState().updateLastAgentMessage(`❌ Context build failed: ${err.message || err}`);
+                store.getState().updateLastAgentMessage(`Context build failed: ${err.message || err}`);
             }
             return true;
         }
@@ -2383,7 +4067,7 @@ _Note: This is a rough estimate. Actual usage depends on the model and provider.
                 addAgentMessage('assistant', `### Current Model: \`${agentModel}\`\n\nAvailable models:\n${modelList || '_None discovered. Check settings._'}\n\n**Usage:** \`/model <provider|model_id>\``);
             } else {
                 store.getState().setAgentModel?.(args.trim());
-                addAgentMessage('assistant', `✅ Model switched to: \`${args.trim()}\``);
+                addAgentMessage('assistant', `Model switched to: \`${args.trim()}\``);
             }
             return true;
         }
@@ -2412,9 +4096,9 @@ _Note: This is a rough estimate. Actual usage depends on the model and provider.
             addAgentMessage('assistant', '🔄 Attempting to restore session from `.agent/sessions/`...');
             const success = await TaskManager.loadSession();
             if (success) {
-                store.getState().updateLastAgentMessage('✅ Session restored successfully!');
+                store.getState().updateLastAgentMessage('Session restored successfully!');
             } else {
-                store.getState().updateLastAgentMessage('❌ No previous session found for this project.');
+                store.getState().updateLastAgentMessage('No previous session found for this project.');
             }
             return true;
         }
@@ -2424,8 +4108,8 @@ _Note: This is a rough estimate. Actual usage depends on the model and provider.
             const categories: Record<string, any[]> = {
                 '📂 Filesystem': tools.filter(t => ['ls', 'read', 'write', 'edit', 'mv', 'cp', 'rm', 'mkdir', 'grep', 'find'].some(k => t.name.includes(k) || t.name === k)),
                 '🌳 Git': tools.filter(t => t.name.startsWith('git_')),
-                '🖥️ Terminal': tools.filter(t => t.name.startsWith('terminal_') || t.name === 'bash'),
-                '🌐 Browser': tools.filter(t => t.name.startsWith('browser_')),
+                '🖥 Terminal': tools.filter(t => t.name.startsWith('terminal_') || t.name === 'bash'),
+                'Browser': tools.filter(t => t.name.startsWith('browser_')),
                 '🩺 System': tools.filter(t => t.name.includes('health') || t.name.includes('mcp')),
             };
 
@@ -2444,7 +4128,7 @@ _Note: This is a rough estimate. Actual usage depends on the model and provider.
             const handled = Object.values(categories).flat();
             const others = tools.filter(t => !handled.includes(t));
             if (others.length > 0) {
-                sections.push(`**🔧 Utilities**`);
+                sections.push(`**Utilities**`);
                 others.forEach(t => sections.push(`- \`${t.name}\`: ${t.description.split('.')[0]}.`));
             }
 
@@ -2579,7 +4263,7 @@ export async function startKeyHunt() {
     });
 
     const unlistenFound = await listen("hunt-found", (event: any) => {
-        addLog(`<span style="color: #4ade80;">✨ ${event.payload.msg}</span>`);
+        addLog(`<span style="color: #4ade80;">${event.payload.msg}</span>`);
     });
 
     try {
@@ -2589,7 +4273,7 @@ export async function startKeyHunt() {
 
         if (results.length > 0) {
             title.innerHTML = `<i class="codicon codicon-check" style="color: #4ade80;"></i> Hunt Complete - ${results.length} Live Keys Found!`;
-            addLog(`<br><b style="color: #4ade80;">✅ Injected ${results.length} live key(s) into your environment.</b>`);
+            addLog(`<br><b style="color: #4ade80;">Injected ${results.length} live key(s) into your environment.</b>`);
             for (const r of results) {
                 addLog(`<span style="color: #4ade80;">  → ${r.type} from ${r.repo}</span>`);
             }
@@ -2664,43 +4348,72 @@ listen('ai-file-proposal', async (event: { payload: { path: string, content: str
 // already on disk, so each carries `applied: true` (accept = keep, reject =
 // revert). Auto-accept / YOLO short-circuits to keep, matching prior behavior.
 let __vscrProposalBusy = false;
-setInterval(async () => {
-    if (__vscrProposalBusy) return;
-    __vscrProposalBusy = true;
-    try {
-        const items = await invoke<any[]>('agent_proposals_drain');
-        if (items && items.length) {
-            const { proposePendingChange } = useStore.getState();
-            for (const it of items) {
-                proposePendingChange({
-                    path: it.path,
-                    oldContent: it.oldContent,
-                    newContent: it.newContent,
-                    description: it.description,
-                    additions: it.additions,
-                    deletions: it.deletions,
-                    applied: true,
-                } as any);
-            }
-        }
-    } catch { /* backend not ready yet */ }
-    finally { __vscrProposalBusy = false; }
-}, 700);
+let _proposalPollerTimer: ReturnType<typeof setInterval> | null = null;
 
-// Open a file in a tab when the AI requests it
-listen('editor_open_file', async (event: { payload: { path: string } }) => {
-    const filePath = event.payload?.path;
-    if (!filePath) return;
-    try {
-        await useStore.getState().openFile(filePath);
-    } catch (e) {
-        console.error('[editor_open_file] Failed to open:', filePath, e);
+export function startProposalPoller(): void {
+    if (_proposalPollerTimer) return; // already running
+    _proposalPollerTimer = setInterval(async () => {
+        if (__vscrProposalBusy) return;
+        __vscrProposalBusy = true;
+        try {
+            const items = await invoke<any[]>('agent_proposals_drain');
+            if (items && items.length) {
+                const { proposePendingChange } = useStore.getState();
+                for (const it of items) {
+                    proposePendingChange({
+                        path: it.path,
+                        oldContent: it.oldContent,
+                        newContent: it.newContent,
+                        description: it.description,
+                        additions: it.additions,
+                        deletions: it.deletions,
+                        applied: true,
+                    } as any);
+                }
+            }
+        } catch { /* backend not ready yet */ }
+        finally { __vscrProposalBusy = false; }
+    }, 3000);
+}
+
+export function stopProposalPoller(): void {
+    if (_proposalPollerTimer) {
+        clearInterval(_proposalPollerTimer);
+        _proposalPollerTimer = null;
+    }
+}
+
+// Antigravity-style run summary → "N files changed" + optional auto-walkthrough.
+let _lastWalkthroughAt = 0;
+listen('ai-run-summary', async (event: any) => {
+    const p = event?.payload || {};
+    const files: string[] = Array.isArray(p.files) ? p.files : [];
+    const filesChanged: number = typeof p.files_changed === 'number' ? p.files_changed : files.length;
+    try { useStore.getState().setLastRunSummary?.({ filesChanged, files }); } catch { /* non-fatal */ }
+
+    // Auto-walkthrough (opt-in): generate walkthrough.md once after a completed run
+    // that actually changed files. Off by default to avoid surprise local-model cost.
+    const auto = (() => { try { return localStorage.getItem('walkthrough.auto') === 'true'; } catch { return false; } })();
+    const now = Date.now();
+    if (auto && filesChanged > 0 && now - _lastWalkthroughAt > 30_000) {
+        _lastWalkthroughAt = now;
+        const activeRoot = useStore.getState().activeRoot;
+        if (activeRoot) {
+            const prompt =
+                `[ANTIGRAVITY WALKTHROUGH] Write a concise walkthrough.md for the changes just made ` +
+                `(${filesChanged} file(s)). Sections: Overview, Architecture (key files + roles), ` +
+                `Step-by-Step, Testing, Gotchas. Save to \`${activeRoot}/walkthrough.md\` with write_to_file.`;
+            try { await sendAgentMessage(prompt, () => {}); } catch { /* non-fatal */ }
+        }
     }
 });
+
+// editor_open_file listener moved to App.tsx (single source of truth)
 
 // Reload open tabs when the backend writes a file to disk.
 // Gated by isCascadeWriteMode (ON by default — Windsurf-style live streaming edits).
 // Turn OFF via the "Live" toggle in the chat toolbar to review diffs manually.
+let _fileTreeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 listen('file-changed', async (event: { payload: { path: string } }) => {
     const changedPath = event.payload?.path;
     if (!changedPath) return;
@@ -2721,8 +4434,11 @@ listen('file-changed', async (event: { payload: { path: string } }) => {
             console.error('[file-changed] Failed to reload tab:', changedPath, e);
         }
     }
-    // Also refresh file tree so new files appear in the sidebar
-    store.refreshFileTree?.().catch(() => { });
+    // Debounce file tree refresh — agent writes fire rapidly, don't refresh on every one
+    if (_fileTreeRefreshTimer) clearTimeout(_fileTreeRefreshTimer);
+    _fileTreeRefreshTimer = setTimeout(() => {
+        store.refreshFileTree?.().catch(() => { });
+    }, 2000);
 });
 
 listen('ai-thinking', (event: { payload: { thought: string } | any }) => {
@@ -2731,17 +4447,78 @@ listen('ai-thinking', (event: { payload: { thought: string } | any }) => {
     }
 });
 
-listen('ai-content', (event: any) => {
-    // Handle both event.payload.content and direct event.content structures
-    const content = event?.payload?.content ?? event?.content;
+// Auto-open the Mermaid visualizer when the agent finishes a diagram, the way
+// Antigravity pops the rendered flowchart into the editor. Deduped on the source
+// so re-emitted ai-content (streaming → final) doesn't reopen the same diagram.
+let _lastMermaidSrc = '';
+let _mermaidOpenTimer: ReturnType<typeof setTimeout> | null = null;
+let _mermaidPending = '';
+function maybeOpenMermaid(content: string): void {
+    try {
+        if (typeof localStorage !== 'undefined' && localStorage.getItem('mermaid.autoOpen') === 'false') return;
+        // Low-end: don't auto-render diagrams (mermaid+ELK is a heavy spike that
+        // OOMs a small heap mid-run). User opens via /diagram-viewer when ready.
+        if (typeof document !== 'undefined' && document.body.classList.contains('low-end')) return;
+        // Debounce: ai-content fires per streaming chunk. Rendering a large diagram
+        // is expensive in WebView2, so wait until the stream settles (~700ms) and
+        // open ONCE on the final source — never mid-generation, never repeatedly.
+        _mermaidPending = content;
+        if (_mermaidOpenTimer) clearTimeout(_mermaidOpenTimer);
+        _mermaidOpenTimer = setTimeout(() => {
+          _mermaidOpenTimer = null;
+          import('./application/editor/openMermaid').then(({ extractAllMermaid, openMermaidDiagrams }) => {
+            const diagrams = extractAllMermaid(_mermaidPending);
+            if (!diagrams.length) return;
+            // Dedupe on the concatenated source so re-emitted ai-content (streaming →
+            // final) doesn't reopen the same set.
+            const fingerprint = diagrams.map(d => d.code).join('');
+            if (fingerprint === _lastMermaidSrc) return;
+            _lastMermaidSrc = fingerprint;
+            openMermaidDiagrams(diagrams);
+          }).catch(() => { /* visualizer optional */ });
+        }, 700);
+    } catch { /* non-fatal */ }
+}
 
-    if (content && typeof content === 'string' && content.trim().length > 0) {
-        console.log("[AI-CONTENT] Received", content.length, "chars:", content.substring(0, 80) + "...");
-        useStore.getState().updateLastAgentMessage(cleanAgentContent(content));
-    } else {
-        console.warn("[AI-CONTENT] Ignored invalid payload:", { event, contentType: typeof content, contentLen: content?.length });
+// Throttle streaming UI updates. `ai-content` fires per token with the FULL
+// cumulative content; re-rendering the whole markdown (syntax highlight + mermaid)
+// on every token is quadratic and exhausts the WebView2 renderer ("Out of Memory")
+// on long coding/diagram runs. Cap to ~12 renders/sec with a guaranteed trailing
+// flush so the final content always lands.
+let _aiContentPending: string | null = null;
+let _aiContentTimer: ReturnType<typeof setTimeout> | null = null;
+let _aiContentLastFlush = 0;
+const AI_CONTENT_MIN_MS = 80;
+// Hard ceiling on what we hand the markdown renderer. A runaway model (35B with
+// MTP/reasoning) can emit hundreds of KB; rendering that as live-growing markdown
+// is what exhausts the WebView2 renderer. Keep head + tail so the user still sees
+// the start and the latest output. The full text remains in the backend store.
+const AI_CONTENT_MAX = 48_000;
+function capForRender(s: string): string {
+    if (s.length <= AI_CONTENT_MAX) return s;
+    const head = s.slice(0, 32_000);
+    const tail = s.slice(-12_000);
+    const omitted = s.length - head.length - tail.length;
+    return `${head}\n\n_…(${(omitted / 1024).toFixed(0)} KB omitted from view to protect renderer memory)…_\n\n${tail}`;
+}
+function flushAiContent(): void {
+    if (_aiContentPending == null) return;
+    const c = _aiContentPending;
+    _aiContentPending = null;
+    _aiContentLastFlush = Date.now();
+    useStore.getState().updateLastAgentMessage(cleanAgentContent(capForRender(c)));
+    maybeOpenMermaid(c); // itself debounced; extracts mermaid from full content
+}
+function scheduleAiContent(content: string): void {
+    _aiContentPending = content;
+    const since = Date.now() - _aiContentLastFlush;
+    if (!_aiContentTimer && since >= AI_CONTENT_MIN_MS) { flushAiContent(); return; }
+    if (!_aiContentTimer) {
+        _aiContentTimer = setTimeout(() => { _aiContentTimer = null; flushAiContent(); }, Math.max(0, AI_CONTENT_MIN_MS - since));
     }
-});
+}
+
+// ai-content handler moved to AgentStreamSubscriber.ts (single source of truth)
 
 async function formatAttachedFilesForPrompt(items: any[], maxCharsPerFile = 8000): Promise<string> {
     const parts: string[] = [];
@@ -2750,7 +4527,12 @@ async function formatAttachedFilesForPrompt(items: any[], maxCharsPerFile = 8000
         let content = item.data;
         if (!content && item.path) {
             try {
-                content = await invoke<string>('read_file', { path: item.path });
+                const result = await invoke<any>('read_file', { path: item.path });
+                if (result && typeof result === 'object' && result.large) {
+                    content = result.preview || `(Large file: ${result.size} bytes)`;
+                } else {
+                    content = typeof result === 'string' ? result : (result?.content || '');
+                }
             } catch {
                 content = `(Could not read ${item.name || item.path})`;
             }
@@ -2809,9 +4591,17 @@ async function resolveInlineFileMentions(
 
         let data = '';
         try {
-            data = await invoke<string>('read_file', { path: hit.path });
+            const result = await invoke<any>('read_file', { path: hit.path });
+            if (result && typeof result === 'object' && result.large) {
+                data = result.preview || `(Large file: ${result.size} bytes, ${result.lines} lines)`;
+            } else {
+                data = typeof result === 'string' ? result : (result?.content || '');
+            }
         } catch {
             data = `(Error reading ${hit.path})`;
+        }
+        if (data.length > 8000) {
+            data = data.slice(0, 8000) + '\n… (truncated)';
         }
         out.push({
             id: hit.path,
@@ -2852,8 +4642,9 @@ async function resolveSpecialMentions(context: any[], query: string, activeRoot:
                         if (result?.files) {
                             for (const f of result.files.slice(0, 3)) {
                                 if (!relevantFiles.find(r => r.path === f)) {
-                                    const content = await invoke<string>('read_file', { path: f }).catch(() => '');
-                                    if (content) relevantFiles.push({ path: f, content });
+                                    const raw = await invoke<any>('read_file', { path: f }).catch(() => '');
+                                    const content = raw && typeof raw === 'object' ? (raw.large ? (raw.preview || '') : (raw.content || '')) : (raw || '');
+                                    if (content) relevantFiles.push({ path: f, content: content.slice(0, 8000) });
                                 }
                             }
                         }
@@ -3046,38 +4837,7 @@ async function resolveSpecialMentions(context: any[], query: string, activeRoot:
     return resolved;
 }
 
-listen('ai-tool-call', (event: { payload: { name: string, args: string | any } | any }) => {
-    if (event.payload && event.payload.name) {
-        void import('./application/agent/agentRunSession').then(({ bumpAgentRunActivity }) =>
-            bumpAgentRunActivity(),
-        );
-        console.log("AI_TOOL_CALL RECEIVED:", event.payload.name);
-        const { addAgentStep, updateAgentStepStatus } = useStore.getState();
-        let args = {};
-        try {
-            args = typeof event.payload.args === 'string' ? JSON.parse(event.payload.args) : event.payload.args;
-        } catch (e) {
-            console.warn("Failed to parse tool args in ai-tool-call", e);
-            args = { raw: event.payload.args };
-        }
-        addAgentStep(event.payload.name, 'other', args, event.payload.call_id);
-        updateAgentStepStatus(event.payload.name, 'running', 'Executing...', undefined, event.payload.call_id);
-
-        // ═══════════════════════════════════════════════════════════
-        // AIRI SELF-LEARNING - Learn from every tool action
-        // AIRI observes what she does and learns from outcomes
-        // ═══════════════════════════════════════════════════════════
-        if (airiInitialized) {
-            void getAiriSelfLearning().then((sl) =>
-                sl.learnFromEvent(
-                    'experiment',
-                    JSON.stringify({ tool: event.payload.name, args, callId: event.payload.call_id }),
-                    'neutral' // Will be updated to success/failure when result arrives
-                )
-            ).catch(console.error);
-        }
-    }
-});
+// ai-tool-call handler moved to AgentStreamSubscriber.ts (single source of truth)
 
 listen('ai-tool-result', (event: { payload: { name: string, result: string, blocked?: boolean } | any }) => {
     if (event.payload && event.payload.name) {
@@ -3104,23 +4864,4 @@ listen('ai-tool-result', (event: { payload: { name: string, result: string, bloc
     }
 });
 
-listen('ai-artifact', (event: { payload: { type: string, path: string, title: string } | any }) => {
-    if (event.payload) {
-        useStore.getState().addAgentArtifact(event.payload);
-    }
-});
-
-listen('update-agent-task', (event: { payload: { id: string, title: string, summary: string, status: string, progress: number } | any }) => {
-    if (event.payload) {
-        useStore.getState().updateAgentTask(event.payload);
-    }
-});
-
-listen('add-agent-step', (event: { payload: { name: string, status: string, type?: string } | any }) => {
-    if (event.payload) {
-        useStore.getState().addAgentStep(event.payload.name, event.payload.type || 'other', {});
-        if (event.payload.status) {
-            useStore.getState().updateAgentStepStatus(event.payload.name, event.payload.status === 'success' ? 'success' : 'running', '', '');
-        }
-    }
-});
+// ai-artifact, update-agent-task, add-agent-step handlers moved to AgentStreamSubscriber.ts

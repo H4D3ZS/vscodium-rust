@@ -43,6 +43,10 @@ pub struct ModuleMeta {
     pub type_field: Option<String>,
     #[serde(default)]
     pub differential: Option<bool>,
+    /// Vega marks slow/aggressive modules (timing sleeps, format-string) as
+    /// `defaultDisabled` — they run only when explicitly selected.
+    #[serde(default, rename = "defaultDisabled")]
+    pub default_disabled: Option<bool>,
 }
 
 impl ModuleMeta {
@@ -93,6 +97,7 @@ function __mkResponse(o) {
     _headers: o.headers || [],
     fetchFail: !!o.fetch_fail,
     statusCode: o.status || 0,
+    milliseconds: o.elapsed_ms || 0,
     hasHeader: function(n) {
       n = String(n).toLowerCase();
       for (var i = 0; i < this._headers.length; i++) {
@@ -160,13 +165,37 @@ impl JsModuleHost {
         Self { registry }
     }
 
-    /// Read a module's `var module = {...}` metadata without running its logic.
+    /// Read a module's `var module = {...}` metadata WITHOUT executing the file.
+    ///
+    /// Previously this eval'd the whole module in boa just to read 5 fields. That
+    /// was catastrophic: (1) boa recurses on the native stack, so a complex module
+    /// overflowed the 1MB main-thread stack → STATUS_STACK_OVERFLOW (crash on
+    /// opening the Vega panel); (2) modules using Rhino/Java idioms threw, so
+    /// read_meta returned Err and the module was silently dropped — leaving the
+    /// injection set nearly empty, which is why scans "found nothing". Parsing the
+    /// leading object literal directly is safe, fast, and never drops a module.
     pub fn read_meta(source: &str) -> Result<ModuleMeta, String> {
-        let mut ctx = Context::default();
-        eval(&mut ctx, source).map_err(|e| format!("eval module source: {e}"))?;
-        let json = eval(&mut ctx, "JSON.stringify(typeof module !== 'undefined' ? module : {})")
-            .map_err(|e| format!("read module meta: {e}"))?;
-        serde_json::from_str(&json).map_err(|e| format!("parse module meta '{json}': {e}"))
+        let block = extract_module_object(source)
+            .ok_or_else(|| "no `var module = {...}` object found".to_string())?;
+        let str_field = |key: &str| -> Option<String> {
+            regex::Regex::new(&format!(r#"(?s)\b{}\s*:\s*"((?:[^"\\]|\\.)*)""#, regex::escape(key)))
+                .ok()
+                .and_then(|re| re.captures(&block))
+                .map(|c| c[1].replace("\\\"", "\"").replace("\\\\", "\\"))
+        };
+        let bool_field = |key: &str| -> Option<bool> {
+            regex::Regex::new(&format!(r#"\b{}\s*:\s*(true|false)"#, regex::escape(key)))
+                .ok()
+                .and_then(|re| re.captures(&block))
+                .map(|c| &c[1] == "true")
+        };
+        Ok(ModuleMeta {
+            name: str_field("name").unwrap_or_default(),
+            category: str_field("category"),
+            type_field: str_field("type"),
+            differential: bool_field("differential"),
+            default_disabled: bool_field("defaultDisabled"),
+        })
     }
 
     /// Run a passive (`response-processor`) module's `run(request, response, ctx)`
@@ -248,6 +277,42 @@ impl JsModuleHost {
     }
 }
 
+/// Extract the leading `var module = { ... }` object literal as a string, using
+/// a string-aware balanced-brace scan (so braces inside string values don't throw
+/// it off). Returns the `{ ... }` text, or None if not present.
+fn extract_module_object(source: &str) -> Option<String> {
+    let start = source.find("var module")?;
+    let brace = source[start..].find('{')? + start;
+    let bytes = source.as_bytes();
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut quote = b'"';
+    let mut esc = false;
+    let mut i = brace;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_str {
+            if esc { esc = false; }
+            else if c == b'\\' { esc = true; }
+            else if c == quote { in_str = false; }
+        } else {
+            match c {
+                b'"' | b'\'' => { in_str = true; quote = c; }
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return source.get(brace..=i).map(|s| s.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Eval helper: run `code`, return its result coerced to a Rust String.
 fn eval(context: &mut Context, code: &str) -> Result<String, String> {
     match context.eval(Source::from_bytes(code)) {
@@ -289,6 +354,7 @@ struct JsRes<'a> {
     body: &'a str,
     headers: &'a [(String, String)],
     fetch_fail: bool,
+    elapsed_ms: u64,
 }
 impl<'a> From<&'a HttpResponse> for JsRes<'a> {
     fn from(r: &'a HttpResponse) -> Self {
@@ -297,6 +363,7 @@ impl<'a> From<&'a HttpResponse> for JsRes<'a> {
             body: &r.body,
             headers: &r.headers,
             fetch_fail: r.fetch_fail,
+            elapsed_ms: r.elapsed_ms,
         }
     }
 }
@@ -348,6 +415,7 @@ mod tests {
             headers: vec![("X-XSS-Protection".into(), "0".into())],
             body: "<html></html>".into(),
             fetch_fail: false,
+            ..Default::default()
         };
 
         let result = host

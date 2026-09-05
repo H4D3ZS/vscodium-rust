@@ -342,6 +342,7 @@ pub fn augmented_path_for_git_bash() -> Option<String> {
     Some(format!("{};{}", extras.join(";"), base))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn ide_shell_status() -> Result<Value, String> {
     let git_bash = resolve_git_bash_exe();
@@ -368,6 +369,7 @@ pub fn ide_shell_status() -> Result<Value, String> {
     }))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn ide_git_bash_path() -> Result<Value, String> {
     Ok(json!({
@@ -376,6 +378,7 @@ pub fn ide_git_bash_path() -> Result<Value, String> {
     }))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn ide_ensure_ripgrep() -> Result<Value, String> {
     let installed = ensure_ripgrep_installed()?;
@@ -387,6 +390,7 @@ pub fn ide_ensure_ripgrep() -> Result<Value, String> {
     }))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn ide_ensure_portable_git() -> Result<Value, String> {
     let installed = ensure_portable_git_installed()?;

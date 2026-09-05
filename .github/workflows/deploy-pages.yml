@@ -1,10 +1,8 @@
 name: Deploy website to GitHub Pages
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+  # DISABLED: Auto-deploy on push removed — manual trigger only
 
 permissions:
   contents: read

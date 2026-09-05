@@ -3,7 +3,7 @@ import { useStore } from '../../store';
 
 const CLOUD_PROVIDERS = new Set([
     'google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-    'COMMUNITYAI', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
+    'cyberifrit', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
     'openrouter', 'cerebras', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
 ]);
 
@@ -44,7 +44,7 @@ export async function validateStartupModel(): Promise<void> {
 
         if (
             modelTag
-            && st.inferenceBackend === 'ollama'
+            && st.inferenceBackend === 'lemonade'
             && !CLOUD_PROVIDERS.has(providerPrefix)
             && !isHighwayApiModel(modelTag)
         ) {
@@ -52,13 +52,12 @@ export async function validateStartupModel(): Promise<void> {
             const resolved = await resolveOllamaModelTag(modelTag);
             if (resolved && resolved !== modelTag) {
                 console.warn(`[validateStartupModel] "${modelTag}" → "${resolved}"`);
-                st.setAgentModel?.(`Ollama|${resolved}`);
-                try { localStorage.setItem('agentModel', `Ollama|${resolved}`); } catch { /* */ }
+                st.setAgentModel?.(resolved);
+                try { localStorage.setItem('agentModel', resolved); } catch { /* */ }
             }
         } else if (
             !modelTag
-            && st.inferenceBackend === 'ollama'
-            && st.ollamaServerMode === 'local'
+            && st.inferenceBackend === 'lemonade'
         ) {
             try {
                 const best = await invoke<string>('detect_best_model');

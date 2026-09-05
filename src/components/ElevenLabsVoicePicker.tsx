@@ -27,9 +27,6 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
     const fetchVoices = useCallback(async () => {
-        console.log('[Voice Picker] fetchVoices called');
-        console.log('[Voice Picker] apiKey:', apiKey ? `${apiKey.substring(0, 8)}... (length: ${apiKey.length})` : 'MISSING');
-        console.log('[Voice Picker] apiKey starts with sk_:', apiKey?.startsWith('sk_'));
         
         if (!apiKey || !apiKey.startsWith('sk_')) {
             console.warn('[Voice Picker] API key not configured or invalid');
@@ -40,12 +37,10 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
         setLoading(true);
         setError(null);
         try {
-            console.log('[Voice Picker] Calling elevenlabs_get_voices...');
             const fetchedVoices = await invoke<ElevenLabsVoice[]>('elevenlabs_get_voices');
-            console.log('[Voice Picker] ✅ Voices fetched:', fetchedVoices.length);
             setVoices(fetchedVoices);
         } catch (e: any) {
-            console.error('[Voice Picker] ❌ Error fetching voices:', e);
+ console.error('[Voice Picker] Error fetching voices:', e);
             setError(e?.message || e?.toString() || 'Failed to fetch voices');
         } finally {
             setLoading(false);
@@ -55,7 +50,6 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
     const handleSaveVoice = useCallback(async (voiceId: string, e: React.MouseEvent) => {
         e.stopPropagation();
         setSaveStatus('saving');
-        console.log('[Voice Picker] 💾 Saving voice:', voiceId);
         
         try {
             // Save voice ID to persistent storage
@@ -63,30 +57,25 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                 keys: { elevenlabs_voice_id: voiceId } 
             });
             
-            console.log('[Voice Picker] ✅ Save result:', result);
-            console.log('[Voice Picker] ✅ Voice ID saved to api_keys.json');
             
             // Notify parent component to update local state
             onVoiceSelect(voiceId);
-            console.log('[Voice Picker] ✅ Parent component notified');
             
             // Also update voice.ts module directly
             try {
                 const voiceModule = await import('../voice');
                 if (voiceModule.setSelectedVoice) {
                     voiceModule.setSelectedVoice(voiceId);
-                    console.log('[Voice Picker] ✅ Voice set in voice.ts:', voiceId);
                 }
             } catch (err) {
-                console.warn('[Voice Picker] ⚠️ Could not update voice.ts:', err);
+ console.warn('[Voice Picker] Could not update voice.ts:', err);
             }
             
             // Show saved confirmation
             setSaveStatus('saved');
-            console.log('[Voice Picker] 🎉 Save complete!');
             setTimeout(() => setSaveStatus('idle'), 2000);
         } catch (err) {
-            console.error('[Voice Picker] ❌ Failed to save voice:', err);
+ console.error('[Voice Picker] Failed to save voice:', err);
             setError('Failed to save voice selection');
             setSaveStatus('idle');
         }

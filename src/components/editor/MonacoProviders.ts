@@ -11,6 +11,45 @@ function lspKindToMonaco(k: number): number {
     return map[k] ?? 9;
 }
 
+/**
+ * Disable Monaco's built-in TypeScript/JavaScript language service.
+ *
+ * It is entirely redundant here: completions, hover and diagnostics all come
+ * from the IDE's own language servers (`registerMonacoProviders` below, plus
+ * `setModelMarkers(model, 'lsp', …)` in Editor.tsx). Left enabled, Monaco
+ * spawns `ts.worker` — a 6.7MB bundle — and builds a SECOND full TypeScript
+ * program in JS: every lib.d.ts plus every project file it can reach, held in
+ * the WebView2 renderer. On this repo (~2800 files) that is the single largest
+ * consumer of renderer memory, and it duplicates work Rust already did.
+ *
+ * `setEagerModelSync(false)` matters as much as the diagnostics flags: with it
+ * on, Monaco pushes every open model into the worker regardless of validation.
+ *
+ * Idempotent — safe to call from every mount.
+ */
+let languageServiceDisabled = false;
+
+export function disableMonacoBuiltinLanguageService(monaco: any): void {
+    if (languageServiceDisabled) return;
+    const ts = monaco?.languages?.typescript;
+    if (!ts) return;
+    const off = {
+        noSemanticValidation: true,
+        noSyntaxValidation: true,
+        noSuggestionDiagnostics: true,
+    };
+    try {
+        for (const defaults of [ts.typescriptDefaults, ts.javascriptDefaults]) {
+            if (!defaults) continue;
+            defaults.setDiagnosticsOptions?.(off);
+            defaults.setEagerModelSync?.(false);
+        }
+        languageServiceDisabled = true;
+    } catch {
+        /* Monaco build without the TS contribution — nothing to disable. */
+    }
+}
+
 export function registerMonacoProviders(
     editor: any,
     monaco: any,

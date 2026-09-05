@@ -1,5 +1,7 @@
 import { invoke } from './tauri_bridge.ts';
 
+let _statusBarTimer: ReturnType<typeof setInterval> | null = null;
+
 export function initStatusBar() {
     const modelSelector = document.getElementById("model-selector");
     const deviceSelector = document.getElementById("device-selector");
@@ -13,7 +15,14 @@ export function initStatusBar() {
     }
 
     // Poll process stats sparingly — each invoke allocates in the webview.
-    setInterval(updateStats, 15_000);
+    _statusBarTimer = setInterval(updateStats, 15_000);
+}
+
+export function destroyStatusBar(): void {
+    if (_statusBarTimer) {
+        clearInterval(_statusBarTimer);
+        _statusBarTimer = null;
+    }
 }
 
 async function switchModel() {

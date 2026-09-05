@@ -328,6 +328,34 @@ pub fn align_save_count(opts: &KvCacheOptions, full_count: u32) -> u32 {
     aligned.max(opts.min_tokens)
 }
 
+/// Decide how many prefix tokens to persist for a session of `n_tokens`, or
+/// `None` when this session must not be saved.
+///
+/// This is the single source of truth for the save gate. The proxy's normal
+/// cold/continued save path calls it with `enforce_cold_max = true` (huge
+/// one-shot prompts aren't worth a slot); the shutdown flush calls it with
+/// `false`, because a clean shutdown should persist even a long live session.
+/// Both paths MUST derive the saved prefix length identically — otherwise one
+/// path can save a prefix keyed at a length the other (and `longest_prefix`)
+/// never searches for, producing silent cache misses. Keeping the arithmetic
+/// here guarantees the save side and the match side agree.
+///
+/// The returned count is always `>= min_tokens` and `<= n_tokens`, so the
+/// caller can slice `tokens[..count]` without a bounds check.
+pub fn plan_save_count(opts: &KvCacheOptions, n_tokens: u32, enforce_cold_max: bool) -> Option<u32> {
+    if n_tokens < opts.min_tokens {
+        return None;
+    }
+    if enforce_cold_max && n_tokens > opts.cold_max_tokens {
+        return None;
+    }
+    let save_count = align_save_count(opts, n_tokens);
+    if save_count < opts.min_tokens {
+        return None;
+    }
+    Some(save_count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,6 +397,7 @@ mod tests {
             proxy_port: 0,
             model: test_identity(),
             match_policy: super::super::types::ModelMatchPolicy::SameModel,
+            tier: super::super::types::CacheTier::Auto,
         }
     }
 
@@ -800,6 +829,100 @@ mod tests {
         // Reload should sweep it.
         let _ = CacheStore::open(opts.clone()).unwrap();
         assert!(!stray.exists(), "reload_index must clean up .kkv.tmp leftovers");
+    }
+
+    // ── Save-gate (plan_save_count) ─────────────────────────────────────
+
+    #[test]
+    fn plan_save_count_rejects_below_min_tokens() {
+        let opts = opts_at(&tempdir("plan_min"), 1 << 20); // min_tokens = 4
+        assert_eq!(plan_save_count(&opts, 3, true), None);
+        assert_eq!(plan_save_count(&opts, 3, false), None);
+    }
+
+    #[test]
+    fn plan_save_count_enforces_cold_max_only_when_asked() {
+        // cold_max_tokens = 1_000 in test opts.
+        let opts = opts_at(&tempdir("plan_coldmax"), 1 << 20);
+        // Over the cold cap: normal path skips it…
+        assert_eq!(plan_save_count(&opts, 5_000, true), None);
+        // …but the shutdown path (enforce=false) still saves it.
+        assert!(plan_save_count(&opts, 5_000, false).is_some());
+    }
+
+    #[test]
+    fn plan_save_count_result_is_within_bounds() {
+        // boundary_align_tokens = 4 in test opts → count aligns down to a
+        // multiple of 4, stays >= min_tokens and <= n so tokens[..count] is safe.
+        let opts = opts_at(&tempdir("plan_bounds"), 1 << 20);
+        for n in [4u32, 5, 7, 8, 13, 100, 999] {
+            if let Some(count) = plan_save_count(&opts, n, true) {
+                assert!(count >= opts.min_tokens, "count {count} < min for n={n}");
+                assert!(count <= n, "count {count} > n {n}");
+                assert_eq!(count % opts.boundary_align_tokens, 0, "count {count} not aligned for n={n}");
+            }
+        }
+    }
+
+    /// The core correctness invariant of the whole cache: whatever prefix length
+    /// the SAVE path decides to persist (`plan_save_count` → SHA over that slice)
+    /// must be exactly what the RESTORE path can later find via `longest_prefix`
+    /// for any request that shares that prefix. If these two ever diverge, every
+    /// hit silently becomes a miss (or worse, a mismatch). This simulates the
+    /// proxy's save→match round-trip end to end at the store level.
+    #[test]
+    fn save_then_restore_round_trip_matches_at_planned_length() {
+        let base = tempdir("round_trip");
+        let opts = opts_at(&base, 1 << 20);
+        let mut store = CacheStore::open(opts.clone()).unwrap();
+
+        // A realistic repeated system+history prefix followed by a fresh turn.
+        let session_tokens: Vec<u32> = (1000u32..1050).collect(); // 50 tokens
+        let n = session_tokens.len() as u32;
+
+        // SAVE side: exactly what spawn_save_after does.
+        let save_count = plan_save_count(&opts, n, true).expect("session should be saved");
+        let save_slice = &session_tokens[..save_count as usize];
+        let saved_sha = sha256_tokens_hex(save_slice);
+        store.put(make_entry(&opts, save_slice, 4096)).unwrap();
+
+        // RESTORE side: a later request whose tokens START with the same prefix
+        // (same history) plus a new user turn appended.
+        let mut next_request = session_tokens.clone();
+        next_request.extend_from_slice(&[7, 7, 7, 7, 7, 7]); // new turn, diverges after prefix
+
+        let hit = store
+            .longest_prefix(&next_request)
+            .expect("restore path must find the saved prefix");
+        assert_eq!(hit.sha, saved_sha, "restore matched a different SHA than was saved");
+        assert_eq!(
+            hit.prefix_token_count, save_count,
+            "restore length must equal the planned save length"
+        );
+        // And the slot file the restore would load actually exists.
+        assert!(Path::new(&hit.slotbin_path).exists(), "matched slot binary must exist on disk");
+    }
+
+    /// A request whose prefix is SHORTER than the saved slice (conversation was
+    /// truncated) must NOT match the longer saved entry — restoring more KV than
+    /// the request's tokens would corrupt the attention state.
+    #[test]
+    fn restore_does_not_match_when_request_shorter_than_saved_prefix() {
+        let base = tempdir("shorter_req");
+        let opts = opts_at(&base, 1 << 20);
+        let mut store = CacheStore::open(opts.clone()).unwrap();
+
+        let long: Vec<u32> = (1u32..=40).collect();
+        let save_count = plan_save_count(&opts, long.len() as u32, true).unwrap();
+        store.put(make_entry(&opts, &long[..save_count as usize], 1024)).unwrap();
+
+        // A request with only the first 8 tokens — the saved prefix is longer,
+        // so longest_prefix must not offer it (it filters n > tokens.len()).
+        let short = &long[..8];
+        assert!(
+            store.longest_prefix(short).is_none(),
+            "must never restore a prefix longer than the incoming request"
+        );
     }
 
     #[test]

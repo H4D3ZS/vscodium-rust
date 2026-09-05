@@ -18,33 +18,54 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# Default build = the full Tauri/WebView IDE. The headless (gpui) shell depends
+# on this crate with `default-features = false` to get the engine WITHOUT Tauri,
+# WebView2, or the command layer — a lean native binary.
+default = ["tauri"]
+tauri = [
+    "dep:tauri",
+    "dep:tauri-plugin-opener",
+    "dep:tauri-plugin-shell",
+    "dep:tauri-plugin-global-shortcut",
+    "dep:tauri-plugin-process",
+    "dep:tauri-plugin-os",
+    "dep:tauri-plugin-notification",
+    "dep:tauri-plugin-updater",
+    "dep:tauri-plugin-clipboard-manager",
+    "dep:tauri-plugin-fs",
+    "dep:tauri-plugin-dialog",
+    "dep:daemon",
+    "dep:candle-core",
+]
+
 [dependencies]
 boa_engine = "0.20"
 memmap2 = "0.9.10"
-tauri = { version = "2", features = ["protocol-asset"] }
-tauri-plugin-opener = "2"
-tauri-plugin-shell = "2"
-tauri-plugin-global-shortcut = "2"
-tauri-plugin-process = "2"
-tauri-plugin-os = "2"
-tauri-plugin-notification = "2"
-tauri-plugin-updater = "2"
-tauri-plugin-clipboard-manager = "2"
-tauri-plugin-fs = "2"
+tauri = { version = "2", features = ["protocol-asset"], optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
+tauri-plugin-shell = { version = "2", optional = true }
+tauri-plugin-global-shortcut = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
+tauri-plugin-os = { version = "2", optional = true }
+tauri-plugin-notification = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
+tauri-plugin-clipboard-manager = { version = "2", optional = true }
+tauri-plugin-fs = { version = "2", optional = true }
 
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = "1.0.150"
 semver = "1.0"
 ropey = "1.6"
-tree-sitter = "0.26"
-tree-sitter-rust = "0.24"
+tree-sitter = "0.26.9"
+tree-sitter-rust = "0.24.2"
 tree-sitter-typescript = "=0.23.0" # 0.23.2 parser.c fails MSVC 14.50 (C2099)
 tree-sitter-javascript = "0.23"
 tree-sitter-python = "0.23"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util", "net", "time", "fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util", "net", "time", "fs", "process", "signal"] }
 walkdir = "2"
-tauri-plugin-dialog = "2"
-portable-pty = "0.8.1"
+tauri-plugin-dialog = { version = "2", optional = true }
+portable-pty = "0.9.0"
 tokio-util = { version = "0.7.10", features = ["codec"] }
 lsp-types = "0.94.1"
 axum = "0.7"
@@ -61,7 +82,7 @@ base64 = "0.21"
 glob = "0.3"
 regex = "1.12.3"
 ignore = "0.4"
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1.23.3", features = ["v4", "serde"] }
 futures = "0.3.32"
 async-trait = "0.1.89"
 url = "2.5"
@@ -73,9 +94,10 @@ rusqlite = { version = "0.39.0", features = ["bundled"] }
 chrono = "0.4"
 dirs = "5"
 libaim = { path = "../kortex/libaim" }
-daemon = { path = "../kortex/daemon" }
-candle-core = "=0.7.1"
-half = { version = "=2.3.1", default-features = false, features = ["num-traits", "rand_distr"] }
+aim-proxy = { path = "../kortex/aim-proxy" }
+daemon = { path = "../kortex/daemon", optional = true }
+candle-core = { version = "=0.7.1", optional = true }
+half = { version = "2.3", default-features = false, features = ["num-traits", "rand_distr"] }
 which = "6.0"
 diffy = "0.3"
 notify = "6.1"
@@ -84,6 +106,7 @@ rayon = "1.10"
 sha2 = "0.10"
 tempfile = "3"
 hades-harness = { path = "../kortex/harness" }
+turbovec = { path = "../turbovec/turbovec" }
 tokio-tungstenite = "0.20"
 futures-util = "0.3"
 bytes = "1"
@@ -102,6 +125,7 @@ harness = false
 [[bin]]
 name = "kortex-gac-cli"
 path = "src/bin/kortex_gac_cli.rs"
+required-features = ["tauri"]
 
 # Standalone CLI shim around the kortex_kvcache proxy. Lets the launch script
 # spawn the disk-persistent KV cache without booting the full Tauri IDE.
@@ -109,6 +133,7 @@ path = "src/bin/kortex_gac_cli.rs"
 [[bin]]
 name = "kortex-kvcache-cli"
 path = "src/bin/kortex_kvcache_cli.rs"
+required-features = ["tauri"]
 
 
 [profile.bench]
@@ -127,6 +152,13 @@ strip = true # smaller installer
 
 [patch.crates-io]
 rand = { git = "https://github.com/rust-random/rand", tag = "0.8.5" }
+# rand's git tag pulls rand_core/rand_chacha from the same repo. Patch them
+# explicitly too, so crates that depend on rand_core directly (e.g. rand_distr,
+# used by turbovec) link the SAME rand_core instance — otherwise the git and
+# crates.io copies of rand_core@0.6.4 are distinct crates and trait impls
+# (SeedableRng/Distribution) don't line up. See turbovec integration.
+rand_core = { git = "https://github.com/rust-random/rand", tag = "0.8.5" }
+rand_chacha = { git = "https://github.com/rust-random/rand", tag = "0.8.5" }
 half = { git = "https://github.com/starkat99/half-rs", tag = "v2.3.1" }
 
 [target.'cfg(windows)'.dependencies]

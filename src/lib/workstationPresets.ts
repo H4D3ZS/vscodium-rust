@@ -10,7 +10,7 @@ export interface WorkstationPreset {
   desc: string;
   /** Ollama server mode */
   ollamaMode: 'local' | 'remote';
-  /** When remote — host or full URL (port 11434 appended if missing) */
+  /** When remote — host or full URL (port 13305 appended if missing) */
   remoteHost?: string;
   planner: string;
   executor: string;
@@ -50,9 +50,9 @@ export const WORKSTATION_PRESETS: WorkstationPreset[] = [
 
 function normalizeRemoteOllamaUrl(hostOrUrl: string): string {
   const raw = hostOrUrl.trim();
-  if (!raw) return 'http://127.0.0.1:11434';
+  if (!raw) return 'http://127.0.0.1:13305';
   if (raw.startsWith('http://') || raw.startsWith('https://')) return raw.replace(/\/$/, '');
-  return `http://${raw.replace(/\/$/, '')}:11434`;
+  return `http://${raw.replace(/\/$/, '')}:13305`;
 }
 
 export async function applyWorkstationPreset(
@@ -71,7 +71,7 @@ export async function applyWorkstationPreset(
   }
 
   await st.syncOllamaEndpoint?.();
-  st.setInferenceBackend?.('ollama');
+  st.setInferenceBackend?.('lemonade');
 
   st.setHybridAuto?.(preset.enableHybrid);
   st.setPlannerEnabled?.(preset.enableHybrid);
@@ -84,5 +84,5 @@ export async function applyWorkstationPreset(
     localStorage.setItem('workstation.preset', preset.id);
   } catch { /* ignore */ }
 
-  await st.refreshAvailableModels?.('ollama');
+  await st.refreshAvailableModels?.('lemonade');
 }

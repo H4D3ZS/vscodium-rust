@@ -1,4 +1,4 @@
-// Selector hooks (docs/overhaul/CONVENTIONS.md): components consume these
+// Selector hooks (ARCHITECTURE.md): components consume these
 // instead of raw useStore selectors. Multi-field selections go through
 // useShallow so a re-render only happens when a selected field actually
 // changes — the store has 350+ subscriptions and most returned fresh objects.

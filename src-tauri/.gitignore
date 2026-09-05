@@ -6,3 +6,9 @@
 # will have schema files for capabilities auto-completion
 /gen/schemas
 /zed/
+
+# Bundled iOS SDK — shipped inside the installer, never committed.
+# Apple's Xcode licence governs redistribution; keeping it out of the public
+# repo keeps that decision at packaging time rather than in source control.
+sdk/iPhoneOS*.sdk/
+sdk/*.tar.gz

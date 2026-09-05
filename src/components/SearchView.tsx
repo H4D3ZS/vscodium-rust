@@ -34,7 +34,7 @@ const SearchView: React.FC = () => {
         setIsSearching(true);
         setReplaceCount(null);
         try {
-            const searchResults = await invoke<SearchResult[]>('search_project', { query: q });
+            const searchResults = await invoke<SearchResult[]>('grep_files', { pattern: q });
             setResults(searchResults);
         } catch (e) {
             console.error('Search failed:', e);

@@ -18,7 +18,7 @@ const AneAccelerationPanel: React.FC = () => {
 
     useEffect(() => {
         refreshStatus();
-        const interval = setInterval(refreshStatus, 5000); // Poll every 5s
+        const interval = setInterval(refreshStatus, 15000); // Poll every 15s
         return () => clearInterval(interval);
     }, []);
 

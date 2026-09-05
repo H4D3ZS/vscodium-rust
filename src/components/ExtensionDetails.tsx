@@ -62,7 +62,7 @@ const ExtensionDetails: React.FC<ExtensionDetailsProps> = ({ extensionId, onBack
         details.base64_icon ||
         (details.publisher && details.name ? `https://open-vsx.org/api/${details.publisher}/${details.name}/icon` : null) ||
         (details.versions && details.versions[0]?.files?.find((f: any) => f.assetType === 'Microsoft.VisualStudio.Services.Icons.Default')?.source) ||
-        "https://open-vsx.org/api/icons/default.png";
+        null;
 
     const handleInstall = async () => {
         setIsInstalling(true);
@@ -150,12 +150,20 @@ const ExtensionDetails: React.FC<ExtensionDetailsProps> = ({ extensionId, onBack
                             border: '1px solid var(--vscode-widget-border, rgba(128,128,128,0.2))',
                             borderRadius: '12px'
                         }}>
-                            <img
-                                src={icon}
-                                alt={displayName}
-                                style={{ width: '100%', height: '100%', borderRadius: '4px', objectFit: 'contain' }}
-                                onError={(e) => { (e.target as HTMLImageElement).src = "https://open-vsx.org/api/icons/default.png"; }}
-                            />
+                            {icon ? (
+                                <img
+                                    src={icon}
+                                    alt={displayName}
+                                    style={{ width: '100%', height: '100%', borderRadius: '4px', objectFit: 'contain' }}
+                                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                />
+                            ) : (
+                                <i className="codicon codicon-extension" style={{
+                                    fontFamily: 'codicon', fontStyle: 'normal', fontSize: '32px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    width: '100%', height: '100%', opacity: 0.4,
+                                }} />
+                            )}
                         </div>
                         <div style={{ flex: 1 }}>
                             <h1 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '8px', color: 'var(--vscode-foreground)' }}>{displayName}</h1>

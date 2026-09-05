@@ -6,9 +6,10 @@ export type ProviderName =
     | 'anthropic' | 'openAI' | 'deepseek' | 'ollama' | 'vLLM' | 'openRouter'
     | 'gemini' | 'groq' | 'xAI' | 'mistral' | 'lmStudio' | 'liteLLM'
     | 'openAICompatible' | 'googleVertex' | 'microsoftAzure' | 'awsBedrock'
-    | 'antigravity' | 'mimo' | 'COMMUNITYAI' | 'highwayapi';
+    | 'antigravity' | 'mimo' | 'cyberifrit' | 'highwayapi' | 'lemonade' | 'huggingface'
+    | 'openmodel';
 
-export type FeatureName = 'Chat' | 'Apply' | 'Autocomplete' | 'QuickEdit' | 'SCM';
+export type FeatureName = 'Chat' | 'Apply' | 'Autocomplete' | 'QuickEdit' | 'SCM' | 'Web';
 
 export interface ModelCapabilities {
     contextWindow: number;
@@ -78,17 +79,20 @@ export const defaultGlobalSettings: GlobalSettings = {
 };
 
 export const defaultProviderEndpoints: Partial<Record<ProviderName, string>> = {
-    ollama: 'http://127.0.0.1:11434',
+    ollama: 'http://127.0.0.1:13305',
+    lemonade: 'http://127.0.0.1:13305',
+    huggingface: 'https://router.huggingface.co/v1',
+    openmodel: 'https://api.openmodel.ai',
     vLLM: 'http://localhost:8000',
     lmStudio: 'http://localhost:1234',
     antigravity: 'http://127.0.0.1:1536',
     mimo: 'https://api.xiaomimimo.com/v1',
-    COMMUNITYAI: 'https://example.invalid',
+    cyberifrit: 'https://ai.cyberifrit.xyz',
     // JieKou AI / Highway API — OpenAI-compatible Claude Opus 4.8.
     highwayapi: 'https://api.highwayapi.ai/openai',
 };
 
-export const localProviders: ProviderName[] = ['ollama', 'vLLM', 'lmStudio', 'antigravity'];
+export const localProviders: ProviderName[] = ['ollama', 'vLLM', 'lmStudio', 'antigravity', 'lemonade'];
 
 const defaultCaps: ModelCapabilities = {
     contextWindow: 4_096,
@@ -350,9 +354,11 @@ const ollamaModels: Record<string, ModelCapabilities> = {
     'qwq': { contextWindow: 128_000, reservedOutputTokenSpace: 32_000, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 20 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canIOReasoning: false, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
     'deepseek-r1': { contextWindow: 128_000, reservedOutputTokenSpace: null, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 4.7 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canIOReasoning: false, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
     'devstral:latest': { contextWindow: 131_000, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 14 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
+    'FastContext-1.0-4B-SFT': { contextWindow: 262_144, reservedOutputTokenSpace: 4_096, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 8 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
+    'gemma-4-12B-coder-fable5-composer2.5-v1': { contextWindow: 131_072, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 7 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
 };
 
-export const ollamaRecommendedModels = ['qwen2.5-coder:7b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest'];
+export const ollamaRecommendedModels = ['qwen2.5-coder:7b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest', 'gemma2:2b'];
 
 const providerModelDbs: Partial<Record<ProviderName, Record<string, ModelCapabilities>>> = {
     anthropic: anthropicModels,
@@ -365,9 +371,12 @@ const providerModelDbs: Partial<Record<ProviderName, Record<string, ModelCapabil
     mistral: mistralModels,
     groq: groqModels,
     ollama: ollamaModels,
-    // Community AI hosts arbitrary named models (your AMD backend), so there's no
+    // Lemonade serves whatever models are loaded — no fixed catalog. The fuzzy
+    // lookup handles all common model families (llama, qwen, gemma, deepseek…).
+    lemonade: {},
+    // Cyber-Ifrit hosts arbitrary named models (your AMD backend), so there's no
     // fixed catalog — names resolve via fuzzyLookup / defaultCaps at runtime.
-    COMMUNITYAI: {},
+    cyberifrit: {},
 };
 
 // ── Fuzzy fallback lookup ─────────────────────────────────────────────────────
@@ -479,13 +488,15 @@ export function getContextWindow(providerName: ProviderName, modelName: string):
 }
 
 // ── Default model selections per feature ─────────────────────────────────────
+// Optimized for local Ollama setup — all models run locally, no cloud.
 
 export const defaultModelSelectionOfFeature: ModelSelectionOfFeature = {
-    Chat: { providerName: 'gemini', modelName: 'gemini-2.5-pro' },
-    Apply: { providerName: 'anthropic', modelName: 'claude-3-5-sonnet-latest' },
-    Autocomplete: { providerName: 'ollama', modelName: 'qwen2.5-coder:7b' },
-    QuickEdit: { providerName: 'gemini', modelName: 'gemini-2.5-flash' },
-    SCM: { providerName: 'openAI', modelName: 'gpt-4.1-mini' },
+    Chat: { providerName: 'ollama', modelName: 'tinyllama:1.1b' },
+    Apply: { providerName: 'ollama', modelName: 'FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M' },
+    Autocomplete: { providerName: 'ollama', modelName: 'FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M' },
+    QuickEdit: { providerName: 'ollama', modelName: 'gemma2:2b' },
+    SCM: { providerName: 'ollama', modelName: 'tinyllama:1.1b' },
+    Web: { providerName: 'ollama', modelName: 'tinyllama:1.1b' },
 };
 
 export const featureDisplayNames: Record<FeatureName, string> = {
@@ -494,6 +505,7 @@ export const featureDisplayNames: Record<FeatureName, string> = {
     Autocomplete: 'Autocomplete (FIM)',
     QuickEdit: 'Quick Edit (Ctrl+K)',
     SCM: 'Commit Message Generator',
+    Web: 'Web Search & Crawl',
 };
 
 // ── Provider display info ─────────────────────────────────────────────────────
@@ -517,8 +529,11 @@ export const providerDisplayInfo: Record<ProviderName, { title: string; icon?: s
     awsBedrock: { title: 'AWS Bedrock' },
     antigravity: { title: 'AIM Proxy (local)' },
     mimo: { title: 'Xiaomi MiMo' },
-    COMMUNITYAI: { title: 'Community AI Cloud' },
+    cyberifrit: { title: 'Cyber-Ifrit Cloud' },
     highwayapi: { title: 'Interface AI (Opus 4.8)' },
+    lemonade: { title: 'Lemonade (Local)' },
+    huggingface: { title: 'Hugging Face' },
+    openmodel: { title: 'OpenModel.ai (Free)' },
 };
 
 // ── Fast Apply search/replace block parser (from Void) ────────────────────────

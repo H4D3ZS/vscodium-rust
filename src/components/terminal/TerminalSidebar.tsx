@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../../store';
 import ContextMenu from './ContextMenu';
 
+
 const TerminalSidebar: React.FC = () => {
     const groups = useStore(state => state.terminalGroups);
     const activeGroupId = useStore(state => state.activeTerminalGroupId);
@@ -9,6 +10,9 @@ const TerminalSidebar: React.FC = () => {
     const renameGroup = useStore(state => state.renameTerminalGroup);
     const closeGroup = useStore(state => state.closeTerminalGroup);
     const splitTerminal = useStore(state => state.splitTerminal);
+    const addTerminalGroup = useStore(state => state.addTerminalGroup);
+    const addOpenCodeTerminalGroup = useStore(state => state.addOpenCodeTerminalGroup);
+    const addClaudeCodeTerminalGroup = useStore(state => state.addClaudeCodeTerminalGroup);
     
     const [menuState, setMenuState] = useState({ visible: false, x: 0, y: 0, groupId: '' });
     const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -89,9 +93,31 @@ const TerminalSidebar: React.FC = () => {
                 onClose={() => setMenuState({ ...menuState, visible: false })}
             />
 
+            {/* Toolbar */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '2px 4px', borderBottom: '1px solid var(--vscode-panel-border, rgba(128,128,128,0.2))' }}>
+                <i
+                    className="codicon codicon-add terminal-action-item"
+                    title="New Terminal"
+                    onClick={() => addTerminalGroup()}
+                    style={{ fontSize: '14px', cursor: 'pointer', padding: '3px', borderRadius: '3px' }}
+                />
+                <i
+                    className="codicon codicon-sparkle terminal-action-item"
+                    title="New OpenCode Terminal (AI)"
+                    onClick={() => addOpenCodeTerminalGroup()}
+                    style={{ fontSize: '14px', cursor: 'pointer', padding: '3px', borderRadius: '3px' }}
+                />
+                <i
+                    className="codicon codicon-robot terminal-action-item"
+                    title="New Claude Code Terminal (local Lemonade model)"
+                    onClick={() => addClaudeCodeTerminalGroup()}
+                    style={{ fontSize: '14px', cursor: 'pointer', padding: '3px', borderRadius: '3px' }}
+                />
+            </div>
+
             {/* Terminal List */}
-            <div className="terminal-groups-section" style={{ 
-                flex: 1, 
+            <div className="terminal-groups-section" style={{
+                flex: 1,
                 overflowY: 'auto',
                 padding: '4px 0'
             }}>

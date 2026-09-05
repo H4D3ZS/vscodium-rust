@@ -3,7 +3,7 @@
 // router — settings content belongs in components/settings/* panels and
 // new generic rows belong in the registry.
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { invoke } from '../tauri_bridge';
 import {
     SETTINGS_SECTIONS,
@@ -17,7 +17,7 @@ import {
 } from '../domain/settings/registry';
 import AgentSettingsView, { type AgentSettingsCategory } from './AgentSettingsView';
 import AgentPermissionsPanel from './AgentPermissionsPanel';
-import AccountSettingsPanel from './AccountSettingsPanel';
+const AccountSettingsPanel = lazy(() => import('./AccountSettingsPanel'));
 import EnterprisePanel from './EnterprisePanel';
 import KeybindingsPanel from './KeybindingsPanel';
 import SteeringPanel from './SteeringPanel';
@@ -25,6 +25,8 @@ import HooksPanel from './HooksPanel';
 import AntigravityHooksPanel from './AntigravityHooksPanel';
 import WorkspaceSettingsPanel from './settings/WorkspaceSettingsPanel';
 import InferenceBackendPanel from './settings/InferenceBackendPanel';
+import LemonadeSettingsPanel from './settings/LemonadeSettingsPanel';
+import FccSettingsPanel from './settings/FccSettingsPanel';
 import PlatformHubPanel from './platform/PlatformHubPanel';
 import { openPyTorchStudio } from '../application/pytorch/openPyTorchStudio';
 import PyTorchLogo from './pytorch/PyTorchLogo';
@@ -71,6 +73,8 @@ function renderPanel(
         case 'models': return <><ModelsPanel /><ProvidersPanel /></>;
         case 'model-selection': return <ModelSelectorPanel />;
         case 'inference-backend': return <InferenceBackendPanel />;
+        case 'lemonade': return <LemonadeSettingsPanel />;
+        case 'fcc': return <FccSettingsPanel />;
         case 'chat': return <ChatPanel />;
         case 'permissions': return <AgentPermissionsPanel />;
         case 'skill-store': return <SkillStorePanel />;

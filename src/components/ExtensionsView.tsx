@@ -22,13 +22,15 @@ const ExtensionItem: React.FC<ExtensionItemProps> = ({ ext, isInstalled, onInsta
     const version = ext.version;
     const description = ext.description || "No description provided.";
 
-    // Robust icon resolution with official Marketplace fallback
+    // Icon resolution: prefer local/base64, then remote. The final fallback
+    // is null — the render shows a codicon placeholder when no icon URL is
+    // available, keeping the extensions view fully functional offline.
     const icon = ext.iconUrl ||
         ext.icon_url ||
         ext.base64_icon ||
         (publisher && name ? `https://${publisher}.gallery.vsassets.io/_apis/public/gallery/publisher/${publisher}/extension/${name}/latest/assetbyname/Microsoft.VisualStudio.Services.Icons.Default` : null) ||
         (publisher && name ? `https://open-vsx.org/api/${publisher}/${name}/icon` : null) ||
-        "https://open-vsx.org/api/icons/default.png";
+        null;
 
     // Format stats
     const downloads = ext.downloadCount ? (ext.downloadCount > 1000 ? (ext.downloadCount / 1000).toFixed(1) + "k" : ext.downloadCount) : null;
@@ -85,12 +87,20 @@ const ExtensionItem: React.FC<ExtensionItemProps> = ({ ext, isInstalled, onInsta
                 padding: '4px',
                 background: 'rgba(255, 255, 255, 0.03)'
             }}>
-                <img
-                    src={icon}
-                    alt={displayName}
-                    style={{ width: '100%', height: '100%', borderRadius: '4px', objectFit: 'contain' }}
-                    onError={(e) => { (e.target as HTMLImageElement).src = "https://open-vsx.org/api/icons/default.png"; }}
-                />
+                {icon ? (
+                    <img
+                        src={icon}
+                        alt={displayName}
+                        style={{ width: '100%', height: '100%', borderRadius: '4px', objectFit: 'contain' }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                ) : (
+                    <i className="codicon codicon-extension" style={{
+                        fontFamily: 'codicon', fontStyle: 'normal', fontSize: '24px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        width: '100%', height: '100%', opacity: 0.4,
+                    }} />
+                )}
             </div>
             <div className="extension-details" style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>

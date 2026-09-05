@@ -32,21 +32,22 @@ const InlineEditOverlay: React.FC<InlineEditOverlayProps> = ({ position, onClose
                 top: position.top,
                 left: position.left,
                 zIndex: 1000,
-                width: '400px',
-                background: 'var(--vscode-sideBar-background)',
-                border: '1px solid var(--terminator-accent)',
-                borderRadius: '8px',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                padding: '12px',
-                animation: 'slideInUp 0.2s ease-out'
+                width: '320px',
+                background: 'var(--vscode-editor-background)',
+                border: '1px solid var(--vscode-panel-border)',
+                borderRadius: '6px',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+                padding: '8px 12px',
+                animation: 'slideInUp 0.2s ease-out',
+                fontSize: '13px'
             }}
         >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                <div style={{ background: 'var(--terminator-accent)', borderRadius: '4px', padding: '4px' }}>
-                    <Bot size={14} color="white" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                <div style={{ background: 'var(--vscode-button-background)', width: '24px', height: '24px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0' }}>
+                    <Bot size={12} color="white" />
                 </div>
-                <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>Inline Agent</span>
-                <X size={14} style={{ cursor: 'pointer', opacity: 0.5 }} onClick={onClose} />
+                <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>Inline Edit</span>
+                <X size={12} style={{ cursor: 'pointer', opacity: 0.5, width: '16px', height: '16px' }} onClick={onClose} />
             </div>
 
             <div style={{ position: 'relative' }}>
@@ -56,29 +57,29 @@ const InlineEditOverlay: React.FC<InlineEditOverlayProps> = ({ position, onClose
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Ask the agent to edit or generate code..."
+                    placeholder="Edit with AI..."
                     style={{
                         width: '100%',
-                        background: 'var(--vscode-editor-background)',
-                        color: 'inherit',
-                        border: '1px solid var(--vscode-panel-border)',
-                        borderRadius: '4px',
-                        padding: '8px 32px 8px 10px',
+                        background: 'var(--vscode-input-background)',
+                        color: 'var(--vscode-input-foreground)',
+                        border: '1px solid var(--vscode-input-border)',
+                        borderRadius: '3px',
+                        padding: '6px 10px',
                         fontSize: '13px',
                         outline: 'none'
                     }}
                 />
-                <div style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <Sparkles size={14} className="spinning" style={{ color: 'var(--terminator-accent)', opacity: prompt ? 1 : 0.2 }} />
+                <div style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <Sparkles size={12} className="spinning" style={{ color: 'var(--vscode-button-background)', opacity: prompt ? 0.7 : 0.2 }} />
                     <Send
-                        size={14}
-                        style={{ cursor: prompt ? 'pointer' : 'default', opacity: prompt ? 1 : 0.2 }}
+                        size={12}
+                        style={{ cursor: prompt ? 'pointer' : 'default', opacity: prompt ? 1 : 0.2, width: '16px', height: '16px' }}
                         onClick={() => prompt && onSubmit(prompt)}
                     />
                 </div>
             </div>
-            <div style={{ marginTop: '8px', fontSize: '10px', opacity: 0.4 }}>
-                Press <b>Enter</b> to submit, <b>Esc</b> to cancel.
+            <div style={{ marginTop: '6px', fontSize: '11px', opacity: 0.6 }}>
+                <kbd style={{ padding: '2px 4px', background: 'var(--vscode-keybindingLabel-background)', borderRadius: '2px', fontSize: '11px' }}>Enter</kbd> to&nbsp;save, <kbd style={{ padding: '2px 4px', background: 'var(--vscode-keybindingLabel-background)', borderRadius: '2px', fontSize: '11px' }}>Esc</kbd> to&nbsp;cancel
             </div>
         </div>
     );

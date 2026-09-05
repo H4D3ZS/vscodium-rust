@@ -1,117 +1,177 @@
-# VSCodium-Rust | Agentic & Sovereign IDE
+# VSCodium-Rust
 
-**A friend of AI engineers** — local models, agent loops, and PyTorch ML Studio in one native IDE.
-Train on your GPU, iterate with agents on your code, and keep weights + data on your machine.
+A local-first, agentic IDE built with **Rust/Tauri v2** + **React 19/TypeScript/Vite**.
 
-A high-performance implementation of the VS Code architecture, rewritten using **Rust**, **Tauri**, and **TypeScript**.
+![VSCodium-Rust](pics/1.png)
 
-VSCodium-Rust is a **full-scale, ultra-lightweight agentic development environment** designed for **data sovereignty, ML experimentation, and parallel-mind engineering.**
-
-![VSCodium-Rust Agentic View](pics/1.png)
-
----
-
-## Friend of AI engineers
-
-We built this IDE for people who ship models *and* ship software:
-
-| Pillar | What you get |
-|--------|----------------|
-| **Local-first** | Ollama + optional cloud keys — your data stays yours |
-| **PyTorch ML Studio** | Setup → data → train → dashboard → export (TorchStudio-inspired) |
-| **Agent-native** | Autonomous loop, shadow VFS verify, Hermes skills, MCP |
-| **Research-ready** | Security modes, browser automation, reverse-engineering hooks |
-
-See [docs/FRIEND_OF_AI_ENGINEERS.md](docs/FRIEND_OF_AI_ENGINEERS.md) for the full manifesto.
+> **Human-authored, AI-assisted.** Architecture, technical approach, and every
+> merge decision are human. AI is used to generate code under that direction, and
+> every generated line is reviewed, tested against real hardware, and approved by a
+> human before it lands — feature by feature. See [How this was built](#how-this-was-built).
 
 ---
 
-## ☁️ Open-Core / Cloud AI
+## What this is
 
-The **IDE client** is open (MIT, when published as `Community AI-ide`) and fully usable
-on its own with **local Ollama** — your data never leaves your machine.
+An IDE for people who run their models locally and drive them with agents. The
+editor is VS Code–shaped; the backend is a native Rust/Tauri process, so the
+agent loop, indexing, and process management don't run on an Electron main thread.
 
-**Cloud AI routing, Neural VFS compression, and subscription management are proprietary
-services** hosted on Community AI infrastructure (AMD MI300X backend) — they are **not**
-part of the open client. To use cloud AI features, subscribe at
-**https://example.invalid**. See `SEPARATION.md`, `PROPRIETARY.md`, and
-`FULL_SPLIT_PLAN.md` for the architecture.
+- **Local inference, Lemonade-first.** Primary provider is
+  [Lemonade](https://github.com/lemonade-sdk/lemonade) — an OpenAI-compatible
+  server (`:13305`) tuned for local hardware (AMD included); Ollama (`:11434`) is
+  a fallback. Requests can route through the in-process **kortex** retrieval proxy
+  (`:1536`), which augments prompts with `.aim` workspace context.
+- **Agentic by default.** Multi-turn tool loop with verify-before-done, a shadow
+  workspace for safe edits, and background agents for long-running work.
+- **Local-first.** Code and model traffic stay on your machine unless you point a
+  provider at a remote endpoint.
+- **Security & ML tooling** in-IDE (offensive tooling, browser automation, PyTorch
+  training) for research workflows.
 
-> This repository is currently **private** and **All Rights Reserved** (`PROPRIETARY.md`)
-> — it still contains the proprietary brain pending the open-core split.
-
----
-
-## 🚀 Key Evolutionary Features
-
-### 🧠 1. Claude Code Integrated (42+ Tools)
-We have achieved 100% feature parity with Claude Code's agentic architecture. The built-in **Antigravity Agent** utilizes 42+ specialized tools with standard JSON schemas, allowing it to:
-- **Analyze & Plan:** High-fidelity project research and roadmap generation.
-- **Execute:** Atomic file edits, partial modifications, and full-volume writes.
-- **Git & Terminal Mastery:** Native backend PTY terminals and Git integration for automated commits, diffs, and staging.
-
-### 🌐 2. Parallel Mind Architecture (Multi-Agent)
-The only IDE that supports **True Asynchronous Sub-Agent Orchestration**. Delegate complex tasks to specialized background agents:
-- **Research while Implementing:** Spawn a browser sub-agent to find documentation while you implement the feature.
-- **Multi-Tasking:** Run planning, roadmap, development, and reverse engineering tasks simultaneously in a parallelized backend (`tokio` + `Arc<Self>`).
-- **Live Progress:** Real-time tracking of all background thoughts and tasks in the Agent Sidebar.
-
-### 🏠 3. Absolute Data Sovereignty (Ollama First)
-VSCodium-Rust is designed for developers who demand **freedom from corporate filters**:
-- **Self-Hosted Brain:** Connect to local models via **Ollama** or custom providers with 100% private, offline tool-calling.
-- **JSON Schema Parity:** All IDE tools are exposed via standard formats, ensuring any tool-calling model (Llama 3, Mistral) can be fully agentic within your workspace.
-- **Pay Only for What You Use:** Bring your own API keys for hosted models (Anthropic, OpenAI, Gemini) and eliminate redundant subscriptions.
-
-### 📊 5. PyTorch ML Studio (Friend of ML engineers)
-In-IDE machine learning — inspired by [TorchStudio](https://www.torchstudio.ai/), wired for local sovereignty:
-
-- **Full pipeline:** CSV/image datasets → train → live loss/acc charts → confusion matrix → ONNX/TorchScript export
-- **Experiment tooling:** Optuna HPO, LR finder, grad check, multi-run comparison, checkpoint resume
-- **Model hub:** torchvision, timm, and HuggingFace gallery with one-click weight load
-- **Architecture graph:** Layer SVG visualization in the Model tab
-
-Open from the activity bar (PyTorch beaker) or Settings → PyTorch ML Studio.
-
-### 📊 6. Visual Lab & Data Flow Builder
-A powerful, **Rust-backend-driven** visualization engine for complex data structures:
-- **Instant JSON/SQL Visualization:** Toggle a visual graph view for any JSON file or SQL schema directly from the editor.
-- **Cross-Format Support:** Intelligent parsers for JSON (hierarchical), SQL (ERDs), and MongoDB/BSON documents.
-- **AI Flow Builder:** Describe your desired architecture in natural language and have the built-in engine generate a complete interactive diagram.
-- **High Performance:** Optimized for 60fps interaction even with 100+ nodes using lightweight rendering and native layout calculations.
-
-![Visual Lab Flow](pics/flow_visualizer.png)
+It is an active project, not a finished product.
 
 ---
 
-## 🛠️ For Cybersecurity & Reverse Engineering
-Built by a researcher for researchers. VSCodium-Rust is an elite tool for **Security Audits and Malware Analysis**:
-- **Integrated Reverse Engineering:** Native **Model Context Protocol (MCP)** support for integration with tools like IDA Pro.
-- **Isolated PTY Terminals:** Full control over process spawning and network isolation.
-- **Simulator Mastery:** Integrated professional-grade emulators for **iOS (v26.3.1)** and Android directly in workspace panels. The iPhone-emulator integration ships in-repo; the heavy `acheron` hypervisor binary + iOS `.ipsw` firmware are user-provided — see **[docs/IPHONE_EMULATOR.md](docs/IPHONE_EMULATOR.md)** for how to obtain/build them.
+## Features
+
+| Area | Highlights |
+|------|-----------|
+| **AI agent** | Autonomous tool loop with verify-before-done · thinking protocol · FastContext repo-exploration subagent · shadow workspace · background agents · tool-permission gate · MCP client + server · `.cursor/rules` |
+| **Editor** | Monaco · FIM tab-autocomplete · inline agent-edit diff with per-hunk accept/reject · selection-scoped quick edit · Git status/diff/commit/branches |
+| **Code intelligence** | Vector semantic search (Ollama embeddings) · symbol + chunk index · LSP diagnostics · distilled knowledge briefs |
+| **Security research** | APEX 7-model specialist routing · headless-Firefox browser automation · pentest tooling · entropy-based secret scanning |
+| **ML studio** | PyTorch train loop + loss curves · model hub (torchvision/timm/HF) · Optuna HPO · ONNX export |
+| **iOS on Windows/Linux** | ARM64 Mach-O compile · Dart→Mach-O AOT · `.ipa` packaging · `zsign`/`ldid` signing · `go-ios` install + launch — no macOS/Xcode. See [`docs/mobile.md`](docs/mobile.md). |
+
+`iPhoneOS.sdk` is the one asset that can't be redistributed — supply your own via
+`SDKROOT` or the in-app **Import SDK**.
 
 ---
 
-## 📁 Project Architecture
-- **Frontend:** TypeScript/Vite application designed for 100% visual parity with VS Code layout metrics.
-- **Backend:** Rust (Tauri) handling IPC, file I/O, Git operations, and the **Agentic Dispatcher**.
-- **Agent Orchestrator:** Modular, category-based tool handler with enforced path security (`validate_path`).
+## Getting started
+
+**Prerequisites:** Node.js 18+ · Rust toolchain (rustup) · a local model backend (Lemonade or Ollama)
+
+```bash
+git clone https://github.com/H4D3ZS/vscodium-rust.git
+cd vscodium-rust
+git submodule update --init --recursive   # kortex, turbovec
+npm install
+```
+
+```bash
+npm run dev          # frontend dev server
+npm run dev:tauri    # full IDE (Tauri app)
+npx tauri build      # production build
+cd src-tauri && cargo check
+```
+
+macOS build notes: [`docs/build-macos.md`](docs/build-macos.md).
+Release/installer: [`docs/release.md`](docs/release.md).
+
+### AI agent setup
+
+Lemonade runs llama.cpp directly:
+
+```bash
+# Best measured all-round agent model (30 tok/s, 8/8 tool calls)
+lemonade pull Huihui-gemma-4-12B-agentic-abliterated-i1-Q4_K_M
+# Stronger reasoning for long autonomous runs (16 tok/s, ~11k usable context)
+lemonade pull Qwen3.6-35B-A3B-Abliterated-Heretic-GGUF-Q4_K_M
+lemonade serve       # :13305
+```
+
+Avoid 2-bit quants — measured 0/6 on tool calling and 2.5–4× slower (compute-bound, not bandwidth-bound).
+Open the IDE, pick the model in the agent toolbar, start coding.
 
 ---
 
-## ☁️ Cloud AI & Neural VFS
+## Architecture
 
-The Community AI IDE client is open-source under the MIT License. 
-Cloud AI routing, Neural VFS compression, and subscription management are **proprietary services** hosted on Community AI infrastructure. 
-To use AI features, you must subscribe to Community AI Cloud at https://example.invalid
+Clean/DDD layering on both sides — `domain → application → infrastructure`, plus
+`presentation` on the frontend — enforced by `scripts/check-architecture.mjs`.
+
+```
+src/                 React 19 + TypeScript
+  domain/            entities, value objects, repository ports (no React, no Tauri)
+  application/       use-cases (one file per user goal)
+  infrastructure/    Tauri IPC adapters, lazy legacy engines
+  components/        React UI — calls application layer, never invoke() directly
+  store/             Zustand slices
+src-tauri/src/       Rust (Tauri v2)
+  domain/            ai · tools · vcs · security · indexing · memory · editor · mobile · extensions
+  application/       thin #[tauri::command] adapters (the one invoke_handler! in lib.rs)
+  infrastructure/    process spawning, HTTP, FFI, git2, tree-sitter
+kortex/  (submodule) retrieval proxy · .aim binary format · daemon
+turbovec/ (submodule) vector kernels
+```
+
+Full map and the conventions every change follows: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
-## 📝 License & Credits
-- **Credits:** Standing on the shoulders of giants: Zed Industries (GPUI), VSCodium Team, and Palinuro.
-- **License:** MIT
+## Testing
+
+```bash
+npm test                       # frontend unit + architecture check
+npm run typecheck
+cd src-tauri && cargo test      # backend
+```
 
 ---
 
-**VSCodium-Rust is for AI engineers who demand speed, privacy, local GPUs, and full architectural sovereignty.**
+## How this was built
 
-[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/H4D3ZS)
+This project is AI-assisted, and it's worth being precise about which parts,
+because the distinction matters.
+
+**Human — everything that decides what the software is:**
+
+- System architecture and module boundaries
+- Every technical approach and the judgement behind it
+- Design review and approval of each change before it lands
+- Correctness review, cleanup, and stabilisation of generated code
+- Debugging against real hardware, where the actual problems live
+
+**AI — code generation under direction:**
+
+- Boilerplate and scaffolding from a specified design
+- Mechanical refactors across many files
+- First-draft implementations of already-decided approaches
+- Docstrings and comments, edited by hand afterwards
+
+The load-bearing insights here were human. The host-native iOS toolchain — that
+Apple's compilers were never the macOS-only part, that only packaging is — was a
+human call, made against an assistant that had twice asserted it was impossible
+and once insisted it needed cloud builds. It took human pushback and a direct
+experiment to settle.
+
+Every generated line was read, corrected, tested against real hardware, and
+approved by a human before merge — which is why the suite is green and the
+failure modes are documented rather than discovered by users. If you use AI on
+your own projects, this is the split worth copying: let it write what you've
+already decided, and never let it decide.
+
+---
+
+## Contributing
+
+1. Fork, branch, change.
+2. `npm test && npm run typecheck` and `cd src-tauri && cargo test`.
+3. Keep patches surgical (`patch_engine` / `diffy`) — no full-file rewrites.
+4. Follow [`ARCHITECTURE.md`](ARCHITECTURE.md): logic in engines, thin commands, no `invoke()` in components.
+5. Open a PR — every feature is reviewed per code and per behaviour before merge.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE). Bundled/adjacent components keep their own licenses
+(`claurst` GPL, kept at a process boundary).
+
+## Acknowledgments
+
+[VSCodium](https://vscodium.com/) · [Tauri](https://tauri.app/) ·
+[Lemonade](https://lemonade-server.ai/) · [go-ios](https://github.com/danielpaulus/go-ios) ·
+[ldid](https://github.com/ProcursusTeam/ldid) · [Monaco Editor](https://microsoft.github.io/monaco-editor/)

@@ -1,5 +1,4 @@
 use tauri::State;
-use crate::EditorState;
 use serde_json::Value;
 
 fn resolve_debug_adapter(config: &Value) -> Result<String, String> {
@@ -25,7 +24,7 @@ fn resolve_debug_adapter(config: &Value) -> Result<String, String> {
 #[tauri::command]
 pub async fn debug_start(
     app: tauri::AppHandle,
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     config: Value,
 ) -> Result<(), String> {
     let adapter_path = resolve_debug_adapter(&config)?;
@@ -75,20 +74,20 @@ pub async fn debug_start(
 }
 
 #[tauri::command]
-pub async fn debug_send(state: State<'_, EditorState>, msg: String) -> Result<(), String> {
+pub async fn debug_send(state: State<'_, std::sync::Arc<crate::EditorState>>, msg: String) -> Result<(), String> {
     let mut dm = state.ext.debug.lock().await;
     dm.send_message(msg).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn debug_stop(state: State<'_, EditorState>) -> Result<(), String> {
+pub async fn debug_stop(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<(), String> {
     let mut dm = state.ext.debug.lock().await;
     dm.stop_session().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn analyze_file_symbols(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     path: String,
 ) -> Result<Value, String> {
     let root = state.editor.active_root.lock().await.clone();

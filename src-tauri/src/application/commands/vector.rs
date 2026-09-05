@@ -1,9 +1,8 @@
-use crate::EditorState;
 use tauri::State;
 use serde_json::{Value, json};
 
 #[tauri::command]
-pub async fn vector_index_codebase(state: State<'_, EditorState>) -> Result<String, String> {
+pub async fn vector_index_codebase(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<String, String> {
     state.memory.vector_indexer
         .index_codebase()
         .await
@@ -13,7 +12,7 @@ pub async fn vector_index_codebase(state: State<'_, EditorState>) -> Result<Stri
 
 #[tauri::command]
 pub async fn vector_search_codebase(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     query: String,
     limit: Option<usize>,
 ) -> Result<Value, String> {
@@ -32,7 +31,7 @@ pub async fn vector_search_codebase(
 
 #[tauri::command]
 pub async fn vector_find_symbol(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     symbol_name: String,
 ) -> Result<Value, String> {
     let results = state.memory.vector_indexer
@@ -48,7 +47,7 @@ pub async fn vector_find_symbol(
 }
 
 #[tauri::command]
-pub async fn vector_get_index_stats(state: State<'_, EditorState>) -> Result<Value, String> {
+pub async fn vector_get_index_stats(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Value, String> {
     let stats = state.memory.vector_indexer
         .get_index_stats()
         .await
@@ -59,7 +58,7 @@ pub async fn vector_get_index_stats(state: State<'_, EditorState>) -> Result<Val
 
 #[tauri::command]
 pub async fn vector_get_file_chunks(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     file_path: String,
 ) -> Result<Value, String> {
     let chunks = state.memory.vector_indexer
@@ -75,7 +74,7 @@ pub async fn vector_get_file_chunks(
 }
 
 #[tauri::command]
-pub async fn vector_get_indexing_progress(state: State<'_, EditorState>) -> Result<Value, String> {
+pub async fn vector_get_indexing_progress(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Value, String> {
     let progress = state.memory.vector_indexer.get_indexing_progress();
     Ok(json!(progress))
 }

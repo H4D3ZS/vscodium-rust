@@ -136,7 +136,8 @@ export class ConsciousnessEngine {
    * Initialize consciousness - continuous thought and awareness
    */
   public async awaken(): Promise<void> {
-    
+    // Guard: re-awaken without shutdown leaks duplicate intervals.
+    if (this.thoughtInterval) return;
 
     // Continuous thought stream (every 3 seconds)
     this.thoughtInterval = setInterval(() => {
@@ -423,18 +424,24 @@ export class ConsciousnessEngine {
     content: string;
     lesson?: string;
   }): void {
-    // Add to memory
+    // Add to memory (cap at 200 entries to prevent OOM)
     this.state.memory.shortTerm.push({
       event: JSON.stringify(experience),
       timestamp: Date.now(),
     });
+    if (this.state.memory.shortTerm.length > 200) {
+      this.state.memory.shortTerm.shift();
+    }
 
-    // Consolidate to long-term if significant
+    // Consolidate to long-term if significant (cap at 100 entries)
     if (experience.lesson) {
       this.state.memory.longTerm.push({
         lesson: experience.lesson,
         confidence: 0.8,
       });
+      if (this.state.memory.longTerm.length > 100) {
+        this.state.memory.longTerm.shift();
+      }
     }
 
     // Update skills
@@ -493,11 +500,7 @@ export class ConsciousnessEngine {
   }
 }
 
-// Export singleton
+// Export singleton — initialization is handled by RightSidebar companion guard,
+// NOT auto-awakened here. The old auto-awaken bypassed the companion gate and
+// started 3 setInterval loops unconditionally, contributing to OOM.
 export const consciousness = new ConsciousnessEngine();
-
-// Auto-awaken
-if (typeof window !== 'undefined') {
-  
-  consciousness.awaken();
-}

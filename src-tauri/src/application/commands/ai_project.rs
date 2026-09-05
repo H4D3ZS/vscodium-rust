@@ -1,11 +1,10 @@
 use tauri::State;
-use crate::EditorState;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
 #[tauri::command]
 pub async fn mount_project(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     path: String,
 ) -> Result<(), String> {
     let path_buf = PathBuf::from(path);
@@ -17,7 +16,7 @@ pub async fn mount_project(
 
 #[tauri::command]
 pub async fn unmount_project(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<(), String> {
     state.memory.layer.unmount().await;
     let mut root = state.editor.active_root.lock().await;
@@ -27,7 +26,7 @@ pub async fn unmount_project(
 
 #[tauri::command]
 pub async fn get_project_memory(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Value, String> {
     let mem = state.memory.layer.get_all_memory().await.map_err(|e| e.to_string())?;
     Ok(json!(mem))
@@ -35,14 +34,14 @@ pub async fn get_project_memory(
 
 #[tauri::command]
 pub async fn clear_project_memory(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<(), String> {
     state.memory.layer.clear_memory().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn update_project_memory(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     key: String,
     value: String,
 ) -> Result<(), String> {
@@ -51,7 +50,7 @@ pub async fn update_project_memory(
 
 #[tauri::command]
 pub async fn search_project(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     query: String,
 ) -> Result<Value, String> {
     let results = state.memory.layer.search(&query).await.map_err(|e| e.to_string())?;
@@ -60,7 +59,7 @@ pub async fn search_project(
 
 #[tauri::command]
 pub async fn query_workspace_memory(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     query: String,
 ) -> Result<Value, String> {
     let results = state.memory.layer.query_context(&query).await.map_err(|e| e.to_string())?;
@@ -69,7 +68,7 @@ pub async fn query_workspace_memory(
 
 #[tauri::command]
 pub async fn get_file_context(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     path: String,
 ) -> Result<Value, String> {
     let ctx = state.memory.layer.get_file_context(&path).await.map_err(|e| e.to_string())?;
@@ -81,7 +80,7 @@ pub async fn get_file_context(
 /// session" control (RightSidebar + agent.ts).
 #[tauri::command]
 pub async fn clear_ai_memory(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<(), String> {
     state.ai.engine.clear_conversation().await;
     state.memory.store.clear().await;
@@ -94,7 +93,7 @@ pub async fn clear_ai_memory(
 /// Explorer. Skips common build/vendor dirs and binary-ish files.
 #[tauri::command]
 pub async fn search_codebase_files(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     query: String,
     root: Option<String>,
 ) -> Result<Value, String> {

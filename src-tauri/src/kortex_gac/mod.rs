@@ -30,6 +30,7 @@ pub mod theory;
 pub mod types;
 
 use std::path::PathBuf;
+#[cfg(feature = "tauri")]
 use tauri::command;
 
 pub use launcher::{

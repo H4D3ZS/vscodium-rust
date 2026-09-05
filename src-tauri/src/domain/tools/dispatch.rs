@@ -4,13 +4,45 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{Emitter, Manager};
 use super::registry::AiTools;
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
 impl AiTools {
+    /// Normalize common argument-name aliases to the canonical keys the tools
+    /// expect. Smaller/quantized models (and Claude-trained ones) often send
+    /// `pattern`/`q` for a search instead of `query`, or `file_path` instead of
+    /// `path` — which surfaced as the agent loop spamming "Error: Missing query".
+    /// Additive only: an alias is copied ONLY when the canonical key is absent, so
+    /// tools that genuinely read the alias (e.g. `search_files` uses `pattern`)
+    /// keep working.
+    fn normalize_tool_args(mut arguments: Value) -> Value {
+        const ALIASES: &[(&str, &[&str])] = &[
+            ("query", &["pattern", "q", "search", "regex", "search_query", "search_term", "keyword", "text_to_find"]),
+            ("path", &["file_path", "filepath", "file", "filename", "dir", "directory", "relative_path", "target_path"]),
+            ("content", &["file_content", "new_content", "contents", "body", "code", "text_content"]),
+            ("command", &["cmd", "shell_command", "run", "script"]),
+        ];
+        if let Some(obj) = arguments.as_object_mut() {
+            for (canon, aliases) in ALIASES {
+                if obj.get(*canon).and_then(|v| v.as_str()).map(|s| !s.is_empty()).unwrap_or(false) {
+                    continue;
+                }
+                for alias in *aliases {
+                    if let Some(v) = obj.get(*alias).cloned() {
+                        if v.as_str().map(|s| !s.is_empty()).unwrap_or(false) {
+                            obj.insert((*canon).to_string(), v);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        arguments
+    }
+
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value> {
         let canonical = Self::canonical_tool_name(name);
+        let arguments = Self::normalize_tool_args(arguments);
         self.gate_tool_entitlement(canonical).await?;
         let root = self.root_path.lock().await.clone();
         let _ = crate::cursor_compat::append_debug_log(
@@ -24,8 +56,13 @@ impl AiTools {
         let result = match canonical {
             "find_api_keys" => self.find_api_keys(arguments).await,
             "analyze_file_symbols" => self.analyze_file_symbols(arguments).await,
+            #[cfg(feature = "tauri")]
             "ag_get_next_task" | "ag_mark_task_done" | "ag_phase_wrap" | "ag_list_tasks" => {
                 self.handle_ag_tool(canonical, arguments).await
+            }
+            #[cfg(not(feature = "tauri"))]
+            "ag_get_next_task" | "ag_mark_task_done" | "ag_phase_wrap" | "ag_list_tasks" => {
+                Err(anyhow!("Antigravity tools require the Tauri shell"))
             }
             "project_rules" => self.handle_project_rules(arguments).await,
             // Filesystem Operations — all tools handled by handle_fs_tool
@@ -84,6 +121,8 @@ impl AiTools {
             | "web_fetch"
             | "dev_cargo_diagnostics"
             | "search_codebase"
+            | "get_file_signatures"
+            | "codebase_map"
             | "get_lsp_diagnostics"
             | "web_search" => self.handle_fs_tool(canonical, arguments).await,
 
@@ -111,6 +150,7 @@ impl AiTools {
 
             // Advanced Agentic Operations
             "spawn_subagent" => self.spawn_subagent(arguments).await,
+            "explore_repository" => self.explore_repository(arguments).await,
             "browser_subagent" => AiTools::browser_subagent(Arc::new(self.clone()), arguments).await,
             "perplexity_ask" => AiTools::perplexity_proxy(Arc::new(self.clone()), arguments).await,
             "perplexity_reason" => {
@@ -188,11 +228,16 @@ impl AiTools {
             | "apex_simulate_attack"
             | "apex_architect_design"
             | "apex_quick_check"
+            | "generate_exploit_artifact"
             | "apex_pentest_report" => self.handle_apex_tool(canonical, arguments).await,
 
             // TS-parity workflow tools (also in OLLAMA_ESSENTIAL_TOOLS)
-            "todo_write" | "task_create" | "task_update" => {
-                self.handle_todo_tool(canonical, arguments).await
+            "todo_write" | "task_create" | "task_update" | "task_list" | "task_get" => {
+                self.handle_task_tool(canonical, arguments).await
+            }
+
+            "tool_search" => {
+                self.handle_tool_search(arguments).await
             }
 
             _ => Err(anyhow!("Unknown tool: {}", name)),
@@ -240,15 +285,85 @@ impl AiTools {
         .await
     }
 
-    pub(crate) async fn handle_security_generator(&self, name: &str, args: Value) -> Result<Value> {
-        if let Some(dir) = self.config_dir().await {
-            let acct = crate::account::AccountManager::load(&dir);
-            if !crate::account::AccountManager::has_accepted(&acct, "bug-bounty") {
-                return Err(anyhow!(
-                    "Accept Bug Bounty Terms in Settings → Account before using security generators."
-                ));
-            }
+    /// Handle task CRUD operations: task_create, task_update, task_list, task_get.
+    pub(crate) async fn handle_task_tool(&self, name: &str, args: Value) -> Result<Value> {
+        use super::task_store::TaskStore;
+
+        // For legacy todo_write, fall back to file-based approach
+        if name == "todo_write" {
+            return self.handle_todo_tool(name, args).await;
         }
+
+        let root = self.root_path.lock().await.clone();
+        let tasks_path = root.join("tasks.json");
+
+        match name {
+            "task_create" => {
+                let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
+                let desc = args.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let parent = args.get("parent_id").and_then(|v| v.as_str());
+                let mut store = self.task_store.write().await;
+                let task = store.create(title, desc, parent);
+                let _ = store.save(&tasks_path);
+                Ok(json!({ "status": "success", "task": TaskStore::task_to_value(&task) }))
+            }
+            "task_update" => {
+                let id = args.get("id").and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow!("Missing task id"))?;
+                let status = args.get("status").and_then(|v| v.as_str());
+                let desc = args.get("description").and_then(|v| v.as_str());
+                let mut store = self.task_store.write().await;
+                let task = store.update(id, status, desc)?;
+                let _ = store.save(&tasks_path);
+                Ok(json!({ "status": "success", "task": TaskStore::task_to_value(&task) }))
+            }
+            "task_list" => {
+                let status = args.get("status").and_then(|v| v.as_str());
+                let store = self.task_store.read().await;
+                let tasks: Vec<Value> = store.list(status)
+                    .iter()
+                    .map(|t| TaskStore::task_to_value(t))
+                    .collect();
+                Ok(json!({ "status": "success", "tasks": tasks, "count": tasks.len() }))
+            }
+            "task_get" => {
+                let id = args.get("id").and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow!("Missing task id"))?;
+                let store = self.task_store.read().await;
+                match store.get(id) {
+                    Some(task) => Ok(json!({ "status": "success", "task": TaskStore::task_to_value(task) })),
+                    None => Ok(json!({ "status": "error", "message": format!("Task not found: {id}") })),
+                }
+            }
+            _ => Err(anyhow!("Unknown task tool: {name}")),
+        }
+    }
+
+    /// Tool search — finds relevant tools by keyword from the full tool catalog.
+    /// Helps the model discover tools when there are too many to fit in context.
+    pub(crate) async fn handle_tool_search(&self, args: Value) -> Result<Value> {
+        let query = args.get("query").and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing query"))?;
+        let q_lower = query.to_lowercase();
+
+        let all_tools = self.list_tools();
+        let mut matches: Vec<Value> = all_tools.iter()
+            .filter(|t| {
+                let name_lower = t.name.to_lowercase();
+                let desc_lower = t.description.to_lowercase();
+                name_lower.contains(&q_lower) || desc_lower.contains(&q_lower)
+            })
+            .map(|t| json!({
+                "name": t.name,
+                "description": t.description,
+            }))
+            .collect();
+
+        matches.truncate(10);
+        Ok(json!({ "status": "success", "tools": matches, "count": matches.len() }))
+    }
+
+    pub(crate) async fn handle_security_generator(&self, name: &str, args: Value) -> Result<Value> {
         use crate::security_generators::{
             analyze_csp, encode_payload, listener_config, reverse_shell, shellcode_recipe,
         };
@@ -290,7 +405,7 @@ impl AiTools {
                 let encoding = args.get("encoding").and_then(|v| v.as_str()).unwrap_or("base64");
                 encode_payload(payload, encoding).map_err(|e| anyhow!(e))
             }
-            _ => unreachable!(),
+            _ => Err(anyhow!("Unknown security generator tool: {}", name)),
         }
     }
 
@@ -556,6 +671,15 @@ impl AiTools {
                 let findings = apex.red_team().quick_check(code, language).await.map_err(|e| anyhow!(e))?;
                 Ok(json!(findings))
             },
+            "generate_exploit_artifact" => {
+                // Delegate to the Lemonade-backed BugTrace CORE-Ultra tooling
+                // engine. The driver stays on its own (tool-reliable) model and
+                // calls this when it needs a complete, runnable artifact — so
+                // CORE-Ultra's specialty is used without it driving the loop.
+                let task = arguments["task"].as_str().ok_or_else(|| anyhow!("Missing task"))?.to_string();
+                let ctx = arguments["target_context"].as_str();
+                apex.exploit_tooling(&task, ctx).await.map_err(|e| anyhow!(e))
+            },
             "apex_pentest_report" => {
                 let files_val = arguments.get("files").cloned().unwrap_or(json!([]));
                 let file_pairs: Vec<(String, String)> = files_val
@@ -579,6 +703,7 @@ impl AiTools {
         }
     }
 
+    #[cfg(feature = "tauri")]
     pub(crate) async fn handle_ag_tool(&self, name: &str, arguments: Value) -> Result<Value> {
         let root = self.get_root_path().to_string_lossy().to_string();
         match name {
@@ -648,9 +773,9 @@ impl AiTools {
                                     name,
                                     text.chars().take(4000).collect::<String>()
                                 ));
-                            }
-                        }
-                    }
+        }
+    }
+}
                 }
             }
         }
@@ -766,9 +891,13 @@ impl AiTools {
             "oast_interactions" => self.oast_interactions(arguments).await,
             "dev_cargo_diagnostics" => self.dev_cargo_diagnostics(arguments).await,
             "search_codebase" => self.search_codebase(arguments).await,
+            "get_file_signatures" => self.get_file_signatures(arguments).await,
+            "codebase_map" => self.codebase_map_tool(arguments).await,
             "get_lsp_diagnostics" => self.get_lsp_diagnostics(arguments).await,
             "web_search" => self.web_search_tool(arguments).await,
             "web_fetch" => self.web_fetch_tool(arguments).await,
+            "crawl_url" => super::websearch::crawl_url_tool(&arguments).await,
+            "deep_crawl" => super::websearch::deep_crawl_tool(&arguments).await,
             "ai_propose_edit" => self.ai_propose_edit(arguments).await,
             "str_replace" => self.str_replace_file(arguments).await,
             "search_replace_edit" => self.search_replace_edit(arguments).await,
@@ -777,7 +906,7 @@ impl AiTools {
             "preview_shadow_diff" => self.preview_shadow_diff(arguments).await,
             "apply_shadow_patch" => self.apply_shadow_patch(arguments).await,
             "ghost_test" => self.ghost_test(arguments).await,
-            _ => unreachable!(),
+            _ => Err(anyhow!("Unknown filesystem tool: {}", name)),
         }
     }
 
@@ -791,7 +920,7 @@ impl AiTools {
             "terminal_terminate" => self.terminal_terminate(arguments).await,
             "terminal_get_status" => self.terminal_get_status(arguments).await,
             "terminal_list" => self.terminal_get_state(arguments).await,
-            _ => unreachable!(),
+            _ => Err(anyhow!("Unknown terminal tool: {}", name)),
         }
     }
 
@@ -807,7 +936,7 @@ impl AiTools {
             "browser_click" => self.browser_click(arguments).await,
             "browser_type" => self.browser_type(arguments).await,
             "browser_read_dom" => self.browser_read_dom(arguments).await,
-            _ => unreachable!(),
+            _ => Err(anyhow!("Unknown browser tool: {}", name)),
         }
     }
 
@@ -818,7 +947,7 @@ impl AiTools {
             "git_commit" => self.git_commit(arguments).await,
             "git_diff" => self.git_diff(arguments).await,
             "git_log" => self.git_log(arguments).await,
-            _ => unreachable!(),
+            _ => Err(anyhow!("Unknown git tool: {}", name)),
         }
     }
 
@@ -826,7 +955,7 @@ impl AiTools {
         match name {
             "get_system_info" => self.get_system_info(arguments).await,
             "get_system_health" => self.get_system_health(arguments).await,
-            _ => unreachable!(),
+            _ => Err(anyhow!("Unknown system tool: {}", name)),
         }
     }
 
@@ -870,7 +999,7 @@ impl AiTools {
                 "ts" | "tsx" => "(function_declaration name: (identifier) @name) @item (class_declaration name: (identifier) @name) @item (interface_declaration name: (identifier) @name) @item (variable_declarator name: (identifier) @name value: (arrow_function)) @item",
                 "js" | "jsx" => "(function_declaration name: (identifier) @name) @item (class_declaration name: (identifier) @name) @item",
                 "py" => "(function_definition name: (identifier) @name) @item (class_definition name: (identifier) @name) @item",
-                _ => unreachable!(),
+                _ => return Err(anyhow!("Unsupported language for symbol analysis: {}", ext)),
             };
 
             let query = Query::new(&lang, query_str).map_err(|e| anyhow!(e.to_string()))?;
@@ -945,14 +1074,6 @@ impl AiTools {
 
     #[allow(dead_code)]
     pub(crate) async fn manage_task(&self, args: Value) -> Result<Value> {
-        let h_lock = self
-            .app_handle
-            .lock()
-            .await;
-        let h = h_lock
-            .as_ref()
-            .ok_or_else(|| anyhow!("App handle not set"))?;
-
         let task_id = args["task_id"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing task_id"))?;
@@ -961,7 +1082,7 @@ impl AiTools {
             .ok_or_else(|| anyhow!("Missing status"))?;
 
         // Emit UI event for the Agent Task View
-        h.emit(
+        self.emit_tool_event(
             "update-agent-task",
             json!({
                 "id": task_id,
@@ -970,9 +1091,9 @@ impl AiTools {
                 "status": if status == "done" { "completed" } else { "running" },
                 "progress": if status == "done" { 100 } else { 50 }
             }),
-        )?;
+        );
 
-        h.emit("add-agent-step", json!({ "name": task_id, "status": if status == "done" { "success" } else { "running" } }))?;
+        self.emit_tool_event("add-agent-step", json!({ "name": task_id, "status": if status == "done" { "success" } else { "running" } }));
 
         let entry = format!(
             "- [{}] {}\n",

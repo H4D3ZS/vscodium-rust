@@ -38,6 +38,7 @@ export class CybersecurityEngine {
   private state: SecurityState;
   private scanQueue: Array<{ target: SecurityTarget; type: string }> = [];
   private isScanning = false;
+  private monitorInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.state = {
@@ -47,9 +48,6 @@ export class CybersecurityEngine {
       threatsDetected: 0,
       defensesActive: 0,
     };
-
-    
-    
   }
 
   /**
@@ -312,14 +310,22 @@ export class CybersecurityEngine {
    * Monitor for threats
    */
   public async monitorThreats(): Promise<void> {
-    
-    
+    // Prevent duplicate monitoring intervals
+    if (this.monitorInterval) return;
+
     // Continuous monitoring loop
-    setInterval(() => {
+    this.monitorInterval = setInterval(() => {
       this.detectAnomalies();
       this.checkIntrusions();
       this.analyzeLogs();
     }, 30000); // Every 30 seconds
+  }
+
+  /**
+   * Stop monitoring — clears the interval to prevent OOM.
+   */
+  public stopMonitoring(): void {
+    if (this.monitorInterval) { clearInterval(this.monitorInterval); this.monitorInterval = null; }
   }
 
   /**
@@ -588,8 +594,11 @@ export class CybersecurityEngine {
 // Export singleton
 export const security = new CybersecurityEngine();
 
-// Auto-initialize
+// Auto-initialize only if explicitly enabled via localStorage
 if (typeof window !== 'undefined') {
-  
-  security.monitorThreats();
+  try {
+    if (localStorage.getItem('security-engine') === '1') {
+      security.monitorThreats();
+    }
+  } catch { /* no localStorage */ }
 }

@@ -1,5 +1,5 @@
 // CSS-only stand-in for framer-motion (Milestone B animation purge —
-// docs/overhaul/MASTER_PLAN.md). Drop-in for the `motion.div` /
+// ARCHITECTURE.md). Drop-in for the `motion.div` /
 // `AnimatePresence` subset this codebase used: framer props are stripped,
 // entry gets a single ≤150ms opacity fade via .motion-fade (styles.css).
 // Exit animations are intentionally gone — VSCode-native UIs don't animate

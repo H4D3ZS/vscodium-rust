@@ -64,7 +64,7 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({ activeTab, activeFilePend
                             width: '24px', height: '24px', borderRadius: '50%',
                             background: 'rgba(0,198,255,0.18)', color: '#00c6ff',
                             fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}>✨</span>
+                        }}></span>
                         <span style={{ fontWeight: 500 }}>
                             AI edits for <span style={{ color: '#00c6ff', fontWeight: 600 }}>{activeTab.filename}</span> are pending review
                         </span>

@@ -6,6 +6,7 @@
  */
 
 import { useStore } from './store';
+import { LRUMap } from './domain/utils/LRUMap';
 
 export interface CognitiveState {
   // Core consciousness
@@ -28,16 +29,16 @@ export interface CognitiveState {
   };
   
   // Learning system
-  learningState: {
-    currentKnowledge: Map<string, any>;
-    recentInsights: Array<{
-      insight: string;
-      source: string;
-      timestamp: number;
-      integrated: boolean;
-    }>;
-    skillGrowth: Map<string, number>; // skill -> proficiency
-  };
+      learningState: {
+        currentKnowledge: LRUMap<string, any>;
+        recentInsights: Array<{
+          insight: string;
+          source: string;
+          timestamp: number;
+          integrated: boolean;
+        }>;
+        skillGrowth: LRUMap<string, number>;
+      };
   
   // Meta-cognition
   metaCognition: {
@@ -95,9 +96,9 @@ export class CognitiveCore {
         lastSelfAssessment: Date.now(),
       },
       learningState: {
-        currentKnowledge: new Map(),
+        currentKnowledge: new LRUMap<string, any>(500),
         recentInsights: [],
-        skillGrowth: new Map(),
+        skillGrowth: new LRUMap<string, number>(50),
       },
       metaCognition: {
         thinkingAboutThinking: false,
@@ -120,7 +121,8 @@ export class CognitiveCore {
    * Initialize full cognitive function
    */
   public async initialize(): Promise<void> {
-    
+    // Guard: re-init without destroy leaks duplicate intervals.
+    if (this.thoughtInterval) return;
 
     // Start independent thought stream
     this.startThoughtStream();
@@ -265,13 +267,12 @@ export class CognitiveCore {
     const insight = insights[Math.floor(Math.random() * insights.length)];
     this.addThought('insight', insight, 70);
 
-    // Store as learning
-    this.state.learningState.recentInsights.push({
-      insight,
-      source: 'observation',
-      timestamp: Date.now(),
-      integrated: false,
-    });
+    // Store as learning (LRU eviction at 200 entries)
+    const entry = { insight, source: 'observation' as const, timestamp: Date.now(), integrated: false };
+    this.state.learningState.recentInsights.push(entry);
+    if (this.state.learningState.recentInsights.length > 200) {
+      this.state.learningState.recentInsights.splice(0, this.state.learningState.recentInsights.length - 200);
+    }
 
     if (Math.random() > 0.6) {
       await this.expressThought(`💡 ${insight}`);
@@ -351,14 +352,10 @@ export class CognitiveCore {
       // Mark as integrated
       insight.integrated = true;
       
-      // Add to knowledge base
+      // Add to knowledge base (LRUMap auto-evicts at capacity 500)
       this.state.learningState.currentKnowledge.set(
         `insight_${Date.now()}`,
-        {
-          type: 'insight',
-          content: insight.insight,
-          confidence: 0.8,
-        }
+        { type: 'insight', content: insight.insight, confidence: 0.8 }
       );
     });
   }
@@ -612,9 +609,3 @@ export class CognitiveCore {
 
 // Export singleton
 export const cognitiveCore = new CognitiveCore();
-
-// Auto-initialize
-if (typeof window !== 'undefined') {
-  
-  cognitiveCore.initialize().catch(console.error);
-}

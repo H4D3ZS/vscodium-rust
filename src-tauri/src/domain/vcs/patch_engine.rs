@@ -16,7 +16,7 @@ pub struct PatchEngine {
     // Keeps track of uncommitted changes for "shadow document" editing
     shadow_buffers: HashMap<PathBuf, Rope>,
     pub shadow_workspace: Arc<crate::shadow_workspace::ShadowWorkspace>,
-    pub app_handle: Arc<tokio::sync::Mutex<Option<tauri::AppHandle>>>,
+    editor_state: std::sync::RwLock<std::sync::Weak<crate::EditorState>>,
 }
 
 impl PatchEngine {
@@ -24,13 +24,14 @@ impl PatchEngine {
         Self {
             shadow_buffers: HashMap::new(),
             shadow_workspace,
-            app_handle: Arc::new(tokio::sync::Mutex::new(None)),
+            editor_state: std::sync::RwLock::new(std::sync::Weak::new()),
         }
     }
 
-    pub async fn set_app_handle(&self, handle: tauri::AppHandle) {
-        let mut h = self.app_handle.lock().await;
-        *h = Some(handle);
+    pub fn set_editor_state(&self, weak: std::sync::Weak<crate::EditorState>) {
+        if let Ok(mut g) = self.editor_state.write() {
+            *g = weak;
+        }
     }
 
     /// Parse content for SEARCH/REPLACE blocks.
@@ -122,6 +123,14 @@ impl PatchEngine {
         }
 
         let new_content = rope.to_string();
+        // Cap shadow buffers at 50 entries to prevent unbounded growth
+        const MAX_SHADOW_BUFFERS: usize = 50;
+        if self.shadow_buffers.len() >= MAX_SHADOW_BUFFERS {
+            // Remove the oldest entry (first key)
+            if let Some(oldest) = self.shadow_buffers.keys().next().cloned() {
+                self.shadow_buffers.remove(&oldest);
+            }
+        }
         self.shadow_buffers.insert(path.to_path_buf(), rope);
         
         // Mirror to physical shadow workspace
@@ -129,10 +138,8 @@ impl PatchEngine {
         std::fs::write(&shadow_path, &new_content)?;
         
         // Emit update event for real-time frontend streaming
-        let handle_opt = self.app_handle.lock().await;
-        if let Some(app) = handle_opt.as_ref() {
-            use tauri::Emitter;
-            let _ = app.emit("shadow-file-updated", &json!({
+        if let Some(es) = self.editor_state.read().ok().and_then(|w| w.upgrade()) {
+            es.emit("shadow-file-updated", json!({
                 "path": path,
                 "content": new_content,
                 "diff": self.get_diff(path, content)?

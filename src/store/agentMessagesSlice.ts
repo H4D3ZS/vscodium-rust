@@ -5,6 +5,7 @@ import type { StateCreator } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { MAX_AGENT_MESSAGES_IN_UI, MAX_AGENT_MESSAGE_CHARS } from '../domain/agent/AgentSessionPolicy';
 import type { AppState } from './index';
+import { boundedTail, MAX_THREAD_COUNT, MAX_RAW_BUFFER, MAX_MESSAGE_CONTENT } from '../domain/utils/boundedArray';
 import type {
     AgentMessage, AgentStep, Artifact, AttachedContext, AgentTask, TaskArtifact, SemanticSlot,
 } from './types';
@@ -18,6 +19,9 @@ import { type CustomMode, loadCustomModes, parseThought, normalizeBackendMessage
 export interface AgentMessagesSlice {
     agentMessages: AgentMessage[];
     isAgentThinking: boolean;
+    /** Antigravity-style run summary from the last completed agent run. */
+    lastRunSummary: { filesChanged: number; files: string[] } | null;
+    setLastRunSummary: (s: { filesChanged: number; files: string[] } | null) => void;
     isAgentPaused: boolean;
     isAgentBlocked: boolean;
     pendingAgentEdits: { path: string; tool: string; timestamp: number; preview?: string }[];
@@ -28,13 +32,13 @@ export interface AgentMessagesSlice {
     agentThreads: Record<string, {
         id: string;
         name: string;
-        messages: any[];
         isThinking: boolean;
         tasks: any[];
         artifacts: any[];
-        /** .aim path this tab was restored from — prevents duplicate tabs on re-click. */
         chatSessionPath?: string;
+        firstUserSnippet?: string;
     }>;
+    threadMessages: Record<string, AgentMessage[]>;
     activeAgentThreadId: string;
     /** Bumped after history restore so UI clears live tool-call overlays. */
     chatRestoreToken: number;
@@ -44,6 +48,7 @@ export interface AgentMessagesSlice {
     projectMemory: string;
     memoryFiles: string[];
     chatSessions: any[];
+    pendingThoughts: string;
     addAgentMessage: (role: 'user' | 'assistant', content: string, context?: AttachedContext[] | boolean) => void;
     updateLastAgentMessage: (content: string) => void;
     appendLastAgentMessage: (delta: string) => void;
@@ -57,6 +62,7 @@ export interface AgentMessagesSlice {
     resetThread: () => void;
     truncateAgentMessages: (index: number) => void;
     addPendingAgentEdit: (edit: { path: string; tool: string; preview?: string }) => void;
+    removePendingAgentEdit: (path: string) => void;
     clearPendingAgentEdits: () => void;
     openMultiFileReview: () => void;
     closeMultiFileReview: () => void;
@@ -103,6 +109,7 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
     attachedFiles: [],
     attachedContext: [],
     agentThreads: {},
+    threadMessages: {},
     activeAgentThreadId: '',
     chatRestoreToken: 0,
     contextSlots: [],
@@ -111,9 +118,23 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
     projectMemory: '',
     memoryFiles: [],
     chatSessions: [],
+    pendingThoughts: '',
     isDemoMode: false,
 
-    setIsAgentThinking: (isAgentThinking) => set({ isAgentThinking }),
+    setIsAgentThinking: (isAgentThinking) => set((state) => {
+        // When thinking stops, clear raw_buffer on all messages except the last
+        // (the last one may still be streaming). This frees up to ~1.28MB of
+        // dead weight from completed turns.
+        if (!isAgentThinking && state.agentMessages.length > 1) {
+            const msgs = state.agentMessages.map((m, i) =>
+                i < state.agentMessages.length - 1 ? { ...m, raw_buffer: undefined } : m
+            );
+            return { isAgentThinking, agentMessages: msgs };
+        }
+        return { isAgentThinking };
+    }),
+    lastRunSummary: null,
+    setLastRunSummary: (lastRunSummary) => set({ lastRunSummary }),
     setIsAgentPaused: (isAgentPaused) => set({ isAgentPaused }),
     setAgentBlocked: (isAgentBlocked) => set({ isAgentBlocked }),
     setAgentMessages: (agentMessages) => set({ agentMessages }),
@@ -147,7 +168,10 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
         const newMessage: any = { role, content, context, timestamp, isSubAgentResponse: isSubAgent, steps: role === 'assistant' ? [] : undefined };
         invoke('store_message', { role, content: typeof content === 'string' ? content : JSON.stringify(content), timestamp }).catch(console.error);
         let newMessages = [...agentMessages, newMessage];
-        const cap = MAX_AGENT_MESSAGES_IN_UI;
+        // Tighter transcript on low-end (≤4GB) machines — older messages are
+        // trimmed sooner so a long session stays lean (VS Code-style ring buffer).
+        const lowEnd = typeof document !== 'undefined' && document.body.classList.contains('low-end');
+        const cap = lowEnd ? 20 : MAX_AGENT_MESSAGES_IN_UI;
         if (newMessages.length > cap) {
             newMessages = newMessages.slice(newMessages.length - cap).map((m, i, arr) => {
                 if (i < arr.length - 6 && m.content && m.content.length > MAX_AGENT_MESSAGE_CHARS) {
@@ -156,20 +180,42 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
                 return m;
             });
         }
+
         let threadId = state.activeAgentThreadId;
         let agentThreads = state.agentThreads;
+        let threadMessages = { ...state.threadMessages };
         if (!threadId || !agentThreads[threadId]) {
             threadId = `agent-${Date.now()}`;
             agentThreads = {
                 ...agentThreads,
-                [threadId]: { id: threadId, name: 'Chat', messages: [], isThinking: false, tasks: [], artifacts: [] },
+                [threadId]: { id: threadId, name: 'Chat', isThinking: false, tasks: [], artifacts: [] },
             };
+            threadMessages[threadId] = [];
         }
+        threadMessages[threadId] = newMessages;
+
+        const firstSnippet = role === 'user'
+            ? (typeof content === 'string' ? content.slice(0, 18) : '').trim()
+            : (agentThreads[threadId]?.firstUserSnippet || '');
         agentThreads = {
             ...agentThreads,
-            [threadId]: { ...agentThreads[threadId], messages: newMessages },
+            [threadId]: { ...agentThreads[threadId], firstUserSnippet: firstSnippet },
         };
-        return { agentMessages: newMessages, activeAgentThreadId: threadId, agentThreads, agentToolBlocks };
+
+        const threadKeys = Object.keys(agentThreads);
+        if (threadKeys.length > MAX_THREAD_COUNT) {
+            const sorted = threadKeys.sort((a, b) => {
+                const aTs = parseInt(a.split('-')[1] || '0');
+                const bTs = parseInt(b.split('-')[1] || '0');
+                return aTs - bTs;
+            });
+            const toRemove = sorted.slice(0, sorted.length - MAX_THREAD_COUNT);
+            for (const k of toRemove) {
+                delete agentThreads[k];
+                delete threadMessages[k];
+            }
+        }
+        return { agentMessages: newMessages, activeAgentThreadId: threadId, agentThreads, threadMessages, agentToolBlocks };
     }),
 
     updateLastAgentMessage: (content) => set((state) => {
@@ -180,6 +226,13 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
             const rawContent = typeof content === 'string' ? content : (content && typeof content === 'object' && (content as any).content ? (content as any).content : String(content));
             let newContent = rawContent;
             let newThoughts = last.thoughts;
+
+            // Consume pending thoughts — thinking events that arrived before
+            // the assistant message was created are now attached to it.
+            if (state.pendingThoughts && !newThoughts) {
+                newThoughts = state.pendingThoughts;
+            }
+
             const thinkMatch = rawContent.match(/<think>([\s\S]*?)<\/think>/);
             if (thinkMatch) {
                 newThoughts = thinkMatch[1].trim();
@@ -207,11 +260,9 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
                 thoughtDurationMs,
             };
         }
-        const threadId = state.activeAgentThreadId;
-        const agentThreads = threadId && state.agentThreads[threadId]
-            ? { ...state.agentThreads, [threadId]: { ...state.agentThreads[threadId], messages } }
-            : state.agentThreads;
-        return { agentMessages: messages, agentThreads };
+        // MEMORY: skip the per-update agentThreads array duplication (synced on
+        // addAgentMessage). Live rendering reads agentMessages.
+        return { agentMessages: messages, pendingThoughts: '' };
     }),
 
     appendLastAgentMessage: (delta) => set((state: any) => {
@@ -226,36 +277,73 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
             const fullRaw = currentRaw + delta;
             let newContent = currentContent;
             let newThoughts = currentThoughts;
-            if (fullRaw.includes('<think>')) {
-                const thinkMatch = fullRaw.match(/<think>([\s\S]*?)<\/think>/);
-                if (thinkMatch) {
-                    const thoughtText = thinkMatch[1].trim();
-                    if (thoughtText) set({ currentThought: parseThought(thoughtText) });
-                    newContent = fullRaw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-                } else {
-                    const parts = fullRaw.split('<think>');
-                    newContent = parts[0] || '';
-                    const partialThought = parts[1] || '';
-                    if (partialThought) set({ currentThought: parseThought(partialThought.trim()) });
-                }
-            } else {
-                if (fullRaw.includes('</think>')) {
-                    newContent = fullRaw.split('</think>').pop()?.trim() || '';
+
+            // Consume pendingThoughts on first content delta (thinking that arrived
+            // before the assistant message was created).
+            if (!newThoughts && state.pendingThoughts && currentContent === '' && delta.length > 0) {
+                newThoughts = state.pendingThoughts;
+                messages[lastIndex] = { ...last, thoughts: newThoughts };
+            }
+            // Incremental <think>-block tracking. The old code regex-scanned the
+            // ENTIRE raw buffer on every streamed token (O(n) per token → O(n²)
+            // per turn) which caused massive GC churn mid-generation. Instead we
+            // memoize the parse phase on the message and only scan the delta
+            // (plus a small carry tail for tags split across chunk boundaries).
+            let phase: 'none' | 'open' | 'closed' = (last as any)._thinkPhase
+                || (currentRaw.includes('<think>')
+                    ? (currentRaw.includes('</think>') ? 'closed' : 'open')
+                    : 'none');
+            if (phase === 'none') {
+                if ((currentRaw.slice(-8) + delta).includes('<think>')) {
+                    // Transition — one full scan is fine here (once per message).
+                    phase = 'open';
+                    const openIdx = fullRaw.indexOf('<think>');
+                    newContent = fullRaw.slice(0, openIdx).trim();
+                    const afterOpen = fullRaw.slice(openIdx + 7);
+                    const closeIdx = afterOpen.indexOf('</think>');
+                    if (closeIdx >= 0) {
+                        phase = 'closed';
+                        const thoughtText = afterOpen.slice(0, closeIdx).trim();
+                        if (thoughtText) set({ currentThought: parseThought(thoughtText) });
+                        newThoughts = newThoughts ? newThoughts + '\n' + thoughtText : thoughtText;
+                        newContent = (newContent + ' ' + afterOpen.slice(closeIdx + 8)).trim();
+                    } else {
+                        if (afterOpen.trim()) set({ currentThought: parseThought(afterOpen.slice(-600).trim()) });
+                        newThoughts = newThoughts ? newThoughts + '\n' + afterOpen : afterOpen;
+                    }
                 } else {
                     newContent += delta;
                 }
+            } else if (phase === 'open') {
+                const carry = (last.thoughts || '').slice(-9);
+                if ((carry + delta).includes('</think>')) {
+                    phase = 'closed';
+                    // Transition — resolve boundaries with one full scan.
+                    const openIdx = fullRaw.indexOf('<think>');
+                    const closeIdx = fullRaw.indexOf('</think>', openIdx >= 0 ? openIdx : 0);
+                    const thoughtText = fullRaw.slice(openIdx >= 0 ? openIdx + 7 : 0, closeIdx).trim();
+                    if (thoughtText) set({ currentThought: parseThought(thoughtText) });
+                    newThoughts = thoughtText;
+                    newContent = ((openIdx > 0 ? fullRaw.slice(0, openIdx) : '') + ' ' + fullRaw.slice(closeIdx + 8)).trim();
+                } else {
+                    newThoughts = currentThoughts + delta;
+                    if (delta.trim()) set({ currentThought: parseThought(newThoughts.slice(-600).trim()) });
+                }
+            } else {
+                newContent += delta;
             }
-            messages[lastIndex] = { ...last, content: newContent, thoughts: newThoughts, raw_buffer: fullRaw,
+            const boundedRaw = fullRaw.length > MAX_RAW_BUFFER ? fullRaw.slice(-MAX_RAW_BUFFER) : fullRaw;
+            const boundedContent = newContent.length > MAX_MESSAGE_CONTENT ? newContent.slice(0, MAX_MESSAGE_CONTENT) : newContent;
+            messages[lastIndex] = { ...last, _thinkPhase: phase, content: boundedContent, thoughts: newThoughts, raw_buffer: boundedRaw,
                 thoughtStartedAt: last.thoughtStartedAt ?? (newThoughts ? Date.now() : undefined),
                 thoughtDurationMs: newThoughts && newContent && last.thoughtStartedAt
                     ? Date.now() - last.thoughtStartedAt
                     : last.thoughtDurationMs,
             };
-            const threadId = state.activeAgentThreadId;
-            const agentThreads = threadId && state.agentThreads[threadId]
-                ? { ...state.agentThreads, [threadId]: { ...state.agentThreads[threadId], messages } }
-                : state.agentThreads;
-            return { agentMessages: messages, agentThreads };
+            // MEMORY: do NOT re-duplicate the whole array into agentThreads on every
+            // token — that doubled heap churn during streaming. agentThreads is
+            // re-synced on addAgentMessage; live rendering reads agentMessages.
+            return { agentMessages: messages };
         }
         return state;
     }),
@@ -263,14 +351,40 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
     updateLastAgentThought: (thought) => set((state) => {
         const messages = [...state.agentMessages];
         const last = messages[messages.length - 1];
+        // The backend emits `ai-thinking` BOTH as per-token deltas (Ollama native
+        // streaming) and, in a few places, as a full accumulated snapshot. Replacing
+        // blindly showed "one word at a time". Merge intelligently: if the incoming
+        // text already contains everything we have, it's a snapshot → replace; if it's
+        // brand-new text → append; if it's a duplicate tail → ignore.
+        const merge = (cur: string, incoming: string): string => {
+            const c = cur || '';
+            const inc = incoming || '';
+            if (!inc) return c;
+            if (!c) return inc;
+            if (c.endsWith(inc)) return c;                 // duplicate delta
+            if (inc.length >= c.length && inc.startsWith(c)) return inc; // accumulated snapshot
+            return c + inc;                                // new delta → append
+        };
+        let merged = thought;
+
+        // If the last message is an assistant message, merge into its thoughts.
+        // If NOT (e.g. thinking events arrived before the assistant message was
+        // created), store in a pending buffer so the thoughts aren't silently
+        // discarded — they'll be attached when the assistant message appears.
         if (last?.role === 'assistant') {
+            merged = merge(last.thoughts || '', thought);
             messages[messages.length - 1] = {
                 ...last,
-                thoughts: thought,
+                thoughts: merged,
                 thoughtStartedAt: last.thoughtStartedAt ?? Date.now(),
             };
+            return { agentMessages: messages, currentThought: parseThought(merged) };
+        } else {
+            // No assistant message yet — buffer the thinking. It will be
+            // consumed when the first content chunk creates the assistant message.
+            const pending = merge(state.pendingThoughts || '', thought);
+            return { pendingThoughts: pending, currentThought: parseThought(pending) };
         }
-        return { agentMessages: messages, currentThought: parseThought(thought) };
     }),
 
     addAgentArtifact: (art) => {
@@ -307,6 +421,7 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
         }
         return { pendingAgentEdits: [...s.pendingAgentEdits, { ...edit, timestamp: Date.now() }] };
     }),
+    removePendingAgentEdit: (path) => set((s) => ({ pendingAgentEdits: s.pendingAgentEdits.filter(e => e.path !== path) })),
     clearPendingAgentEdits: () => set({ pendingAgentEdits: [] }),
     openMultiFileReview: () => set({ isMultiFileReviewOpen: true }),
     closeMultiFileReview: () => set({ isMultiFileReviewOpen: false, pendingAgentEdits: [] }),
@@ -410,19 +525,16 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
     setActiveAgentThread: (id) => {
         set((state: any) => {
             const prevId = state.activeAgentThreadId;
-            let threads = state.agentThreads;
-            if (prevId && threads[prevId] && prevId !== id) {
-                threads = {
-                    ...threads,
-                    [prevId]: { ...threads[prevId], messages: state.agentMessages },
-                };
+            const threadMessages = { ...state.threadMessages };
+            if (prevId && prevId !== id) {
+                threadMessages[prevId] = state.agentMessages;
             }
-            const thread = threads[id];
+            const thread = state.agentThreads[id];
             if (!thread) return state;
             return {
-                agentThreads: threads,
+                threadMessages,
                 activeAgentThreadId: id,
-                agentMessages: thread.messages,
+                agentMessages: threadMessages[id] || [],
                 agentTasks: thread.tasks,
             };
         });

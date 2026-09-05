@@ -26,6 +26,7 @@
 pub mod domain;
 pub mod infrastructure;
 
+#[cfg(feature = "tauri")]
 pub mod application {
     pub mod android_service;
     pub mod gradle_service;

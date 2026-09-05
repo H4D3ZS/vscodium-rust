@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
+import { sanitizeHtml } from '../../lib/markdown';
 // Emojis for icons since heroicons are not available
-const PuzzlePieceIcon = ({ className }: { className?: string }) => <span className={className}>🧩</span>;
-const ArrowLeftIcon = ({ className }: { className?: string }) => <span className={className}>⬅️</span>;
-const GlobeAltIcon = ({ className }: { className?: string }) => <span className={className}>🌐</span>;
-const ShieldCheckIcon = ({ className }: { className?: string }) => <span className={className}>🛡️</span>;
+const PuzzlePieceIcon = ({ className }: { className?: string }) => <span className={className}></span>;
+const ArrowLeftIcon = ({ className }: { className?: string }) => <span className={className}>⬅</span>;
+const GlobeAltIcon = ({ className }: { className?: string }) => <span className={className}></span>;
+const ShieldCheckIcon = ({ className }: { className?: string }) => <span className={className}></span>;
 const ArrowDownTrayIcon = ({ className }: { className?: string }) => <span className={className}>📥</span>;
-const TrashIcon = ({ className }: { className?: string }) => <span className={className}>🗑️</span>;
-const CheckIcon = ({ className }: { className?: string }) => <span className={className}>✅</span>;
-const ExclamationTriangleIcon = ({ className }: { className?: string }) => <span className={className}>⚠️</span>;
+const TrashIcon = ({ className }: { className?: string }) => <span className={className}>🗑</span>;
+const CheckIcon = ({ className }: { className?: string }) => <span className={className}></span>;
+const ExclamationTriangleIcon = ({ className }: { className?: string }) => <span className={className}></span>;
 
 
 export const ExtensionDetails: React.FC = () => {
@@ -181,7 +182,7 @@ export const ExtensionDetails: React.FC = () => {
             </div>
             <div className="prose prose-invert max-w-none text-zinc-400 leading-7">
               {extension?.readme ? (
-                <div className="markdown-body bg-transparent p-0" dangerouslySetInnerHTML={{ __html: extension.readme }} />
+                <div className="markdown-body bg-transparent p-0" dangerouslySetInnerHTML={{ __html: sanitizeHtml(extension.readme) }} />
               ) : (
                 <div className="bg-zinc-900/50 p-6 rounded-2xl border border-white/5 italic flex items-center gap-3">
                   <PuzzlePieceIcon className="w-5 h-5 opacity-50" />

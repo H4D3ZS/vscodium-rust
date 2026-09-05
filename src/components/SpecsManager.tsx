@@ -254,7 +254,7 @@ Begin generating tests now.`;
                                 fontSize: '11px', fontWeight: 600,
                             }}
                         >
-                            {isScaffolding ? '⚡ Scaffolding...' : '⚡ Scaffold Project'}
+                            {isScaffolding ? 'Scaffolding...' : 'Scaffold Project'}
                         </button>
                         <button
                             onClick={generateTests}
@@ -267,7 +267,7 @@ Begin generating tests now.`;
                                 fontSize: '11px', fontWeight: 600,
                             }}
                         >
-                            {isGeneratingTests ? '🧪 Generating...' : '🧪 Generate Tests'}
+                            {isGeneratingTests ? 'Generating...' : 'Generate Tests'}
                         </button>
                     </div>
 

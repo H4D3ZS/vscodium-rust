@@ -1,8 +1,6 @@
 //! Sentient: the AI engine struct, lifecycle, events, and reasoning entry.
 
 use anyhow::Result;
-use futures::StreamExt;
-use tauri::{Manager, Emitter};
 
 use reqwest::Client;
 use serde_json::{json, Value};
@@ -10,11 +8,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use tauri::AppHandle;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::Semaphore;
 
-use crate::ai_auth::AuthState;
 use crate::ai_tools::AiTools;
 use crate::mcp_registry::{McpRegistry, McpServerConfig};
 use crate::memory_store::MemoryStore;
@@ -29,7 +25,7 @@ use crate::workflow_engine::WorkflowEngine;
 ///
 /// IMPORTANT: the offensive-security tools at the end are a CORE IDE strength.
 /// Removing them would gut the red-team / pentest / bug-bounty playbooks. A
-/// regression test (`tests::ollama_essentials_keep_offensive_tools`) enforces
+/// regression test (`tests::local_essentials_keep_offensive_tools`) enforces
 /// their presence.
 pub(crate) const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
     // Frontend/Cursor-style schemas passed in from src/tool_registry.ts.
@@ -65,6 +61,8 @@ pub(crate) const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
     "security_scan", "audit_dependencies", "disassemble", "get_binary_info",
     // Common model alias names (resolved via tool_aliases.rs, kept in schema filter)
     "run_terminal_cmd", "run_command", "nmap", "searchsploit", "vuln_hunt",
+    // FastContext repository explorer — dedicated exploration subagent
+    "explore_repository",
     // Live web pentest / bug-bounty against a target URL. Without these, a local
     // security model (e.g. sec-eng-neuraldevil) gets NO web tooling — the first
     // essential-tools retain stripped them before the domain filter could keep
@@ -88,12 +86,14 @@ pub struct Sentient {
     pub workflow_engine: Arc<WorkflowEngine>,
     pub(crate) tool_invoker: Arc<ToolInvoker>,
     pub(crate) conversation_state: AsyncMutex<Vec<ChatMessage>>,
-    pub(crate) app_handle: std::sync::RwLock<Option<AppHandle>>,
-    pub(crate) auth_state: Arc<AuthState>,
-    pub(crate) ollama_url: tokio::sync::Mutex<String>,
+    pub(crate) editor_state: std::sync::RwLock<std::sync::Weak<crate::EditorState>>,
+    /// Lemonade server base URL. Set from the frontend (`set_lemonade_url`)
+    /// whenever the user picks the Lemonade inference backend or changes its
+    /// port in Settings. Defaults to `http://localhost:13305`.
+    pub(crate) lemonade_url: tokio::sync::Mutex<String>,
     /// Caps concurrent Ollama HTTP calls from this process so one desktop seat
     /// does not trip nginx `limit_conn` on a shared reverse proxy.
-    pub(crate) ollama_http_sem: Arc<Semaphore>,
+    pub(crate) local_http_sem: Arc<Semaphore>,
     pub(crate) _browser_state: Arc<crate::browser::BrowserState>,
     pub(crate) stop_signal: Arc<AtomicBool>,
     pub(crate) pause_signal: Arc<AtomicBool>,
@@ -139,11 +139,39 @@ pub struct Sentient {
     pub permission_senders: Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
 }
 
+/// True if `want` matches a model in `catalog`, tolerating the ways local model
+/// ids drift: exact, prefix either way (a `:latest`/quant suffix on one side),
+/// or a shared stem before the first `:` tag. Case-insensitive. Pure so the
+/// connectivity-preflight matching is unit-tested without a live server.
+pub(crate) fn model_in_catalog(want: &str, catalog: &[String]) -> bool {
+    let want = want.to_lowercase();
+    let want_stem = want.split(':').next().unwrap_or(&want);
+    catalog.iter().any(|m| {
+        let ml = m.to_lowercase();
+        ml == want
+            || ml.starts_with(&want)
+            || want.starts_with(&ml)
+            || ml.split(':').next().unwrap_or(&ml) == want_stem
+    })
+}
+
 impl Sentient {
+    /// Directory that holds `api_keys.json` — the brain dir's parent, falling
+    /// back to the brain dir itself when it is a filesystem root (no parent).
+    /// Never panics, unlike the former `brain_dir.parent().unwrap()`.
+    pub(crate) fn brain_parent(&self) -> &Path {
+        self.brain_dir.parent().unwrap_or(self.brain_dir.as_path())
+    }
+
+    /// Canonical path to the API-keys store. Collapses the repeated
+    /// `brain_dir.parent().unwrap().join("api_keys.json")` into one safe call.
+    pub(crate) fn api_keys_path(&self) -> PathBuf {
+        self.brain_parent().join("api_keys.json")
+    }
+
     pub fn new(
         api_key: String,
         root_path: PathBuf,
-        auth_state: Arc<AuthState>,
         browser_state: Arc<crate::browser::BrowserState>,
         git_manager: Arc<crate::git::GitManager>,
         config_dir: PathBuf,
@@ -167,7 +195,7 @@ impl Sentient {
             let ms = memory_store.clone();
             let rp = root_path.clone();
             let vb = vfs_bridge.clone();
-            tauri::async_runtime::spawn(async move {
+            crate::event_sink::spawn_detached(async move {
                 ms.mount(Some(rp)).await;
                 ms.set_vfs_bridge(vb).await;
             });
@@ -179,6 +207,8 @@ impl Sentient {
         // (those emits bypass `emit_event`, and the event stream is dead anyway).
         let activity_log: Arc<std::sync::Mutex<Vec<String>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
+        let yolo_flag: Arc<std::sync::atomic::AtomicBool> =
+            Arc::new(std::sync::atomic::AtomicBool::new(false));
         let ai_tools = Arc::new(AiTools::new(
             root_path.clone(),
             browser_state.clone(),
@@ -191,6 +221,7 @@ impl Sentient {
             shadow_workspace.clone(),
             None,
             activity_log.clone(),
+            yolo_flag.clone(),
         ));
         
         let task_planner = Arc::new(TaskPlanner::new());
@@ -205,7 +236,11 @@ impl Sentient {
 
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(600)) // 10 minute total timeout for heavy local inference
+            // 24/7 coding: a long local generation (or a cold model load) must NOT be
+            // killed by a total-request cap. The real hang guard is the per-chunk
+            // inter-token timeout in the streaming loop (no bytes for N s → error).
+            // Per-request `.timeout()` still tightens this for cloud/advisor calls.
+            .timeout(std::time::Duration::from_secs(3600))
             .no_proxy()
             .build()
             .unwrap_or_else(|_| Client::new());
@@ -221,10 +256,16 @@ impl Sentient {
             workflow_engine,
             tool_invoker,
             conversation_state: AsyncMutex::new(Vec::new()),
-            app_handle: std::sync::RwLock::new(None),
-            auth_state,
-            ollama_url: tokio::sync::Mutex::new("http://localhost:11434".to_string()),
-            ollama_http_sem: Arc::new(Semaphore::new(4)),
+            editor_state: std::sync::RwLock::new(std::sync::Weak::new()),
+            // Seed from the env var (if present) so a non-default port works on
+            // the very first request, before the frontend calls set_lemonade_url.
+            lemonade_url: tokio::sync::Mutex::new(
+                std::env::var("LEMONADE_URL")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| "http://localhost:13305".to_string()),
+            ),
+            local_http_sem: Arc::new(Semaphore::new(4)),
             _browser_state: browser_state.clone(),
             stop_signal: Arc::new(AtomicBool::new(false)),
             pause_signal: Arc::new(AtomicBool::new(false)),
@@ -238,7 +279,7 @@ impl Sentient {
             knowledge_distiller: Arc::new(crate::knowledge_distiller::KnowledgeDistiller::new(&root_path)),
             ghost_runtime,
             shadow_workspace,
-            yolo_mode: Arc::new(AtomicBool::new(false)),
+            yolo_mode: yolo_flag.clone(),
             silent_emits: Arc::new(AtomicUsize::new(0)),
             activity_log,
             pending_proposals: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -259,18 +300,123 @@ impl Sentient {
         SilentEmitGuard { counter: self.silent_emits.clone() }
     }
 
-    pub async fn set_ollama_url(&self, url: String) {
-        let normalized = normalize_ollama_base_url(&url);
-        let mut u = self.ollama_url.lock().await;
+    /// Resolve the active Lemonade base URL: the stored value (set from the
+    /// frontend), else `LEMONADE_URL` env var, else the default port.
+    /// Pre-run connectivity check for LOCAL providers. Converts the two silent-
+    /// failure modes into immediate, actionable feedback instead of a stalled turn:
+    ///   - server unreachable → hard `Err` (fail fast with the URL + underlying error)
+    ///   - model not in catalog → `Ok(Some(warning))` (the server may still load it
+    ///     on demand, so this is a heads-up, not a block).
+    /// `Ok(None)` means the server answered and the model looks present. Reuses
+    /// `list_models`, which already returns actionable auth/gate errors.
+    pub(crate) async fn local_connectivity_preflight(
+        &self,
+        provider: &str,
+        model: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let p = provider.to_lowercase();
+        let is_local = matches!(
+            p.as_str(),
+            "lemonade" | "huggingface" | "antigravity"
+                | "deepseek-ane" | "deepseek_ane" | "ds2-ane"
+        );
+        if !is_local {
+            return Ok(None);
+        }
+
+        let models = match self.list_models(provider).await {
+            Ok(m) => m,
+            Err(e) => {
+                let base = match p.as_str() {
+                    "lemonade" => self.lemonade_base().await,
+                    _ => String::new(),
+                };
+                return Err(anyhow::anyhow!(
+                    "{} server is not reachable{} — start it and confirm the URL in \
+                     Settings, then retry. ({})",
+                    provider,
+                    if base.is_empty() { String::new() } else { format!(" at {}", base) },
+                    e
+                ));
+            }
+        };
+        // Empty catalog: some gateways don't list; can't verify, so don't block.
+        if models.is_empty() {
+            return Ok(None);
+        }
+        if model_in_catalog(model, &models) {
+            return Ok(None);
+        }
+        let sample: Vec<String> = models.iter().take(8).cloned().collect();
+        let more = models.len().saturating_sub(sample.len());
+        Ok(Some(format!(
+            "Model '{}' is not in {}'s loaded catalog. Available: {}{}. The server may \
+             load it on demand; if the run stalls, pull or select one of these.",
+            model,
+            provider,
+            sample.join(", "),
+            if more > 0 { format!(", … (+{} more)", more) } else { String::new() }
+        )))
+    }
+
+    pub(crate) async fn lemonade_base(&self) -> String {
+        let stored = self.lemonade_url.lock().await.clone();
+        let raw = if !stored.trim().is_empty() {
+            stored
+        } else {
+            std::env::var("LEMONADE_URL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "http://localhost:13305".to_string())
+        };
+        // Return a normalized ROOT (no trailing slash, no trailing `/v1`). Callers
+        // append `/v1/models`, `/v1/chat/completions`, etc. The user often types
+        // the base WITH `/v1` (it's the documented client base URL), which would
+        // otherwise produce `/v1/v1/models`.
+        Self::strip_lemonade_v1(&raw)
+    }
+
+    /// Synchronous version of `lemonade_base` using `blocking_lock` to resolve
+    /// the base URL in synchronous contexts like `get_endpoint`.
+    pub(crate) fn lemonade_base_blocking(&self) -> String {
+        let stored = self.lemonade_url.blocking_lock().clone();
+        let raw = if !stored.trim().is_empty() {
+            stored
+        } else {
+            std::env::var("LEMONADE_URL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "http://localhost:13305".to_string())
+        };
+        Self::strip_lemonade_v1(&raw)
+    }
+
+    /// Strip a trailing slash and a trailing `/v1` segment from a Lemonade base.
+    pub(crate) fn strip_lemonade_v1(url: &str) -> String {
+        let t = url.trim().trim_end_matches('/');
+        t.strip_suffix("/v1").unwrap_or(t).trim_end_matches('/').to_string()
+    }
+
+    pub async fn set_lemonade_url(&self, url: String) {
+        let trimmed = url.trim().trim_end_matches('/').to_string();
+        let lower = trimmed.to_lowercase();
+        let normalized = if trimmed.is_empty() {
+            "http://localhost:13305".to_string()
+        } else if lower.starts_with("http://") || lower.starts_with("https://") {
+            trimmed
+        } else {
+            format!("http://{}", trimmed)
+        };
+        let mut u = self.lemonade_url.lock().await;
         *u = normalized;
     }
 
-    pub(crate) async fn ollama_http_permit(&self) -> tokio::sync::OwnedSemaphorePermit {
-        self.ollama_http_sem
+    pub(crate) async fn local_http_permit(&self) -> tokio::sync::OwnedSemaphorePermit {
+        self.local_http_sem
             .clone()
             .acquire_owned()
             .await
-            .expect("ollama_http_sem not closed")
+            .expect("local_http_sem not closed")
     }
 
     pub async fn set_advisor_model(&self, model: Option<String>) {
@@ -279,11 +425,12 @@ impl Sentient {
     }
 
     pub fn get_hades_harness(&self) -> Option<Arc<crate::hades_harness::HadesHarness>> {
-        let h_lock = self.app_handle.read().ok()?;
-        h_lock.as_ref().map(|h| {
-            let state: tauri::State<crate::EditorState> = h.state();
-            state.ai.harness.clone()
-        })
+        self.editor_state().map(|s| s.ai.harness.clone())
+    }
+
+    /// Upgrade the back-reference to the live EditorState, if still alive.
+    pub(crate) fn editor_state(&self) -> Option<Arc<crate::EditorState>> {
+        self.editor_state.read().ok().and_then(|w| w.upgrade())
     }
 
     /// Verifies if a code modification (patch or write) is valid according to the compiler.
@@ -341,16 +488,12 @@ impl Sentient {
         self.ai_tools.clone()
     }
 
-    pub async fn set_app_handle(&self, handle: AppHandle) {
-        if let Ok(mut h) = self.app_handle.write() {
-            *h = Some(handle.clone());
+    /// Set the EditorState back-reference. `ai_tools`/`memory_store`/`patch_engine`
+    /// are wired separately by `EditorState::wire_back_refs`.
+    pub fn set_editor_state(&self, weak: std::sync::Weak<crate::EditorState>) {
+        if let Ok(mut g) = self.editor_state.write() {
+            *g = weak;
         }
-        self.ai_tools.set_app_handle(handle.clone()).await;
-        
-        let ms = self.memory_store.clone();
-        tauri::async_runtime::spawn(async move {
-            ms.set_app_handle(handle).await;
-        });
     }
 
     pub fn set_root_path(&self, root_path: PathBuf) {
@@ -363,15 +506,15 @@ impl Sentient {
         let rp_mcp = root_path.clone();
         rules.set_root(root_path);
 
-        tauri::async_runtime::spawn(async move {
+        crate::event_sink::spawn_detached(async move {
             tools.set_root_path(rp_tools).await;
         });
 
-        tauri::async_runtime::spawn(async move {
+        crate::event_sink::spawn_detached(async move {
             ms.mount(Some(rp_mount)).await;
         });
 
-        tauri::async_runtime::spawn(async move {
+        crate::event_sink::spawn_detached(async move {
             if let Err(e) = mcp.merge_workspace_config(&rp_mcp).await {
                 eprintln!("[cursor] MCP merge failed: {e}");
             }
@@ -417,8 +560,6 @@ impl Sentient {
     /// and raises iteration ceiling to 200. Full sentient autonomy.
     pub fn set_yolo_mode(&self, enabled: bool) {
         self.yolo_mode.store(enabled, Ordering::SeqCst);
-        // Mirror to env var so ToolInvoker bypasses permission dialogs in yolo mode.
-        unsafe { std::env::set_var("AIRI_YOLO_MODE", if enabled { "1" } else { "0" }); }
         println!("[Sentient] Yolo mode: {}", if enabled { "ENGAGED" } else { "OFF" });
     }
 
@@ -431,6 +572,10 @@ impl Sentient {
         if let Ok(mut b) = self.chat_stream_buf.lock() {
             b.clear();
         }
+        // Kill any foreground command still running (e.g. a long scan). The loop's
+        // stop check only fires between tools, so without this a running child
+        // (nmap/ffuf/sqlmap) would keep going and wedge the turn until it exits.
+        crate::process_registry::kill_all();
         self.emit_event("ai-stopped", json!({ "reason": "user" }));
     }
 
@@ -510,15 +655,8 @@ impl Sentient {
                 }
             }
         }
-        use tauri::Emitter;
-        if let Ok(guard) = self.app_handle.read() {
-            if let Some(handle) = guard.as_ref() {
-                let _ = handle.emit(event, payload);
-            } else {
-                println!("[WARN] emit_event: app_handle is None for event '{}'", event);
-            }
-        } else {
-            println!("[WARN] emit_event: COULD NOT ACQUIRE READ LOCK for event '{}'", event);
+        if let Some(es) = self.editor_state() {
+            es.emit(event, payload);
         }
     }
 
@@ -606,7 +744,7 @@ mod tests {
     /// the essential set would hide them from small models and break the
     /// red-team / pentest / bug-bounty workflows.
     #[test]
-    pub(crate) fn ollama_essentials_keep_offensive_tools() {
+    pub(crate) fn local_essentials_keep_offensive_tools() {
         for tool in [
             "weaponize_env",
             "apex_red_team_scan",
@@ -637,8 +775,33 @@ mod tests {
 
     /// The AIM zero-grep tools must also stay available to local models.
     #[test]
-    pub(crate) fn ollama_essentials_keep_aim_tools() {
+    pub(crate) fn local_essentials_keep_aim_tools() {
         assert!(OLLAMA_ESSENTIAL_TOOLS.contains(&"aim_pack_context"));
         assert!(OLLAMA_ESSENTIAL_TOOLS.contains(&"aim_query_spans"));
+    }
+
+    use super::model_in_catalog;
+
+    #[test]
+    fn catalog_match_exact_and_case_insensitive() {
+        let cat = vec!["Qwen2.5-Coder:7b".to_string(), "gemma-4-12b".to_string()];
+        assert!(model_in_catalog("qwen2.5-coder:7b", &cat));
+        assert!(model_in_catalog("GEMMA-4-12B", &cat));
+    }
+
+    #[test]
+    fn catalog_match_tolerates_tag_suffix_either_side() {
+        // Requested bare stem, catalog has a :tag — and vice versa.
+        let cat = vec!["llama3.1:8b-instruct-q4_0".to_string()];
+        assert!(model_in_catalog("llama3.1", &cat));
+        let cat2 = vec!["llama3.1".to_string()];
+        assert!(model_in_catalog("llama3.1:8b", &cat2));
+    }
+
+    #[test]
+    fn catalog_match_rejects_absent_model() {
+        let cat = vec!["qwen2.5-coder:7b".to_string(), "gemma-4-12b".to_string()];
+        assert!(!model_in_catalog("deepseek-r1:32b", &cat));
+        assert!(!model_in_catalog("mistral", &cat));
     }
 }

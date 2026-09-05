@@ -106,13 +106,24 @@ pub struct FuzzableParam {
 }
 
 /// Minimal HTTP request model. Expanded in Phase 3 (engine) — kept lean for now.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpRequest {
     pub method: String,
     pub uri: String,
     pub headers: Vec<(String, String)>,
     #[serde(default)]
     pub body: String,
+}
+
+impl Default for HttpRequest {
+    fn default() -> Self {
+        Self {
+            method: "GET".into(),
+            uri: String::new(),
+            headers: Vec::new(),
+            body: String::new(),
+        }
+    }
 }
 
 impl HttpRequest {
@@ -131,6 +142,11 @@ pub struct HttpResponse {
     /// True if the fetch failed (network error / timeout). Modules check this.
     #[serde(default)]
     pub fetch_fail: bool,
+    /// Wall-clock time the request took, in milliseconds. Exposed to JS modules
+    /// as `response.milliseconds` — the basis for blind timing detection
+    /// (`sql-timing-injection`, `command-injection`).
+    #[serde(default)]
+    pub elapsed_ms: u64,
 }
 
 impl HttpResponse {

@@ -18,22 +18,26 @@ export const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fiel
     { id: 'deepseek', label: 'DeepSeek', fields: ['apiKey'], keyUrl: 'https://platform.deepseek.com/api_keys', hint: 'DeepSeek V4-Pro — 1M ctx, ~120x cheaper cache hits, strong agent/coder' },
     { id: 'mimo', label: 'Xiaomi MiMo', fields: ['apiKey'], keyUrl: 'https://platform.xiaomimimo.com/', hint: 'MiMo v2.5-Pro — flat-rate Token Plan coding sub (3rd-party allowed)', baseUrlKey: 'mimo_base_url', baseUrlPlaceholder: 'https://api.xiaomimimo.com/v1' },
     { id: 'highwayapi', label: 'JieKou AI — Claude Opus 4.8', fields: ['apiKey'], keyUrl: 'https://jiekou.ai/', hint: 'Claude Opus 4.8 via JieKou AI / Highway API. Defaults to the documented OpenAI-compatible base when Base URL is blank.', baseUrlKey: 'highwayapi_base_url', baseUrlPlaceholder: 'https://api.highwayapi.ai/openai' },
-    { id: 'COMMUNITYAI', label: 'Community AI Cloud', fields: ['apiKey', 'endpoint'], hint: 'Our hosted AMD MI300X Ollama. Auto-connects to ai.example.invalid with your subscription — no key needed when signed in. OpenAI-compatible; type any model name you pulled (e.g. qwen2.5-coder:32b).', baseUrlKey: 'COMMUNITYAI_base_url', baseUrlPlaceholder: 'https://example.invalid (default)' },
+    { id: 'cyberifrit', label: 'Cyber-Ifrit Cloud', fields: ['apiKey', 'endpoint'], hint: 'Our hosted AMD MI300X Ollama. Auto-connects to ai.cyberifrit.xyz with your subscription — no key needed when signed in. OpenAI-compatible; type any model name you pulled (e.g. qwen2.5-coder:32b).', baseUrlKey: 'cyberifrit_base_url', baseUrlPlaceholder: 'https://ai.cyberifrit.xyz (default)' },
     { id: 'xAI', label: 'xAI / Grok', fields: ['apiKey'], keyUrl: 'https://console.x.ai/', hint: 'Grok 3 with 128K context' },
     { id: 'mistral', label: 'Mistral', fields: ['apiKey'], keyUrl: 'https://console.mistral.ai/api-keys/', hint: 'Codestral / Devstral — best local coding models' },
-    { id: 'ollama', label: 'Ollama (Local)', local: true, fields: ['endpoint'], hint: 'Free local inference — no API key needed' },
+    { id: 'huggingface', label: 'Hugging Face (Free GLM-5.2)', fields: ['apiKey'], keyUrl: 'https://huggingface.co/settings/tokens', hint: 'Free GLM-5.2 via HF Router — OpenAI-compatible API', baseUrlKey: 'huggingface_base_url', baseUrlPlaceholder: 'https://router.huggingface.co/v1' },
+    { id: 'openmodel', label: 'OpenModel.ai', fields: ['apiKey'], hint: 'DeepSeek V4 Flash — 1M ctx, 8.2K output, function calling, streaming.', baseUrlKey: 'openmodel_base_url', baseUrlPlaceholder: 'https://api.openmodel.ai' },
+    { id: 'lemonade', label: 'Lemonade (Local)', local: true, fields: ['endpoint'], hint: 'Local llama.cpp inference — no API key needed' },
+    { id: 'lemonade', label: 'Lemonade (Local)', local: true, fields: ['endpoint'], hint: 'AMD NVIDIA/ROCm optimized — auto-detects models, proper tokenization' },
     { id: 'vLLM', label: 'vLLM', local: true, fields: ['endpoint', 'apiKey'], hint: 'Production-grade local inference server' },
     { id: 'lmStudio', label: 'LM Studio', local: true, fields: ['endpoint'], hint: 'GUI-based local model runner' },
     { id: 'liteLLM', label: 'LiteLLM', local: true, fields: ['endpoint', 'apiKey'], hint: 'Proxy server to route between providers' },
 ];
 
-const FEATURES: FeatureName[] = ['Chat', 'Apply', 'Autocomplete', 'QuickEdit', 'SCM'];
+const FEATURES: FeatureName[] = ['Chat', 'Apply', 'Autocomplete', 'QuickEdit', 'SCM', 'Web'];
 const FEATURE_DESC: Record<FeatureName, string> = {
     Chat: 'Main sidebar agent & chat',
     Apply: 'Fast Apply / surgical file edits',
     Autocomplete: 'Inline FIM completions (Tab key)',
     QuickEdit: 'Ctrl+K quick inline edit',
     SCM: 'Git commit message generation',
+    Web: 'Web search & crawl (lightweight model recommended)',
 };
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -213,14 +217,14 @@ export function AgentBackendCard() {
                 {agentBackend === 'sentient' ? (
                     <span>
                         Hermes skills: {hermesSt?.skillsCount ?? '…'} integrated natively.{' '}
-                        Git Bash: {shellSt?.ready ? `✅ ${shellSt.gitBash}` : `⚠ configure PortableGit (see below)`}
+                        Git Bash: {shellSt?.ready ? `${shellSt.gitBash}` : `configure PortableGit (see below)`}
                     </span>
                 ) : checking ? (
-                    <span>⏳ checking…</span>
+                    <span>checking…</span>
                 ) : status?.available ? (
-                    <span>✅ claurst ready{status.version ? ` — ${status.version}` : ''}</span>
+                    <span>claurst ready{status.version ? ` — ${status.version}` : ''}</span>
                 ) : (
-                    <span>⚠ {status?.reason || 'claurst not found'}</span>
+                    <span>{status?.reason || 'claurst not found'}</span>
                 )}
             </div>
             <div style={{ marginTop: 8 }}>
@@ -278,7 +282,7 @@ export function ModelsPanel() {
                                         setModelSel(feat, { providerName: prov as ProviderName, modelName: rest.join('|') });
 
                                         // Auto-downgrade APEX models when Ollama (local) is selected
-                                        if (prov === 'ollama') {
+                                        if (prov === 'lemonade') {
                                             try {
                                                 const { invoke } = await import('../../tauri_bridge');
                                                 await invoke('apex_set_local_mode', { smallModel: 'qwen3.5:2b' });
@@ -378,18 +382,22 @@ export function ProvidersPanel() {
             if (stored.xai) nextKeys['xAI'] = stored.xai;
             if (stored.mistral) nextKeys['mistral'] = stored.mistral;
             if (stored.mimo) nextKeys['mimo'] = stored.mimo;
-            if (stored.COMMUNITYAI) nextKeys['COMMUNITYAI'] = stored.COMMUNITYAI;
+            if (stored.cyberifrit) nextKeys['cyberifrit'] = stored.cyberifrit;
             if (stored.highwayapi) nextKeys['highwayapi'] = stored.highwayapi;
             if (stored.cerebras) nextKeys['cerebras'] = stored.cerebras;
             if (stored.alibaba) nextKeys['alibaba'] = stored.alibaba;
             if (stored.nvidia) nextKeys['nvidia'] = stored.nvidia;
+            if (stored.huggingface) nextKeys['huggingface'] = stored.huggingface;
+            if (stored.openmodel) nextKeys['openmodel'] = stored.openmodel;
             // Base URL overrides
             if (stored.anthropic_base_url) nextBaseUrls['anthropic'] = stored.anthropic_base_url;
             if (stored.openai_base_url) nextBaseUrls['openAI'] = stored.openai_base_url;
             if (stored.google_base_url) nextBaseUrls['gemini'] = stored.google_base_url;
             if (stored.mimo_base_url) nextBaseUrls['mimo'] = stored.mimo_base_url;
-            if (stored.COMMUNITYAI_base_url) nextBaseUrls['COMMUNITYAI'] = stored.COMMUNITYAI_base_url;
+            if (stored.cyberifrit_base_url) nextBaseUrls['cyberifrit'] = stored.cyberifrit_base_url;
             if (stored.highwayapi_base_url) nextBaseUrls['highwayapi'] = stored.highwayapi_base_url;
+            if (stored.huggingface_base_url) nextBaseUrls['huggingface'] = stored.huggingface_base_url;
+            if (stored.openmodel_base_url) nextBaseUrls['openmodel'] = stored.openmodel_base_url;
             setKeys(prev => ({ ...prev, ...nextKeys }));
             setBaseUrls(prev => ({ ...prev, ...nextBaseUrls }));
         }).catch(() => {
@@ -499,7 +507,8 @@ export function ProvidersPanel() {
                         className="settings-input"
                         style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: 12 }}
                         placeholder={
-                            p.id === 'ollama' ? 'http://127.0.0.1:11434' :
+                            p.id === 'ollama' ? 'http://127.0.0.1:13305' :
+                            p.id === 'lemonade' ? 'http://127.0.0.1:13305' :
                             p.id === 'lmStudio' ? 'http://127.0.0.1:1234' :
                             p.id === 'vLLM' ? 'http://127.0.0.1:8000' : 'http://127.0.0.1:4000'
                         }

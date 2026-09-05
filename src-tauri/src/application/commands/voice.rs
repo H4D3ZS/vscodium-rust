@@ -1,5 +1,4 @@
 use tauri::State;
-use crate::EditorState;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -21,7 +20,7 @@ struct ApiKeys {
 }
 
 #[tauri::command]
-pub async fn elevenlabs_get_voices(state: State<'_, EditorState>) -> Result<Vec<ElevenLabsVoice>, String> {
+pub async fn elevenlabs_get_voices(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Vec<ElevenLabsVoice>, String> {
     let path = state.config_dir.join("api_keys.json");
     let api_key: String = if path.exists() {
         let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;

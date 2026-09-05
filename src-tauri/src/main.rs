@@ -35,7 +35,10 @@ fn main() {
     }
 
     // Call the lib runner which initializes everything properly
+    #[cfg(feature = "tauri")]
     vscode_rust_app_lib::run();
+    #[cfg(not(feature = "tauri"))]
+    eprintln!("This binary was built without the `tauri` feature. Use the gpui-ide native shell for the headless build.");
 }
 
 /// Linux/WebKitGTK display hardening. Newer WebKitGTK (2.42+) with several GPU

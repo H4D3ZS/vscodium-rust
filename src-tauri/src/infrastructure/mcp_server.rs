@@ -29,12 +29,23 @@ impl McpServer {
             Ok(l) => l,
             Err(e) => {
                 eprintln!("[MCP-SERVER] ⚠️ Failed to bind to primary port {}: {}. Trying random port...", addr, e);
-                // Fallback to dynamic port selection
-                tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("[MCP-SERVER] ❌ Critical: Failed to bind to ANY port")
+                match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+                    Ok(l) => l,
+                    Err(e2) => {
+                        eprintln!("[MCP-SERVER] ❌ Failed to bind to any port: {}. MCP server disabled.", e2);
+                        return;
+                    }
+                }
             }
         };
 
-        let local_addr = listener.local_addr().expect("[MCP-SERVER] ❌ Failed to get local address");
+        let local_addr = match listener.local_addr() {
+            Ok(addr) => addr,
+            Err(e) => {
+                eprintln!("[MCP-SERVER] ❌ Failed to get local address: {}", e);
+                return;
+            }
+        };
         println!("[MCP-SERVER] ✅ Server active at: http://{}", local_addr);
         
         if let Err(e) = axum::serve(listener, app).await {

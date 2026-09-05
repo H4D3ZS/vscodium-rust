@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { AppState } from './index';
+import { boundedPush, MAX_DEBUG_OUTPUT } from '../domain/utils/boundedArray';
 
 export interface DebugBreakpoint {
     id: string;
@@ -75,7 +76,7 @@ export const createDebugSlice: StateCreator<AppState, [], [], DebugSlice> = (set
         set({ isDebugging: active, debugSessionName: name, ...(active ? {} : { debugThreads: [], debugStackFrames: [], debugVariables: [] }) }),
 
     addDebugOutput: (line) =>
-        set((s) => ({ debugOutput: [...s.debugOutput.slice(-200), line] })),
+        set((s) => ({ debugOutput: boundedPush(s.debugOutput, line, MAX_DEBUG_OUTPUT) })),
 
     clearDebugOutput: () => set({ debugOutput: [] }),
 

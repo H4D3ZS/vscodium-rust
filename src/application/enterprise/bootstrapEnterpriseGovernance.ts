@@ -20,7 +20,7 @@ export async function bootstrapEnterpriseGovernance(): Promise<void> {
 
         if (policy?.offline_only) {
             store.setOllamaServerMode?.('local');
-            try { localStorage.setItem('inferenceBackend', 'ollama'); } catch { /* */ }
+            try { localStorage.setItem('inferenceBackend', 'lemonade'); } catch { /* */ }
         }
         if (policy?.require_secure_mode) {
             try {

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "tauri")]
 use tauri::{AppHandle, Emitter};
 use base64::{engine::general_purpose, Engine as _};
+#[cfg(feature = "tauri")]
 use tauri_plugin_dialog::DialogExt;
 use std::path::PathBuf;
 use daemon::gist::GistInjector;
@@ -20,6 +22,9 @@ pub struct AttachmentInfo {
 pub struct AttachmentManager {
     pub gist_injector: GistInjector,
     pub processing_lock: Mutex<()>,
+    /// Base URL for the inference backend (Ollama/Lemonade). Defaults to
+    /// `http://127.0.0.1:11434`; updated via `set_inference_url`.
+    pub inference_url: Mutex<String>,
 }
 
 impl AttachmentManager {
@@ -27,7 +32,13 @@ impl AttachmentManager {
         Self {
             gist_injector: GistInjector::new(),
             processing_lock: Mutex::new(()),
+            inference_url: Mutex::new("http://127.0.0.1:11434".to_string()),
         }
+    }
+
+    /// Update the inference endpoint URL (e.g. when switching to Lemonade).
+    pub async fn set_inference_url(&self, url: String) {
+        *self.inference_url.lock().await = url;
     }
 
     pub async fn process_file(&self, path: PathBuf, model: &str) -> Result<AttachmentInfo, String> {
@@ -48,8 +59,9 @@ impl AttachmentManager {
              println!("[DEBUG] Visual Asset detected. Checking for Ollama vision models...");
              
              // 1. Find a vision-capable model (local Ollama)
+             let base_url = self.inference_url.lock().await.clone();
              let vision_model = crate::vision_sidecar::discover_best_vision_model(
-                 "http://127.0.0.1:11434",
+                 &base_url,
                  "",
              )
              .await;
@@ -129,7 +141,7 @@ impl AttachmentManager {
                     }
                 }
                 
-                self.gist_injector.inject_knowledge(&fixed_vec).await;
+                let _ = self.gist_injector.inject_knowledge(&fixed_vec).await;
                 
                 // 3. Return info with Gist
                 let current_gist = self.gist_injector.get_gist_token().await;
@@ -165,7 +177,9 @@ impl AttachmentManager {
 
         println!("[DEBUG] Requesting embedding from Ollama for model: {}", model);
         
-        let res = client.post("http://127.0.0.1:11434/api/embeddings")
+        let base_url = self.inference_url.lock().await.clone();
+        let url = format!("{}/api/embeddings", base_url.trim_end_matches('/'));
+        let res = client.post(&url)
             .json(&serde_json::json!({
                 "model": model,
                 "prompt": text,
@@ -214,6 +228,8 @@ impl AttachmentManager {
         let b64_img = general_purpose::STANDARD.encode(img_bytes);
         
         let client = reqwest::Client::new();
+        let base_url = self.inference_url.lock().await.clone();
+        let url = format!("{}/api/generate", base_url.trim_end_matches('/'));
         let payload = serde_json::json!({
             "model": model,
             "prompt": "Describe this image in detail, focusing on UI elements, code structures, or relevant visual context for a software developer. Be concise but thorough.",
@@ -222,7 +238,7 @@ impl AttachmentManager {
             "keep_alive": 0 // Force GPU free after call
         });
 
-        let res = client.post("http://127.0.0.1:11434/api/generate")
+        let res = client.post(&url)
             .json(&payload)
             .send()
             .await
@@ -238,12 +254,14 @@ impl AttachmentManager {
     pub async fn unload_model(&self, model: &str) -> Result<(), String> {
         let client = reqwest::Client::new();
         println!("[DEBUG] Requesting Ollama to unload model: {}", model);
+        let base_url = self.inference_url.lock().await.clone();
+        let url = format!("{}/api/generate", base_url.trim_end_matches('/'));
         let payload = serde_json::json!({
             "model": model,
             "keep_alive": 0
         });
         
-        let _ = client.post("http://127.0.0.1:11434/api/generate")
+        let _ = client.post(&url)
             .json(&payload)
             .send()
             .await;
@@ -254,6 +272,8 @@ impl AttachmentManager {
 
 use std::sync::Arc;
 
+#[cfg(feature = "tauri")]
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub async fn select_and_process_attachment(
     app: AppHandle,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface ComposerThinkingBlockProps {
     thoughts: string;
@@ -14,9 +14,23 @@ function formatDuration(ms?: number): string {
 }
 
 const ComposerThinkingBlock: React.FC<ComposerThinkingBlockProps> = ({ thoughts, durationMs, isStreaming }) => {
-    const [open, setOpen] = useState(isStreaming ?? false);
+    // Cursor-style: ALWAYS collapsed. The reasoning never streams into the chat;
+    // you only see the live "Thinking…" / final "Thought for Ns" label. Click to
+    // expand and read the reasoning on demand.
+    const [open, setOpen] = useState(false);
+
+    // Live elapsed counter while the model reasons (no durationMs yet).
+    const [liveMs, setLiveMs] = useState(0);
+    useEffect(() => {
+        if (!isStreaming) return;
+        const start = Date.now();
+        setLiveMs(0);
+        const t = setInterval(() => setLiveMs(Date.now() - start), 500);
+        return () => clearInterval(t);
+    }, [isStreaming]);
+
     const label = isStreaming
-        ? 'Thinking…'
+        ? (liveMs >= 1000 ? `Thinking for ${formatDuration(liveMs)}` : 'Thinking…')
         : durationMs
             ? `Thought for ${formatDuration(durationMs)}`
             : 'Thought process';

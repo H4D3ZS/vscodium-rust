@@ -339,6 +339,71 @@ function registerCoreCommands() {
             },
         },
         {
+            id: 'security.action.generateExploitArtifact',
+            label: 'Security: Generate Exploit Artifact (BugTrace CORE-Ultra)',
+            run: async () => {
+                const task = window.prompt(
+                    'Describe the security artifact to generate (Nuclei template, CVE PoC, JWT cracker, bypass, kernel exploit):',
+                );
+                if (!task) return;
+                try {
+                    const res = await invoke<{ artifact?: string }>('apex_exploit_tooling', { task });
+                    const artifact = (res && res.artifact) || '';
+                    if (!artifact.trim()) {
+                        alert('No artifact returned. Is Lemonade running with CORE-Ultra loaded on :13305?');
+                        return;
+                    }
+                    const target = window.prompt('Save artifact to path:', 'exploit_artifact.md');
+                    if (!target) return;
+                    await invoke('write_file_content', { path: target, content: artifact });
+                    await store.openFile(target);
+                } catch (e) {
+                    alert(`Exploit tooling failed: ${e}`);
+                }
+            },
+        },
+        {
+            id: 'mobile.mirrorPhysicalIphone',
+            label: 'Cyber-Ifrit: Mirror Physical iPhone (USB)',
+            run: async () => {
+                const s = getStore();
+                s.setEmulatorPanelPosition('device');
+                s.openEmulatorPanel();
+            },
+        },
+        {
+            id: 'mobile.deployFlutterIphone',
+            label: 'Cyber-Ifrit: Build & Deploy Flutter to iPhone',
+            run: async () => {
+                const s = getStore();
+                s.setEmulatorPanelPosition('device');
+                s.openEmulatorPanel();
+                try {
+                    const pre = await invoke<{ ready_flutter: boolean; notes: string[] }>('iphone_deploy_preflight');
+                    if (!pre.ready_flutter) {
+                        alert('Flutter deploy toolchain incomplete:\n\n' + pre.notes.join('\n') +
+                            '\n\nOpen the 📱 Device tab → Build & Deploy to configure and run.');
+                    }
+                } catch { /* panel still opens */ }
+            },
+        },
+        {
+            id: 'mobile.deployReactNativeIphone',
+            label: 'Cyber-Ifrit: Build & Deploy React Native to iPhone',
+            run: async () => {
+                const s = getStore();
+                s.setEmulatorPanelPosition('device');
+                s.openEmulatorPanel();
+                try {
+                    const pre = await invoke<{ ready_react_native: boolean; notes: string[] }>('iphone_deploy_preflight');
+                    if (!pre.ready_react_native) {
+                        alert('React Native deploy toolchain incomplete:\n\n' + pre.notes.join('\n') +
+                            '\n\nOpen the 📱 Device tab → Build & Deploy to configure and run.');
+                    }
+                } catch { /* panel still opens */ }
+            },
+        },
+        {
             id: 'git.clone',
             label: 'Git: Clone Repository...',
             run: async () => {
@@ -565,4 +630,8 @@ export function initCommands() {
 
     document.addEventListener('keydown', handleGlobalKeydown);
     paletteInitialized = true;
+}
+
+export function destroyCommands(): void {
+    document.removeEventListener('keydown', handleGlobalKeydown);
 }

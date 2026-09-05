@@ -1,26 +1,25 @@
 use tauri::State;
-use crate::EditorState;
 use crate::extension_host;
 use crate::marketplace;
 use serde_json::{json, Value};
 use std::fs;
 
 #[tauri::command]
-pub async fn ext_host_init(state: State<'_, EditorState>, app: tauri::AppHandle) -> Result<(), String> {
+pub async fn ext_host_init(state: State<'_, std::sync::Arc<crate::EditorState>>, app: tauri::AppHandle) -> Result<(), String> {
     let mut eh = state.ext.host.lock().await;
     eh.scan_extensions().map_err(|e| e.to_string())?;
     eh.start(app).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn ext_host_send(state: State<'_, EditorState>, msg: String) -> Result<(), String> {
+pub async fn ext_host_send(state: State<'_, std::sync::Arc<crate::EditorState>>, msg: String) -> Result<(), String> {
     let mut eh = state.ext.host.lock().await;
     eh.send_message(msg).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn ext_host_sync_workspace(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     folders: Vec<Value>,
 ) -> Result<(), String> {
     let mut eh = state.ext.host.lock().await;
@@ -42,7 +41,7 @@ pub async fn search_extensions(
 
 #[tauri::command]
 pub async fn install_extension(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     publisher: String,
     name: String,
     version: String,
@@ -109,7 +108,7 @@ pub async fn get_extension_details(id: String) -> Result<Value, String> {
 
 #[tauri::command]
 pub async fn uninstall_extension(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     publisher: String,
     name: String,
     version: Option<String>,
@@ -162,7 +161,7 @@ pub async fn uninstall_extension(
 
 #[tauri::command]
 pub async fn get_installed_extensions(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Vec<extension_host::ExtensionMetadata>, String> {
     let eh = state.ext.host.lock().await;
     Ok(eh.extensions.clone())
@@ -170,7 +169,7 @@ pub async fn get_installed_extensions(
 
 #[tauri::command]
 pub async fn install_vsix(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     path: String,
 ) -> Result<extension_host::ExtensionMetadata, String> {
     let vsix_path = std::path::PathBuf::from(&path);
@@ -210,12 +209,12 @@ pub async fn install_vsix(
 }
 
 #[tauri::command]
-pub async fn get_running_extensions(state: State<'_, EditorState>) -> Result<Vec<extension_host::ExtensionMetadata>, String> {
+pub async fn get_running_extensions(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Vec<extension_host::ExtensionMetadata>, String> {
     let eh = state.ext.host.lock().await;
     Ok(eh.extensions.clone())
 }
 #[tauri::command]
-pub async fn get_installed_themes(state: State<'_, EditorState>) -> Result<Vec<Value>, String> {
+pub async fn get_installed_themes(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Vec<Value>, String> {
     let mut themes = Vec::new();
     let eh = state.ext.host.lock().await;
 
@@ -242,7 +241,7 @@ pub async fn get_installed_themes(state: State<'_, EditorState>) -> Result<Vec<V
 }
 
 #[tauri::command]
-pub async fn get_icon_theme_mapping(state: State<'_, EditorState>) -> Result<Value, String> {
+pub async fn get_icon_theme_mapping(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Value, String> {
     let mut icon_themes = Vec::new();
     let eh = state.ext.host.lock().await;
 
@@ -269,7 +268,7 @@ pub async fn get_icon_theme_mapping(state: State<'_, EditorState>) -> Result<Val
 }
 
 #[tauri::command]
-pub async fn get_extension_contributions(state: State<'_, EditorState>) -> Result<Value, String> {
+pub async fn get_extension_contributions(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<Value, String> {
     let mut all_contributes = serde_json::Map::new();
     let eh = state.ext.host.lock().await;
 
@@ -292,7 +291,7 @@ pub async fn get_extension_contributions(state: State<'_, EditorState>) -> Resul
 }
 
 #[tauri::command]
-pub async fn load_extension_theme(_state: State<'_, EditorState>, theme_path: String) -> Result<Value, String> {
+pub async fn load_extension_theme(_state: State<'_, std::sync::Arc<crate::EditorState>>, theme_path: String) -> Result<Value, String> {
     let path = std::path::PathBuf::from(theme_path);
     if !path.exists() {
         return Err(format!("Theme file not found: {}", path.display()));
@@ -309,14 +308,14 @@ pub async fn refresh_popular_extensions() -> Result<Vec<marketplace::Marketplace
 
 #[tauri::command]
 pub async fn refresh_installed_extensions(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Vec<extension_host::ExtensionMetadata>, String> {
     get_installed_extensions(state).await
 }
 
 #[tauri::command]
 pub async fn check_activation_event(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     event: String,
 ) -> Result<(), String> {
     let mut am = state.ext.activation.lock().await;

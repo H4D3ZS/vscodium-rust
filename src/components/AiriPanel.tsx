@@ -145,7 +145,6 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     const wakeUp = useCallback(() => {
         setLastActivityTime(Date.now());
         if (isHibernating) {
-            console.log('[PERF] Waking AIRI Core from hibernation');
             setIsHibernating(false);
             setAiriLoading(true);
         }
@@ -168,7 +167,6 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
         }
         const iv = setInterval(() => {
             if (Date.now() - lastActivityRef.current > IDLE_TIMEOUT && !isHibernating) {
-                console.log('[PERF] Hibernating AIRI Core to save RAM (1.3GB cleanup)');
                 setIsHibernating(true);
             }
         }, 10000);
@@ -228,17 +226,14 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     // ── Lip Sync Integration ──────────────────────────────────────────────
     useEffect(() => {
         const handleLipSyncStart = (e: any) => {
-            console.log('[AiriPanel] 🎭 Lip sync STARTED');
             airiVRMAvatar.setSpeaking(true);
         };
 
         const handleLipSyncStop = () => {
-            console.log('[AiriPanel] 🎭 Lip sync STOPPED');
             airiVRMAvatar.setSpeaking(false);
         };
 
         const handleModelChange = (e: any) => {
-            console.log('[AiriPanel] 🎭 Model change requested:', e.detail);
             if (vrmContainerRef.current) {
                 setAiriLoading(true);
                 airiVRMAvatar.initialize(vrmContainerRef.current, e.detail.modelUrl)

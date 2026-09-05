@@ -22,7 +22,7 @@ const LogcatPanel: React.FC = () => {
 
     useEffect(() => {
         void refreshDevices();
-        const id = window.setInterval(refreshDevices, 5000);
+        const id = window.setInterval(refreshDevices, 15000);
         return () => window.clearInterval(id);
     }, [refreshDevices]);
 

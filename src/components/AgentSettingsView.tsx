@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
-import { COMMUNITYAI_CLOUD_OLLAMA_URL } from '../store/inferenceSlice';
+import { CYBERIFRIT_CLOUD_OLLAMA_URL } from '../store/inferenceSlice';
 import { classifyModels, modelKey } from '../model_capabilities';
 import { WORKSTATION_PRESETS, applyWorkstationPreset } from '../lib/workstationPresets';
 import { COMPOSER2_BLOG_URL, COMPOSER2_STACKS, applyComposer2Stack } from '../lib/composer2Stack';
@@ -17,7 +17,6 @@ import MemoryPanel from './MemoryPanel';
 export type AgentSettingsCategory =
     | 'general'
     | 'models'
-    | 'ollama'
     | 'agents'
     | 'mcps'
     | 'memory'
@@ -103,45 +102,11 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
         error?: string;
         hint: string;
     }
-    const [ollamaDiag, setOllamaDiag] = useState<OllamaDiagnostic | null>(null);
-    const [ollamaDiagBusy, setOllamaDiagBusy] = useState(false);
     const ttsStrategy = useStore(state => state.ttsStrategy);
     const setTtsStrategy = useStore(state => state.setTtsStrategy);
 
     const syncOllamaEndpoint = useStore(state => state.syncOllamaEndpoint);
 
-    useEffect(() => {
-        if (!visibleInCategory(category, 'ollama')) return;
-        void syncOllamaEndpoint?.();
-    }, [category, syncOllamaEndpoint]);
-
-    const runOllamaDiagnostic = async () => {
-        setOllamaDiagBusy(true);
-        try {
-            await syncOllamaEndpoint?.();
-            const url = useStore.getState().ollamaUrl;
-            const d = await invoke<OllamaDiagnostic>('diagnose_ollama');
-            setOllamaDiag(d);
-            if (d.ok) {
-                try { await refreshModels('ollama'); } catch { /* no-op */ }
-            }
-        } catch (e: any) {
-            const url = useStore.getState().ollamaUrl;
-            setOllamaDiag({
-                ok: false,
-                url,
-                endpoint: url,
-                bearer_configured: false,
-                status: null,
-                model_count: 0,
-                models: [],
-                error: String(e),
-                hint: 'Frontend failed to invoke diagnose_ollama. Rebuild the Tauri shell so the command is registered.',
-            });
-        } finally {
-            setOllamaDiagBusy(false);
-        }
-    };
 
     // AI Avatar Characters
     const avatarCharacters = [
@@ -164,7 +129,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
         openrouter: '',
         deepseek: '',
         mimo: '',
-        COMMUNITYAI: '',
+        cyberifrit: '',
         highwayapi: '',
         mistral: '',
         xai: '',
@@ -177,7 +142,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
         anthropic_base_url: '',
         google_base_url: '',
         mimo_base_url: '',
-        COMMUNITYAI_base_url: '',
+        cyberifrit_base_url: '',
         highwayapi_base_url: '',
     });
     const [realApiKey, setRealApiKey] = useState(''); // Store real ElevenLabs key separately
@@ -210,18 +175,12 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
     const [isAddingMcp, setIsAddingMcp] = useState(false);
 
     useEffect(() => {
-        console.log('[Settings] === Loading API keys and voice configuration ===');
 
         listMcpServers().catch(console.error);
 
         // Load existing saved keys (masked) and voice ID
         invoke<Record<string, string>>('get_api_keys')
             .then(keys => {
-                console.log('[Settings] ✅ API keys loaded:', Object.keys(keys));
-                console.log('[Settings] Keys:', {
-                    elevenlabs_api_key: (keys as any).elevenlabs_api_key ? 'present' : 'missing',
-                    elevenlabs_voice_id: (keys as any).elevenlabs_voice_id || 'NOT SET'
-                });
 
                 setApiKeys(prev => {
                     const newKeys = {
@@ -232,7 +191,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         openrouter: (keys as any).openrouter ? '••••••••' + ((keys as any).openrouter.slice(-4)) : '',
                         deepseek: (keys as any).deepseek ? '••••••••' + String((keys as any).deepseek).slice(-4) : '',
                         mimo: (keys as any).mimo ? '••••••••' + String((keys as any).mimo).slice(-4) : '',
-                        COMMUNITYAI: (keys as any).COMMUNITYAI ? '••••••••' + String((keys as any).COMMUNITYAI).slice(-4) : '',
+                        cyberifrit: (keys as any).cyberifrit ? '••••••••' + String((keys as any).cyberifrit).slice(-4) : '',
                         highwayapi: (keys as any).highwayapi ? '••••••••' + String((keys as any).highwayapi).slice(-4) : '',
                         mistral: (keys as any).mistral ? '********' + String((keys as any).mistral).slice(-4) : '',
                         xai: (keys as any).xai ? '********' + String((keys as any).xai).slice(-4) : '',
@@ -245,18 +204,13 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         anthropic_base_url: (keys as any).anthropic_base_url || '',
                         google_base_url: (keys as any).google_base_url || '',
                         mimo_base_url: (keys as any).mimo_base_url || '',
-                        COMMUNITYAI_base_url: (keys as any).COMMUNITYAI_base_url || '',
+                        cyberifrit_base_url: (keys as any).cyberifrit_base_url || '',
                         highwayapi_base_url: (keys as any).highwayapi_base_url || '',
                     };
-                    console.log('[Settings] Setting apiKeys state:', {
-                        elevenlabs: newKeys.elevenlabs ? `${newKeys.elevenlabs.substring(0, 8)}...` : 'EMPTY',
-                        elevenlabs_length: newKeys.elevenlabs?.length || 0
-                    });
 
                     // Store REAL key for API calls
                     if ((keys as any).elevenlabs_api_key) {
                         setRealApiKey((keys as any).elevenlabs_api_key);
-                        console.log('[Settings] ✅ Real API key stored (length:', (keys as any).elevenlabs_api_key.length, ')');
                     }
 
                     return newKeys;
@@ -264,7 +218,6 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
 
                 // Load saved ElevenLabs voice ID
                 const savedVoiceId = (keys as any).elevenlabs_voice_id;
-                console.log('[Settings] 🎤 Saved voice ID:', savedVoiceId);
 
                 if ((keys as any).ollama && String((keys as any).ollama).length > 0) {
                     setOllamaBearerSaved(true);
@@ -272,21 +225,18 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
 
                 if (savedVoiceId) {
                     setSelectedElevenLabsVoice(savedVoiceId);
-                    console.log('[Settings] ✅ Voice ID set in component state:', savedVoiceId);
 
                     // Also set it in voice.ts module
                     import('../voice').then(({ setSelectedVoice }) => {
                         setSelectedVoice(savedVoiceId);
-                        console.log('[Settings] ✅ Voice ID set in voice.ts:', savedVoiceId);
                     }).catch(err => {
-                        console.error('[Settings] ❌ Failed to set voice in voice.ts:', err);
+                        console.error('[Settings] Failed to set voice in voice.ts:', err);
                     });
                 } else {
-                    console.log('[Settings] ⚠️ No saved voice ID found in api_keys.json');
                 }
             })
             .catch(err => {
-                console.error('[Settings] ❌ Failed to load API keys:', err);
+                console.error('[Settings] Failed to load API keys:', err);
             });
 
         // Load custom avatar configuration
@@ -306,25 +256,20 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                 const { modelId, modelUrl } = JSON.parse(savedModel);
                 if (modelId) setVrmModelId(modelId);
                 if (modelUrl) setVrmModelUrl(modelUrl);
-                console.log('[Settings] ✅ Loaded VRM model from localStorage:', modelId);
             } catch (e) {
                 console.warn('[Settings] Failed to load VRM model from localStorage:', e);
             }
         }
 
-        console.log('[Settings] === Loading complete ===');
     }, []);
 
     // Force re-render when apiKeys are loaded (fixes input not updating)
     useEffect(() => {
         if (apiKeys.elevenlabs && apiKeys.elevenlabs.length > 0) {
-            console.log('[Settings] ✅ apiKeys.elevenlabs updated, length:', apiKeys.elevenlabs.length);
         }
     }, [apiKeys.elevenlabs]);
 
     const handleSaveKeys = async () => {
-        console.log('[Settings] === handleSaveKeys CALLED ===');
-        console.log('[Settings] apiKeys.elevenlabs BEFORE save:', apiKeys.elevenlabs ? `${apiKeys.elevenlabs.substring(0, 10)}... (length: ${apiKeys.elevenlabs.length})` : 'EMPTY');
 
         setSavingKeys(true);
         setKeyStatus({});
@@ -333,89 +278,67 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
             const keysToSave: Record<string, string> = {};
             if (apiKeys.anthropic && !isMaskedApiKey(apiKeys.anthropic)) {
                 keysToSave.anthropic = apiKeys.anthropic;
-                console.log('[Settings] Adding anthropic key to save');
             }
             if (apiKeys.google && !isMaskedApiKey(apiKeys.google)) {
                 keysToSave.google = apiKeys.google;
-                console.log('[Settings] Adding google key to save');
             }
             if (apiKeys.openai && !isMaskedApiKey(apiKeys.openai)) {
                 keysToSave.openai = apiKeys.openai;
-                console.log('[Settings] Adding openai key to save');
             }
             if ((apiKeys as any).groq && !isMaskedApiKey((apiKeys as any).groq)) {
                 keysToSave.groq = (apiKeys as any).groq;
-                console.log('[Settings] Adding groq key to save');
             }
             if ((apiKeys as any).openrouter && !isMaskedApiKey((apiKeys as any).openrouter)) {
                 keysToSave.openrouter = (apiKeys as any).openrouter;
-                console.log('[Settings] Adding openrouter key to save');
             }
             if ((apiKeys as any).deepseek && !isMaskedApiKey((apiKeys as any).deepseek)) {
                 keysToSave.deepseek = (apiKeys as any).deepseek;
-                console.log('[Settings] Adding deepseek key to save');
             }
             if ((apiKeys as any).mimo && !isMaskedApiKey((apiKeys as any).mimo)) {
                 keysToSave.mimo = (apiKeys as any).mimo;
             }
-            if ((apiKeys as any).COMMUNITYAI && !isMaskedApiKey((apiKeys as any).COMMUNITYAI)) {
-                keysToSave.COMMUNITYAI = (apiKeys as any).COMMUNITYAI;
+            if ((apiKeys as any).cyberifrit && !isMaskedApiKey((apiKeys as any).cyberifrit)) {
+                keysToSave.cyberifrit = (apiKeys as any).cyberifrit;
             }
             if ((apiKeys as any).highwayapi && !isMaskedApiKey((apiKeys as any).highwayapi)) {
                 keysToSave.highwayapi = (apiKeys as any).highwayapi;
             }
             if ((apiKeys as any).mimo_base_url) { keysToSave.mimo_base_url = (apiKeys as any).mimo_base_url; }
-            if ((apiKeys as any).COMMUNITYAI_base_url) { keysToSave.COMMUNITYAI_base_url = (apiKeys as any).COMMUNITYAI_base_url; }
+            if ((apiKeys as any).cyberifrit_base_url) { keysToSave.cyberifrit_base_url = (apiKeys as any).cyberifrit_base_url; }
             if ((apiKeys as any).highwayapi_base_url !== undefined) { keysToSave.highwayapi_base_url = (apiKeys as any).highwayapi_base_url; }
             if ((apiKeys as any).mistral && !isMaskedApiKey((apiKeys as any).mistral)) {
                 keysToSave.mistral = (apiKeys as any).mistral;
-                console.log('[Settings] Adding mistral key to save');
             }
             if ((apiKeys as any).xai && !isMaskedApiKey((apiKeys as any).xai)) {
                 keysToSave.xai = (apiKeys as any).xai;
-                console.log('[Settings] Adding xai key to save');
             }
             if ((apiKeys as any).cerebras && !isMaskedApiKey((apiKeys as any).cerebras)) {
                 keysToSave.cerebras = (apiKeys as any).cerebras;
-                console.log('[Settings] Adding cerebras key to save');
             }
             if ((apiKeys as any).alibaba && !isMaskedApiKey((apiKeys as any).alibaba)) {
                 keysToSave.alibaba = (apiKeys as any).alibaba;
-                console.log('[Settings] Adding alibaba key to save');
             }
             if ((apiKeys as any).nvidia && !isMaskedApiKey((apiKeys as any).nvidia)) {
                 keysToSave.nvidia = (apiKeys as any).nvidia;
-                console.log('[Settings] Adding nvidia key to save');
             }
             if ((apiKeys as any).elevenlabs && !isMaskedApiKey((apiKeys as any).elevenlabs)) {
                 keysToSave.elevenlabs_api_key = (apiKeys as any).elevenlabs;
-                console.log('[Settings] ✅ Adding elevenlabs key to save:', (apiKeys as any).elevenlabs.substring(0, 10) + `... (length: ${(apiKeys as any).elevenlabs.length})`);
             } else {
-                console.log('[Settings] ⚠️ Elevenlabs key NOT added to save:', {
-                    exists: !!(apiKeys as any).elevenlabs,
-                    starts_with_bullet: (apiKeys as any).elevenlabs?.startsWith('•'),
-                    value: (apiKeys as any).elevenlabs
-                });
             }
 
             // Save custom base URLs verbatim since they are not secret/masked
             if ((apiKeys as any).openai_base_url !== undefined) {
                 keysToSave.openai_base_url = (apiKeys as any).openai_base_url;
-                console.log('[Settings] Adding openai_base_url to save');
             }
             if ((apiKeys as any).anthropic_base_url !== undefined) {
                 keysToSave.anthropic_base_url = (apiKeys as any).anthropic_base_url;
-                console.log('[Settings] Adding anthropic_base_url to save');
             }
             if ((apiKeys as any).google_base_url !== undefined) {
                 keysToSave.google_base_url = (apiKeys as any).google_base_url;
-                console.log('[Settings] Adding google_base_url to save');
             }
 
-            console.log('[Settings] Keys to save:', Object.keys(keysToSave), 'elevenlabs_api_key in payload:', !!keysToSave.elevenlabs_api_key);
 
             const results = await invoke<Record<string, string>>('save_api_keys', { keys: keysToSave });
-            console.log('[Settings] ✅ Save result:', results);
 
             setKeyStatus(results);
 
@@ -430,7 +353,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                     await refreshModels();
                     const { availableModels } = (window as any).useStore?.getState?.() ?? {};
                     const count = (availableModels ?? []).filter((m: any) =>
-                        m.provider !== 'ollama' && m.provider !== 'antigravity'
+                        m.provider !== 'lemonade' && m.provider !== 'antigravity'
                     ).length;
                     setDetectedModelCount(count);
                 } catch (detectErr) {
@@ -441,19 +364,13 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
             }
 
             // Reload keys to confirm they were saved
-            console.log('[Settings] Reloading keys to verify save...');
             const reloadedKeys = await invoke<Record<string, string>>('get_api_keys');
-            console.log('[Settings] Reloaded keys:', {
-                elevenlabs_api_key: (reloadedKeys as any).elevenlabs_api_key ? `present (length: ${(reloadedKeys as any).elevenlabs_api_key.length})` : 'missing',
-                elevenlabs_voice_id: (reloadedKeys as any).elevenlabs_voice_id || 'NOT SET'
-            });
         } catch (err) {
-            console.error('[Settings] ❌ Save error:', err);
+            console.error('[Settings] Save error:', err);
             setKeyStatus({ error: String(err) });
         } finally {
             setSavingKeys(false);
         }
-        console.log('[Settings] === handleSaveKeys COMPLETE ===');
     };
 
     return (
@@ -704,10 +621,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                         window.dispatchEvent(new CustomEvent('airi-vrm-model-change', {
                                             detail: { modelId: vrmModelId, modelUrl: vrmModelUrl }
                                         }));
-                                        console.log('[VRM] Model change signal sent:', { modelId: vrmModelId, modelUrl: vrmModelUrl });
                                         // Persist selection to localStorage
                                         localStorage.setItem('airi-vrm-model', JSON.stringify({ modelId: vrmModelId, modelUrl: vrmModelUrl }));
-                                        console.log('[VRM] Model selection saved to localStorage');
                                     }}
                                     disabled={!showVrmAvatar}
                                     style={{
@@ -1048,12 +963,12 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         {([
                             {
-                                key: 'COMMUNITYAI',
-                                label: 'Community AI Cloud (subscription · AMD MI300X)',
+                                key: 'cyberifrit',
+                                label: 'Cyber-Ifrit Cloud (subscription · AMD MI300X)',
                                 placeholder: 'subscription token / JWT',
-                                baseUrlKey: 'COMMUNITYAI_base_url',
-                                baseUrlLabel: 'Community AI endpoint (dynamic — default api.example.invalid)',
-                                baseUrlPlaceholder: 'https://example.invalid'
+                                baseUrlKey: 'cyberifrit_base_url',
+                                baseUrlLabel: 'Cyber-Ifrit endpoint (dynamic — default api.cyberifrit.xyz)',
+                                baseUrlPlaceholder: 'https://api.cyberifrit.xyz'
                             },
                             {
                                 key: 'anthropic',
@@ -1198,431 +1113,6 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                 </section>
             )}
 
-            {visibleInCategory(category, 'ollama') && (
-                <section data-cat="ollama">
-                    <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
-                        Ollama Integration
-                    </div>
-
-                    {/* ── Inference target: Local · Cloud · Self-hosted ─────── */}
-                    <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                        gap: '10px',
-                        marginBottom: '14px',
-                    }}>
-                        {([
-                            {
-                                id: 'local' as const,
-                                title: 'Local',
-                                hint: 'Runs on your PC',
-                                endpoint: '127.0.0.1:11434',
-                                accent: '#64748b',
-                                icon: 'home',
-                            },
-                            {
-                                id: 'cloud' as const,
-                                title: 'Cloud Model',
-                                hint: 'Community AI AMD',
-                                endpoint: 'ai.example.invalid',
-                                accent: '#a855f7',
-                                icon: 'cloud',
-                            },
-                            {
-                                id: 'remote' as const,
-                                title: 'Self-Hosted',
-                                hint: 'Your own GPU server',
-                                endpoint: 'Custom URL',
-                                accent: '#10b981',
-                                icon: 'server-environment',
-                            },
-                        ]).map(opt => {
-                            const active = ollamaServerMode === opt.id;
-                            return (
-                                <button
-                                    key={opt.id}
-                                    type="button"
-                                    onClick={() => setOllamaServerMode(opt.id)}
-                                    style={{
-                                        position: 'relative',
-                                        padding: '12px 10px',
-                                        borderRadius: '10px',
-                                        cursor: 'pointer',
-                                        textAlign: 'left',
-                                        background: active
-                                            ? `linear-gradient(145deg, ${opt.accent}22 0%, rgba(0,0,0,0.25) 100%)`
-                                            : 'rgba(255,255,255,0.03)',
-                                        border: active
-                                            ? `1px solid ${opt.accent}88`
-                                            : '1px solid rgba(255,255,255,0.08)',
-                                        boxShadow: active ? `0 0 20px ${opt.accent}33` : 'none',
-                                        color: 'var(--vscode-foreground)',
-                                        transition: 'border-color 0.2s, box-shadow 0.2s, background 0.2s',
-                                    }}
-                                >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                                        <i className={`codicon codicon-${opt.icon}`} style={{
-                                            fontFamily: 'codicon', fontStyle: 'normal', fontSize: '16px',
-                                            color: active ? opt.accent : 'rgba(255,255,255,0.45)',
-                                        }} />
-                                        <span style={{ fontSize: '12px', fontWeight: 700 }}>{opt.title}</span>
-                                    </div>
-                                    <div style={{ fontSize: '10px', opacity: 0.55, lineHeight: 1.35 }}>{opt.hint}</div>
-                                    <div style={{
-                                        marginTop: '8px', fontSize: '9px', fontFamily: 'monospace',
-                                        opacity: active ? 0.85 : 0.4, color: active ? opt.accent : undefined,
-                                    }}>
-                                        {opt.endpoint}
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                    {/* Mode-specific detail card */}
-                    <div style={{
-                        marginBottom: '12px',
-                        padding: '14px',
-                        borderRadius: '10px',
-                        background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(0,0,0,0.15) 100%)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                    }}>
-                        {ollamaServerMode === 'cloud' && (
-                            <>
-                                <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: '#c4b5fd' }}>
-                                    Community AI Cloud — Pro plan or free trial
-                                </div>
-                                <p style={{ margin: '0 0 10px', fontSize: '11px', opacity: 0.65, lineHeight: 1.45 }}>
-                                    Sign in, then start the <strong>1-day free trial</strong> (Settings → Account) or subscribe to Pro+.
-                                    Your token is sent automatically — Community (free) tier cannot use the shared AMD GPU.
-                                </p>
-                                <div style={{
-                                    padding: '8px 10px', borderRadius: '6px', fontSize: '11px', fontFamily: 'monospace',
-                                    background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.25)', color: '#ddd6fe',
-                                }}>
-                                    {COMMUNITYAI_CLOUD_OLLAMA_URL}
-                                </div>
-                            </>
-                        )}
-                        {ollamaServerMode === 'local' && (
-                            <>
-                                <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>Local Ollama</div>
-                                <p style={{ margin: 0, fontSize: '11px', opacity: 0.65, lineHeight: 1.45 }}>
-                                    Uses Ollama on this machine. Install Ollama and pull models locally — free, private, runs offline.
-                                </p>
-                            </>
-                        )}
-                        {ollamaServerMode === 'remote' && (
-                            <>
-                                <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: '#6ee7b7' }}>
-                                    Self-Hosted — bring your own GPU box
-                                </div>
-                                <p style={{ margin: '0 0 10px', fontSize: '11px', opacity: 0.65, lineHeight: 1.45 }}>
-                                    Point at your own Ollama server (home lab, datacenter, 192GB VRAM rig). Optional bearer token below if your nginx requires it.
-                                </p>
-                                <input
-                                    type="text"
-                                    value={customOllamaUrl}
-                                    onChange={(e) => setCustomOllamaUrl(e.target.value)}
-                                    onBlur={() => { if (customOllamaUrl.trim()) refreshModels('ollama').catch(() => { }); }}
-                                    placeholder="http://192.168.1.50:11434  or  https://ollama.yourdomain.com"
-                                    style={{
-                                        width: '100%',
-                                        background: 'var(--vscode-input-background)',
-                                        color: 'var(--vscode-input-foreground)',
-                                        border: '1px solid var(--vscode-input-border)',
-                                        padding: '8px 10px',
-                                        fontSize: '12px',
-                                        borderRadius: '6px',
-                                        boxSizing: 'border-box',
-                                        fontFamily: 'monospace',
-                                    }}
-                                />
-                            </>
-                        )}
-                        <div style={{ marginTop: '12px', padding: '10px', border: '1px solid rgba(96,165,250,0.25)', borderRadius: '6px' }}>
-                            <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px' }}>
-                                Composer 2 stacks (local parity)
-                            </div>
-                            <p style={{ margin: '0 0 8px', fontSize: '10px', opacity: 0.6, lineHeight: 1.4 }}>
-                                Cursor&apos;s Composer 2 is closed-source (Kimi K2.5/K2.6 base + RL).{' '}
-                                <strong>AMD 3900X ★</strong> = hybrid: local fast chat (7B) on this PC, MiniMax agent on GPU server only.{' '}
-                                <a href={COMPOSER2_BLOG_URL} target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>Composer 2 blog</a>
-                            </p>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                {COMPOSER2_STACKS.map((stack) => (
-                                    <button
-                                        key={stack.id}
-                                        type="button"
-                                        title={stack.desc}
-                                        onClick={() => {
-                                            const host = stack.ollamaMode !== 'local'
-                                                ? customOllamaUrl || stack.remoteHost
-                                                : undefined;
-                                            void applyComposer2Stack(stack, host)
-                                                .then((notes) => {
-                                                    alert(
-                                                        `Composer 2 stack applied: ${stack.label}\n\n` +
-                                                        notes.join('\n'),
-                                                    );
-                                                })
-                                                .catch((e) => alert(String(e)));
-                                        }}
-                                        style={{
-                                            fontSize: '10px',
-                                            padding: '5px 10px',
-                                            borderRadius: '4px',
-                                            border: stack.id === 'composer2-amd3900'
-                                                ? '1px solid rgba(74,222,128,0.5)'
-                                                : '1px solid rgba(96,165,250,0.35)',
-                                            background: stack.id === 'composer2-amd3900'
-                                                ? 'rgba(74,222,128,0.12)'
-                                                : 'rgba(59,130,246,0.12)',
-                                            color: 'inherit',
-                                            cursor: 'pointer',
-                                        }}
-                                    >
-                                        {stack.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                        <div style={{ marginTop: '12px', padding: '10px', border: '1px solid var(--vscode-panel-border)', borderRadius: '6px' }}>
-                            <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px' }}>Workstation presets (Composer-style stack)</div>
-                            <p style={{ margin: '0 0 8px', fontSize: '10px', opacity: 0.6, lineHeight: 1.4 }}>
-                                Local unlimited Ollama — sets remote URL, planner, and executor in one click.
-                            </p>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                {WORKSTATION_PRESETS.map((preset) => (
-                                    <button
-                                        key={preset.id}
-                                        type="button"
-                                        title={preset.desc}
-                                        onClick={() => {
-                                            const host = preset.ollamaMode === 'remote' ? customOllamaUrl : undefined;
-                                            void applyWorkstationPreset(preset, host).catch((e) => alert(String(e)));
-                                        }}
-                                        style={{
-                                            fontSize: '10px',
-                                            padding: '5px 10px',
-                                            borderRadius: '4px',
-                                            border: '1px solid var(--vscode-panel-border)',
-                                            background: 'var(--vscode-button-secondaryBackground, #333)',
-                                            color: 'inherit',
-                                            cursor: 'pointer',
-                                        }}
-                                    >
-                                        {preset.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                        <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '10px', fontFamily: 'monospace' }}>
-                            Active endpoint: <span style={{ color: '#a5b4fc' }}>{ollamaUrl || '(none)'}</span>
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', opacity: ollamaServerMode === 'cloud' ? 0.45 : 1 }}>
-                            <label style={{ fontSize: '11px', opacity: 0.8 }}>
-                                {ollamaServerMode === 'cloud' ? 'Bearer token (not needed — uses sign-in)' : 'Ollama bearer (optional)'}
-                            </label>
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                <input
-                                    type="password"
-                                    autoComplete="off"
-                                    value={ollamaBearerDraft}
-                                    onChange={(e) => setOllamaBearerDraft(e.target.value)}
-                                    placeholder={ollamaBearerSaved ? 'Token saved — paste new to replace' : 'Bearer for self-hosted Ollama proxy (optional)'}
-                                    style={{ flex: 1, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '12px' }}
-                                />
-                                <button
-                                    type="button"
-                                    disabled={!ollamaBearerDraft.trim() || ollamaBearerStatus === 'saving'}
-                                    onClick={async () => {
-                                        const v = ollamaBearerDraft.trim();
-                                        if (!v) return;
-                                        setOllamaBearerStatus('saving');
-                                        try {
-                                            await invoke('save_api_keys', { keys: { ollama: v } });
-                                            setOllamaBearerDraft('');
-                                            setOllamaBearerSaved(true);
-                                            setApiKeys(prev => ({ ...prev, ollama: '••••••••' + v.slice(-4) }));
-                                            // Auto-reconnect: re-check status and re-list models so the
-                                            // red dot turns green without a second click.
-                                            try { await refreshModels('ollama'); } catch (e) { console.warn('[Settings] post-save Ollama refresh failed:', e); }
-                                            setOllamaBearerStatus('ok');
-                                            setTimeout(() => setOllamaBearerStatus('idle'), 2500);
-                                        } catch (e) {
-                                            console.error('[Settings] Failed to save Ollama bearer:', e);
-                                            setOllamaBearerStatus('error');
-                                            setTimeout(() => setOllamaBearerStatus('idle'), 4000);
-                                        }
-                                    }}
-                                    style={{
-                                        background: ollamaBearerStatus === 'ok' ? '#16a34a'
-                                            : ollamaBearerStatus === 'error' ? '#dc2626'
-                                                : ollamaBearerDraft.trim() ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground)',
-                                        color: 'var(--vscode-button-foreground)',
-                                        border: 'none',
-                                        padding: '4px 10px',
-                                        fontSize: '11px',
-                                        cursor: ollamaBearerDraft.trim() && ollamaBearerStatus !== 'saving' ? 'pointer' : 'not-allowed',
-                                        borderRadius: '4px',
-                                        whiteSpace: 'nowrap'
-                                    }}
-                                >
-                                    {ollamaBearerStatus === 'saving' ? 'Saving…'
-                                        : ollamaBearerStatus === 'ok' ? 'Saved ✓'
-                                            : ollamaBearerStatus === 'error' ? 'Failed'
-                                                : 'Save token'}
-                                </button>
-                            </div>
-                            <span style={{ fontSize: '10px', opacity: 0.65, lineHeight: 1.35 }}>
-                                Stored in <code style={{ fontSize: '10px' }}>api_keys.json</code> as <code style={{ fontSize: '10px' }}>ollama</code>.
-                                Or set env <code style={{ fontSize: '10px' }}>OLLAMA_API_KEY</code>. Sent as <code style={{ fontSize: '10px' }}>Authorization: Bearer …</code> on Ollama requests.
-                            </span>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{
-                                width: '8px',
-                                height: '8px',
-                                borderRadius: '50%',
-                                background: ollamaStatus === 'running' ? '#4ade80' : ollamaStatus === 'error' ? '#f87171' : '#fbbf24'
-                            }}></div>
-                            <span style={{ fontSize: '12px' }}>
-                                {ollamaStatus === 'running' ? 'Connected' : ollamaStatus === 'error' ? 'Error' : 'Checking...'}
-                            </span>
-                            <button
-                                onClick={runOllamaDiagnostic}
-                                disabled={ollamaDiagBusy}
-                                style={{
-                                    marginLeft: 'auto',
-                                    background: 'var(--vscode-button-background)',
-                                    color: 'var(--vscode-button-foreground)',
-                                    border: 'none', padding: '2px 8px', fontSize: '10px',
-                                    cursor: ollamaDiagBusy ? 'wait' : 'pointer', borderRadius: '4px',
-                                }}
-                                title="Probe the Ollama URL and tell me exactly what's wrong"
-                            >
-                                {ollamaDiagBusy ? 'Testing…' : 'Test connection'}
-                            </button>
-                            <button
-                                onClick={() => useStore.getState().syncOllamaEndpoint?.()}
-                                style={{ background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '2px 8px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px' }}
-                            >
-                                Reconnect
-                            </button>
-                        </div>
-
-                        {ollamaDiag && (
-                            <div
-                                style={{
-                                    marginTop: '4px',
-                                    padding: '10px 12px',
-                                    fontSize: '11px',
-                                    lineHeight: 1.45,
-                                    borderRadius: '6px',
-                                    background: ollamaDiag.ok ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)',
-                                    border: `1px solid ${ollamaDiag.ok ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
-                                    color: 'var(--vscode-foreground)',
-                                }}
-                            >
-                                <div style={{ fontWeight: 700, marginBottom: '6px', color: ollamaDiag.ok ? '#34d399' : '#f87171' }}>
-                                    {ollamaDiag.ok
-                                        ? `✓ Connected — ${ollamaDiag.model_count} model${ollamaDiag.model_count === 1 ? '' : 's'} discovered${ollamaDiag.fallback_used ? ' (via /v1/ fallback)' : ''}`
-                                        : `✗ Cannot list models${ollamaDiag.status ? ` (HTTP ${ollamaDiag.status})` : ''}`}
-                                </div>
-                                <div style={{ opacity: 0.85, marginBottom: '6px' }}>{ollamaDiag.hint}</div>
-                                {ollamaDiag.status === 402 && (
-                                    <div style={{ fontSize: '11px', marginBottom: '8px', padding: '8px', borderRadius: '6px', background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)' }}>
-                                        <strong>Not a connection failure</strong> — the VPS responded but denied cloud access for your tier.
-                                        Open <strong>Settings → Account</strong> to start the 1-day trial or upgrade to Pro Developer.
-                                    </div>
-                                )}
-                                <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '2px 8px', fontFamily: 'var(--vscode-editor-font-family, monospace)', fontSize: '10px', opacity: 0.85 }}>
-                                    <span style={{ opacity: 0.6 }}>endpoint</span><span style={{ wordBreak: 'break-all' }}>{ollamaDiag.endpoint}</span>
-                                    <span style={{ opacity: 0.6 }}>bearer</span><span>{ollamaDiag.bearer_configured ? 'sent (Authorization: Bearer …)' : 'not configured'}</span>
-                                    {ollamaDiag.status !== null && (
-                                        <>
-                                            <span style={{ opacity: 0.6 }}>http status</span><span>{ollamaDiag.status}</span>
-                                        </>
-                                    )}
-                                    {ollamaDiag.content_type && (
-                                        <>
-                                            <span style={{ opacity: 0.6 }}>content-type</span><span>{ollamaDiag.content_type}</span>
-                                        </>
-                                    )}
-                                    {ollamaDiag.error && (
-                                        <>
-                                            <span style={{ opacity: 0.6 }}>error</span><span style={{ color: '#f87171', wordBreak: 'break-all' }}>{ollamaDiag.error_kind ? `[${ollamaDiag.error_kind}] ` : ''}{ollamaDiag.error}</span>
-                                        </>
-                                    )}
-                                </div>
-                                {ollamaDiag.body_preview && (
-                                    <details style={{ marginTop: '8px' }}>
-                                        <summary style={{ cursor: 'pointer', fontSize: '10px', opacity: 0.7 }}>Body preview</summary>
-                                        <pre style={{ marginTop: '4px', padding: '6px 8px', background: 'rgba(0,0,0,0.35)', borderRadius: '4px', fontSize: '10px', maxHeight: '120px', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                                            {ollamaDiag.body_preview}
-                                        </pre>
-                                    </details>
-                                )}
-                                {ollamaDiag.models && ollamaDiag.models.length > 0 && (
-                                    <details style={{ marginTop: '6px' }} open>
-                                        <summary style={{ cursor: 'pointer', fontSize: '10px', opacity: 0.7 }}>Models ({ollamaDiag.models.length})</summary>
-                                        <div style={{ marginTop: '4px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                                            {ollamaDiag.models.map((m) => (
-                                                <span key={m} style={{ padding: '2px 6px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', fontSize: '10px', fontFamily: 'monospace' }}>{m}</span>
-                                            ))}
-                                        </div>
-                                    </details>
-                                )}
-                            </div>
-                        )}
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px', padding: '10px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '2px', opacity: ollamaServerMode === 'cloud' ? 0.45 : 1, pointerEvents: ollamaServerMode === 'cloud' ? 'none' : 'auto' }}>
-                            <label style={{ fontSize: '11px', fontWeight: 600, opacity: 0.7 }}>Pull New Model {ollamaServerMode === 'cloud' ? '(local/self-hosted only)' : ''}</label>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <input
-                                    type="text"
-                                    placeholder="e.g. deepseek-v3"
-                                    value={pullInput}
-                                    onChange={(e) => setPullInput(e.target.value)}
-                                    style={{ flex: 1, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '11px' }}
-                                    disabled={isPullingModel}
-                                />
-                                <button
-                                    onClick={() => {
-                                        if (pullInput) {
-                                            pullOllamaModel(pullInput);
-                                            setPullInput('');
-                                        }
-                                    }}
-                                    disabled={isPullingModel || !pullInput}
-                                    style={{
-                                        background: isPullingModel ? 'var(--vscode-button-secondaryBackground)' : 'var(--vscode-button-background)',
-                                        color: 'var(--vscode-button-foreground)',
-                                        border: 'none',
-                                        padding: '4px 12px',
-                                        fontSize: '11px',
-                                        cursor: isPullingModel ? 'wait' : 'pointer',
-                                        borderRadius: '2px',
-                                        fontWeight: 600
-                                    }}
-                                >
-                                    {isPullingModel ? 'Pulling...' : 'Pull'}
-                                </button>
-                            </div>
-                            {isPullingModel && (
-                                <div style={{ height: '2px', background: 'rgba(255,255,255,0.1)', borderRadius: '1px', marginTop: '4px', overflow: 'hidden' }}>
-                                    <div style={{ height: '100%', width: '100%', background: '#3b82f6', animation: 'progressIndeterminate 1.5s infinite linear' }}></div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </section>
-            )}
 
             {/* ── Voice / TTS Settings ── */}
             {visibleInCategory(category, 'voice') && (
@@ -1657,7 +1147,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             </select>
                             <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '2px' }}>
                                 {ttsStrategy === 'qwen-native'
-                                    ? '⚠️ Requires Qwen3-TTS Python server running on port 8080'
+                                    ? 'Requires Qwen3-TTS Python server running on port 8080'
                                     : 'Select the primary voice synthesis engine.'}
                             </div>
                         </div>
@@ -1695,9 +1185,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                 </button>
                                 <button
                                     onClick={async () => {
-                                        console.log('[ElevenLabs] 🔄 Force replacing API key...');
                                         const apiKey = (apiKeys as any).elevenlabs;
-                                        console.log('[ElevenLabs] Current key:', apiKey ? `${apiKey.substring(0, 8)}...` : 'empty', 'length:', apiKey?.length);
 
                                         // Always save, even if masked (force replace)
                                         if (apiKey && apiKey.length > 10) {
@@ -1705,24 +1193,18 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                                 const result = await invoke('save_api_keys', {
                                                     keys: { elevenlabs_api_key: apiKey }
                                                 });
-                                                console.log('[ElevenLabs] ✅ Force replace result:', result);
                                                 setKeyStatus(prev => ({ ...prev, ...(result as Record<string, string>) }));
 
                                                 // Verify save
                                                 const reloaded = await invoke('get_api_keys');
-                                                console.log('[ElevenLabs] 🔍 Verified save:', {
-                                                    elevenlabs_api_key: (reloaded as any).elevenlabs_api_key ? '✓ REPLACED' : '✗ FAILED',
-                                                    elevenlabs_voice_id: (reloaded as any).elevenlabs_voice_id || 'NOT SET'
-                                                });
 
-                                                alert('✅ ElevenLabs API key REPLACED successfully!\n\nOld key has been overwritten with new key.\nCheck console for details.');
+                                                alert('ElevenLabs API key REPLACED successfully!\n\nOld key has been overwritten with new key.\nCheck console for details.');
                                             } catch (err: any) {
-                                                console.error('[ElevenLabs] ❌ Force replace failed:', err);
-                                                alert('❌ Failed to replace: ' + (err.message || err));
+                                                console.error('[ElevenLabs] Force replace failed:', err);
+                                                alert('Failed to replace: ' + (err.message || err));
                                             }
                                         } else {
-                                            console.log('[ElevenLabs] ⚠️ Key too short');
-                                            alert('⚠️ Please enter a valid API key (starts with sk_, min 10 chars)');
+                                            alert('Please enter a valid API key (starts with sk_, min 10 chars)');
                                         }
                                     }}
                                     style={{
@@ -1754,14 +1236,12 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                 // Import voice module dynamically to set selected voice in voice.ts
                                 import('../voice').then(({ setSelectedVoice }) => {
                                     setSelectedVoice(voiceId);
-                                    console.log('[Settings] ElevenLabs voice set:', voiceId);
                                 });
 
                                 // Save to persistent storage
                                 invoke('save_api_keys', {
                                     keys: { elevenlabs_voice_id: voiceId }
                                 }).then(() => {
-                                    console.log('[Settings] ElevenLabs voice ID saved');
                                 }).catch(err => {
                                     console.error('[Settings] Failed to save voice ID:', err);
                                 });

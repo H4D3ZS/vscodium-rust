@@ -15,7 +15,23 @@ import { scheduleDeferredInit } from '../../memory_budget';
  * Chat listeners are lightweight; sentient-core + tool_registry load only when
  * companion mode is on or the user sends a message.
  */
+/**
+ * Idempotency guard. This runs keyboard registration, stream subscribers and a
+ * deferred init that kicks off workspace indexing — none of which are cheap or
+ * safe to repeat. Two call sites exist (the legacy `agent.ts` entry and
+ * `ensureAgentRuntime`), and React StrictMode double-invokes effects in dev, so
+ * without this the boot ran up to 4x: 4 LSP servers, 4 index cycles over ~2800
+ * files, duplicate extension hosts. That is most of the startup stall.
+ */
+let bootstrapped: Promise<void> | null = null;
+
 export async function bootstrapAgentRuntime(): Promise<void> {
+    if (bootstrapped) return bootstrapped;
+    bootstrapped = bootstrapAgentRuntimeOnce();
+    return bootstrapped;
+}
+
+async function bootstrapAgentRuntimeOnce(): Promise<void> {
     bootstrapHeavyFeaturesDefaults();
     scheduleDeferredHeavyStacks();
     console.log('[bootstrapAgentRuntime] attaching stream subscriber');

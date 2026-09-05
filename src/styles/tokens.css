@@ -58,6 +58,21 @@
     --color-hover: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.05));
     --color-active: var(--vscode-list-activeSelectionBackground, rgba(0, 122, 204, 0.3));
 
+    /* ── Component-specific tokens ───────────────────────────────────────── */
+    --color-statusBar-background: var(--vscode-statusBar-background, #007acc);
+    --color-activityBar-background: var(--vscode-activityBar-background, #333333);
+    --color-sideBar-background: var(--vscode-sideBar-background, #252526);
+    --color-editor-background: var(--vscode-editor-background, #1e1e1e);
+    --color-panel-background: var(--vscode-panel-background, #1e1e1e);
+    --color-tab-activeBackground: var(--vscode-tab-activeBackground, #1e1e1e);
+    --color-tab-inactiveBackground: var(--vscode-tab-inactiveBackground, #2d2d2d);
+
+    /* ── Status colors ───────────────────────────────────────────────────── */
+    --color-status-connected: #10b981;
+    --color-status-error: #f43f5e;
+    --color-status-warning: #f59e0b;
+    --color-status-info: #3b82f6;
+
     /* ── Z-index scale ──────────────────────────────────────────────────── */
     --z-base: 1;
     --z-panel: 100;

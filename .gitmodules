@@ -1,0 +1,6 @@
+[submodule "turbovec"]
+	path = turbovec
+	url = https://github.com/RyanCodrai/turbovec.git
+[submodule "kortex"]
+	path = kortex
+	url = https://github.com/H4D3ZS/kortex

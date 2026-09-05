@@ -28,6 +28,39 @@ import { cleanAgentContent, shouldReplaceAgentContent } from '../../domain/agent
 
 let attached = false;
 
+const AI_CONTENT_MIN_MS = 80;
+const AI_CONTENT_MAX = 48_000;
+let _aiContentPending: string | null = null;
+let _aiContentTimer: ReturnType<typeof setTimeout> | null = null;
+let _aiContentLastFlush = 0;
+
+function capForRender(s: string): string {
+    if (s.length <= AI_CONTENT_MAX) return s;
+    const head = s.slice(0, 32_000);
+    const tail = s.slice(-12_000);
+    const omitted = s.length - head.length - tail.length;
+    return `${head}\n\n_…(${(omitted / 1024).toFixed(0)} KB omitted from view to protect renderer memory)…_\n\n${tail}`;
+}
+
+function flushAiContent(): void {
+    if (_aiContentPending == null) return;
+    const c = _aiContentPending;
+    _aiContentPending = null;
+    if (_aiContentTimer) { clearTimeout(_aiContentTimer); _aiContentTimer = null; }
+    _aiContentLastFlush = Date.now();
+    const { updateLastAgentMessage } = useStore.getState();
+    updateLastAgentMessage(cleanAgentContent(capForRender(c)));
+}
+
+function scheduleAiContent(content: string): void {
+    _aiContentPending = content;
+    const since = Date.now() - _aiContentLastFlush;
+    if (!_aiContentTimer && since >= AI_CONTENT_MIN_MS) { flushAiContent(); return; }
+    if (!_aiContentTimer) {
+        _aiContentTimer = setTimeout(() => { _aiContentTimer = null; flushAiContent(); }, Math.max(0, AI_CONTENT_MIN_MS - since));
+    }
+}
+
 function boundedWebUiCache(): Record<string, string> {
     const w = window as any;
     if (!w.__hadesWebUiResponseCache) w.__hadesWebUiResponseCache = {};
@@ -40,24 +73,32 @@ function boundedWebUiCache(): Record<string, string> {
     return cache;
 }
 
-/** Composer diff review shortcuts (Alt+J/K/Enter/Shift+Backspace). */
+function agentKeydownHandler(e: KeyboardEvent): void {
+    if (!e.altKey) return;
+    if (e.key === 'j' || e.key === 'J') {
+        e.preventDefault();
+        navigatePendingChange('next');
+    } else if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        navigatePendingChange('prev');
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        acceptFocusedPendingChange();
+    } else if (e.key === 'Backspace' && e.shiftKey) {
+        e.preventDefault();
+        rejectFocusedPendingChange();
+    }
+}
+
+let agentShortcutsInstalled = false;
 export function registerAgentKeyboardShortcuts(): void {
-    window.addEventListener('keydown', (e: KeyboardEvent) => {
-        if (!e.altKey) return;
-        if (e.key === 'j' || e.key === 'J') {
-            e.preventDefault();
-            navigatePendingChange('next');
-        } else if (e.key === 'k' || e.key === 'K') {
-            e.preventDefault();
-            navigatePendingChange('prev');
-        } else if (e.key === 'Enter') {
-            e.preventDefault();
-            acceptFocusedPendingChange();
-        } else if (e.key === 'Backspace' && e.shiftKey) {
-            e.preventDefault();
-            rejectFocusedPendingChange();
-        }
-    });
+    if (agentShortcutsInstalled) return;
+    agentShortcutsInstalled = true;
+    window.addEventListener('keydown', agentKeydownHandler);
+}
+
+export function unregisterAgentKeyboardShortcuts(): void {
+    window.removeEventListener('keydown', agentKeydownHandler);
 }
 
 export async function attachAgentStreamSubscriber(): Promise<void> {
@@ -65,17 +106,15 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
     attached = true;
 
     listen('ai-content', (event: any) => {
-        const { updateLastAgentMessage, setIsAgentThinking } = useStore.getState();
+        const { setIsAgentThinking } = useStore.getState();
         setIsAgentThinking(false);
         const raw = typeof event.payload === 'object' && event.payload.content
             ? event.payload.content
             : (typeof event.payload === 'string' ? event.payload : '');
         const content = cleanAgentContent(raw);
-        const last = useStore.getState().agentMessages.at(-1);
-        const existing = last?.role === 'assistant' ? cleanAgentContent(last.content || '') : '';
-        if (shouldReplaceAgentContent(existing, content)) {
-            updateLastAgentMessage(content);
-        }
+
+        scheduleAiContent(raw);
+
         useStore.getState().finalizeAgentToolBlocks?.();
         if (/MISSION_ACCOMPLISHED|TASK_COMPLETE/i.test(raw)) {
             const mode = useStore.getState().agentMode || 'Agent';
@@ -132,13 +171,20 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         }).catch(err => console.error('save_ai_session failed:', err));
     });
 
-    window.addEventListener('airi:ai-content-delta' as any, (event: CustomEvent) => {
+    // Store reference for cleanup
+    const contentDeltaHandler = (event: CustomEvent) => {
         const { appendLastAgentMessage } = useStore.getState();
         if (event.detail?.delta) appendLastAgentMessage(event.detail.delta);
-    });
+    };
+    (window as any).__agentContentDeltaHandler = contentDeltaHandler;
+    window.addEventListener('airi:ai-content-delta' as any, contentDeltaHandler);
 
     listen<any>('ai-tool-call', (event) => {
-        const { addAgentStep } = useStore.getState();
+        if (!event.payload?.name) return;
+        void import('../../application/agent/agentRunSession').then(({ bumpAgentRunActivity }) =>
+            bumpAgentRunActivity(),
+        ).catch(() => {});
+        const { addAgentStep, updateAgentStepStatus } = useStore.getState();
         const toolName = event.payload.name || 'tool_call';
         let type: any = 'other';
         if (toolName.startsWith('git_')) type = 'git';
@@ -146,7 +192,12 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         else if (toolName.includes('file') || toolName.includes('glob')) type = 'filesystem';
         else if (toolName.startsWith('browser_')) type = 'browser';
         else if (toolName.includes('health') || toolName.includes('system')) type = 'system';
-        addAgentStep(toolName, type);
+        let args: any = {};
+        try {
+            args = typeof event.payload.args === 'string' ? JSON.parse(event.payload.args) : event.payload.args;
+        } catch { args = { raw: event.payload.args }; }
+        addAgentStep(toolName, type, args, event.payload.call_id);
+        updateAgentStepStatus(toolName, 'running', 'Executing...', undefined, event.payload.call_id);
     });
 
     listen<any>('update-agent-task', (event) => {
@@ -166,6 +217,20 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
 
     listen<any>('ai-artifact', (event) => {
         useStore.getState().addAgentArtifact(event.payload);
+    });
+
+    // Proactive VRAM offload warning: the backend predicts CPU-spill BEFORE the
+    // run so a slow prefill doesn't look like a hang. Surface it once as an
+    // assistant note with the actionable -ngl / model-size guidance.
+    listen<any>('ai-offload-warning', (event) => {
+        const p = event.payload || {};
+        const msg = String(p.message || '').trim();
+        if (!msg) return;
+        const icon = p.risk === 'CpuOnly' ? '🐢' : '⚠️';
+        useStore.getState().addAgentMessage(
+            'assistant',
+            `${icon} **Local model offload**: ${msg}`,
+        );
     });
 
     listen<any>('canvas-updated', async (event) => {
@@ -232,8 +297,17 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         }
     });
 
-    listen<string>('ai-action', (event: any) => {
-        useStore.getState().setAgentCurrentAction(event.payload);
+    listen<any>('ai-action', (event: any) => {
+        // Payload may be a string OR an object like { action, tool } (backend
+        // changed). Never store a raw object — it gets rendered in a <span> and
+        // crashes the whole React tree ("Objects are not valid as a React child"),
+        // which blanks the IDE. Coerce to a readable string.
+        const p = event.payload;
+        let text: string;
+        if (typeof p === 'string') text = p;
+        else if (p && typeof p === 'object') text = [p.action, p.tool].filter(Boolean).join(' · ') || '';
+        else text = p == null ? '' : String(p);
+        useStore.getState().setAgentCurrentAction(text || null);
     });
 
     listen<string>('ai-stopped', () => {

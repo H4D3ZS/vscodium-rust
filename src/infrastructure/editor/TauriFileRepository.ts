@@ -1,9 +1,22 @@
 import { invoke } from '../../tauri_bridge';
 import type { IFileRepository } from '../../domain/editor/IFileRepository';
 
+export interface FileReadResult {
+    large?: boolean;
+    size?: number;
+    lines?: number;
+    content?: string;
+    preview?: string;
+}
+
 export class TauriFileRepository implements IFileRepository {
-    read(path: string): Promise<string> {
+    async read(path: string): Promise<string> {
         return invoke<string>('read_file', { path });
+    }
+
+    async readRaw(path: string): Promise<FileReadResult> {
+        const content = await invoke<string>('read_file', { path });
+        return { large: false, content };
     }
 
     write(path: string, content: string): Promise<void> {

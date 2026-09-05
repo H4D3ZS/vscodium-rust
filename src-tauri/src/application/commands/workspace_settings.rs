@@ -2,7 +2,6 @@ use std::fs;
 use std::path::PathBuf;
 use serde_json::{json, Value};
 use tauri::State;
-use crate::EditorState;
 
 fn workspace_settings_path(root: &str) -> PathBuf {
     PathBuf::from(root).join(".vscode").join("settings.json")
@@ -10,7 +9,7 @@ fn workspace_settings_path(root: &str) -> PathBuf {
 
 #[tauri::command]
 pub async fn get_workspace_settings(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     root: Option<String>,
 ) -> Result<Value, String> {
     let root = match root {
@@ -36,7 +35,7 @@ pub async fn get_workspace_settings(
 
 #[tauri::command]
 pub async fn update_workspace_settings(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     settings: Value,
     root: Option<String>,
 ) -> Result<(), String> {

@@ -1,5 +1,5 @@
 // Declarative settings registry — single source of truth for the Settings UI
-// (Milestone C, docs/overhaul/MASTER_PLAN.md). Sections, search, and routing
+// (Milestone C, ARCHITECTURE.md). Sections, search, and routing
 // all derive from this data. PURE DATA: the domain layer must not import
 // React — SettingsPage.tsx maps each item's `panel` key to a component.
 
@@ -55,7 +55,8 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
     // ── AI Models ───────────────────────────────────────────────────────
     { id: 'models', label: 'Models & API Keys', section: 'ai-models', icon: 'circuit-board', panel: 'models', keywords: ['provider', 'anthropic', 'openai', 'gemini', 'groq', 'openrouter', 'deepseek', 'mistral', 'api key', 'base url'] },
     { id: 'model-selection', label: 'Model Selection', section: 'ai-models', icon: 'chip', panel: 'model-selection', keywords: ['auto-detect', 'engines', 'apply to all'] },
-    { id: 'ollama', label: 'Ollama', section: 'ai-models', icon: 'server-environment', panel: 'agent-view:ollama', keywords: ['local', 'offline', 'qwen', 'llama', 'pull'] },
+    { id: 'lemonade', label: 'Lemonade', section: 'ai-models', icon: 'server-environment', panel: 'lemonade', keywords: ['local', 'nvidia', 'rocm', 'amd', 'gpu', 'glm'] },
+    { id: 'fcc', label: 'Free Claude Code', section: 'ai-models', icon: 'server-process', panel: 'fcc', keywords: ['claude', 'codex', 'proxy', 'openrouter', 'nvidia nim', 'provider routing'] },
     { id: 'inference', label: 'Inference Backend', section: 'ai-models', icon: 'server-process', panel: 'inference-backend', keywords: ['vllm', 'lm studio', 'litellm', 'endpoint'] },
 
     // ── Agent ───────────────────────────────────────────────────────────
@@ -96,7 +97,7 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
 export const LEGACY_CATEGORY_MAP: Record<string, string> = {
     chat: 'chat', permissions: 'permissions', models: 'models', workspace: 'workspace',
     lsp: 'lsp', 'skill-store': 'skill-store', modules: 'modules', platform: 'platform',
-    pytorch: 'pytorch', ollama: 'ollama', steering: 'steering', hooks: 'hooks',
+    pytorch: 'pytorch', steering: 'steering', hooks: 'hooks',
     'ag-hooks': 'ag-hooks', workflow: 'workflow', mcps: 'mcps', airi: 'airi-core',
     apex: 'apex', ane: 'ane', 'model-selection': 'model-selection', hades: 'kortex',
     memory: 'memory', voice: 'voice', avatar: 'avatar', privacy: 'privacy',

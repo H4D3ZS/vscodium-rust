@@ -36,3 +36,12 @@ export function isReportMarkdownPath(path: string): boolean {
     const norm = path.replace(/\\/g, '/').toLowerCase();
     return norm.includes('/reports/') || norm.includes('/recon/') || norm.endsWith('-report.md');
 }
+
+/** Sanitize arbitrary HTML to prevent XSS. Use before dangerouslySetInnerHTML. */
+export function sanitizeHtml(html: string): string {
+    if (!html?.trim()) return '';
+    return DOMPurify.sanitize(html, {
+        ADD_ATTR: ['target'],
+        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+    });
+}

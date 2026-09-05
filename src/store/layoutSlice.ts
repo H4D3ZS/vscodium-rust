@@ -25,7 +25,7 @@ export interface LayoutSlice {
     isComposerOpen: boolean;
     isAiriPanelOpen: boolean;
     isEmulatorPanelOpen: boolean;
-    emulatorPanelPosition: 'android' | 'iphone' | 'toolchain' | 'gradle';
+    emulatorPanelPosition: 'android' | 'iphone' | 'device' | 'toolchain' | 'gradle';
     emulatorLayout: 'left' | 'right' | 'hidden';
 
     // Actions
@@ -52,7 +52,7 @@ export interface LayoutSlice {
     closeAiriPanel: () => void;
     openEmulatorPanel: () => void;
     closeEmulatorPanel: () => void;
-    setEmulatorPanelPosition: (pos: 'android' | 'iphone' | 'toolchain' | 'gradle') => void;
+    setEmulatorPanelPosition: (pos: 'android' | 'iphone' | 'device' | 'toolchain' | 'gradle') => void;
     setEmulatorLayout: (layout: 'left' | 'right' | 'hidden') => void;
     // Zen mode
     isZenMode: boolean;

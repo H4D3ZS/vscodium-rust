@@ -47,7 +47,7 @@ const BottomPanel: React.FC = () => {
         // Also capture console-style agent step messages
         const unlisten2 = listen<any>('agent-step', (e) => {
             const { name, status } = e.payload ?? {};
-            if (name) setOutputLogs(prev => [...prev.slice(-500), `[agent] ${status === 'running' ? '▶' : status === 'success' ? '✓' : '✗'} ${name}`]);
+            if (name) setOutputLogs(prev => [...prev.slice(-500), `[agent] ${status === 'running' ? '' : status === 'success' ? '✓' : '✗'} ${name}`]);
         });
         return () => { unlisten.then(f => f()); unlisten2.then(f => f()); };
     }, []);
@@ -65,7 +65,7 @@ const BottomPanel: React.FC = () => {
                 }).catch(() => {});
             };
             fetchJobs();
-            interval = setInterval(fetchJobs, 1000);
+            interval = setInterval(fetchJobs, 5000);
         }
         return () => clearInterval(interval);
     }, [activeTab]);
@@ -161,13 +161,14 @@ const BottomPanel: React.FC = () => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                height: '35px',
+                height: '34px',
                 padding: '0 8px',
                 borderBottom: '1px solid var(--vscode-panel-border)',
                 background: 'var(--vscode-panel-background)',
-                fontSize: '11px',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em'
+                fontSize: '12px',
+                // Cursor-style: normal Title Case tabs, not UPPERCASE.
+                textTransform: 'none',
+                letterSpacing: '0'
             }}>
                 <div className="panel-tabs" style={{ display: 'flex', gap: '2px', height: '100%', alignItems: 'center', minWidth: 0, flexShrink: 1, overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none' as any }}>
                     {['Problems', 'Output', 'Debug Console', 'Logcat', 'Terminal', 'Ports', 'Jobs'].map(tab => (
@@ -283,7 +284,7 @@ const BottomPanel: React.FC = () => {
                             <div className="toolbar-icon" onClick={() => addTerminalGroup(selectedShell || undefined)} title="New Terminal (Ctrl+`)">
                                 <i className="codicon codicon-add" />
                             </div>
-                            <div className="toolbar-icon" onClick={addAiriActivityTerminal} title="Open AIRI Activity Terminal">
+                            <div className="toolbar-icon" onClick={() => addAiriActivityTerminal({ focus: true })} title="Open AIRI Activity Terminal">
                                 <i className="codicon codicon-radio-tower" />
                             </div>
                             <div className="toolbar-icon" onClick={() => activeGroup && splitTerminal(activeGroup.id, activeGroup.activeInstanceId, 'horizontal')} title="Split Right (Ctrl+Shift+5)">

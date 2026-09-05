@@ -1,12 +1,11 @@
 /// Inference optimization commands
 use tauri::State;
-use crate::EditorState;
 use serde_json::Value;
 
 /// Get unified inference optimization status (ANE + Memory + MoE)
 #[tauri::command]
 pub async fn inference_get_status(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Value, String> {
     // Get current model
     let model = state.ai.current_model.lock().await.clone();
@@ -49,7 +48,7 @@ pub async fn inference_get_status(
 /// Prepare model for optimized inference
 #[tauri::command]
 pub async fn inference_prepare_model(
-    state: State<'_, EditorState>,
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
     model_name: String,
 ) -> Result<Value, String> {
     println!("[Inference] Preparing {} for optimized inference...", model_name);

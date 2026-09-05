@@ -138,26 +138,27 @@
 }
 
 .bottom-panel .panel-tab {
-  padding: 0 4px;
+  padding: 0 6px;
   margin-right: 12px;
   display: flex;
   align-items: center;
   cursor: pointer;
-  font-size: 11px;
-  text-transform: uppercase;
-  color: var(--vscode-panelTitle-inactiveForeground, #888888);
+  font-size: 12px;
+  /* Cursor-style: normal Title Case tabs, neutral colors, accent underline. */
+  text-transform: none;
+  color: var(--ac-fg-muted, #888888);
   height: 100%;
   position: relative;
-  transition: color 0.1s;
-  letter-spacing: 0.2px;
+  transition: color 0.12s;
+  letter-spacing: 0;
 }
 
 .bottom-panel .panel-tab:hover {
-  color: var(--vscode-panelTitle-activeForeground, #ffffff);
+  color: var(--ac-fg, #ffffff);
 }
 
 .bottom-panel .panel-tab.active {
-  color: var(--vscode-panelTitle-activeForeground, #ffffff);
+  color: var(--ac-fg, #ffffff);
 }
 
 .bottom-panel .panel-tab.active::after {
@@ -166,8 +167,8 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 1px;
-  background-color: var(--vscode-panelTitle-activeBorder, #007acc);
+  height: 1.5px;
+  background-color: var(--ac-accent, #3b82f6);
 }
 
 .bottom-panel .panel-toolbar {

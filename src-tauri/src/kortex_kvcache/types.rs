@@ -159,6 +159,41 @@ pub struct KvCacheOptions {
     /// How strict the lookup is about model identity. See [`ModelMatchPolicy`].
     #[serde(default)]
     pub match_policy: ModelMatchPolicy,
+    /// Requested caching tier. Defaults to `Auto` (probe the upstream and pick).
+    /// `#[serde(default)]` so configs persisted before this field existed still
+    /// deserialize (they resolve to Auto).
+    #[serde(default)]
+    pub tier: CacheTier,
+}
+
+/// Which caching mechanism the proxy uses for a given upstream. Chosen either
+/// explicitly by config or resolved from a capability probe (see
+/// `capability::resolve_tier`).
+///
+/// The tiers map to what the backend can actually support:
+/// - `Kv`       — llama.cpp slot save/restore is available → full KDKVC prefix
+///                KV reuse (skips prefill of the matched prefix).
+/// - `Response` — no slot API (Ollama, Lemonade Ryzen-AI/NPU) → provider-agnostic
+///                exact-request response cache. NOTE: Tier 2 (the response cache)
+///                is not implemented yet; until it lands this behaves as a
+///                transparent passthrough, so selecting it is always safe.
+/// - `Off`      — caching disabled; pure passthrough.
+/// - `Auto`     — config-only input; the proxy probes the upstream at start and
+///                resolves it to one of the concrete tiers above. Never stored as
+///                a resolved tier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CacheTier {
+    Auto,
+    Kv,
+    Response,
+    Off,
+}
+
+impl Default for CacheTier {
+    fn default() -> Self {
+        CacheTier::Auto
+    }
 }
 
 /// How strict the lookup is about an entry's stored model identity.
@@ -230,6 +265,7 @@ impl Default for KvCacheOptions {
             proxy_port: 8090,
             model: ModelIdentity::default(),
             match_policy: ModelMatchPolicy::default(),
+            tier: CacheTier::default(),
         }
     }
 }

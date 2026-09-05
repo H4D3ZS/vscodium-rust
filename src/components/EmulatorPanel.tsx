@@ -230,7 +230,7 @@ const EmulatorPanel: React.FC = () => {
                 }}
                 title="Show emulator panel"
             >
-                📱 Show Emulator
+                Show Emulator
             </div>
         );
     }
@@ -262,7 +262,7 @@ const EmulatorPanel: React.FC = () => {
                         color: 'var(--vscode-sideBar-foreground)',
                         margin: 0
                     }}>
-                        📱 Mobile Emulators
+                        Mobile Emulators
                     </h3>
                     <button
                         onClick={togglePosition}
@@ -277,7 +277,7 @@ const EmulatorPanel: React.FC = () => {
                         }}
                         title={`Move panel to ${emulatorPosition === 'left' ? 'right' : 'hide'}`}
                     >
-                        {emulatorPosition === 'left' ? '➡️ Right' : emulatorPosition === 'right' ? '❌ Hide' : '📱 Show'}
+                        {emulatorPosition === 'left' ? '➡ Right' : emulatorPosition === 'right' ? 'Hide' : 'Show'}
                     </button>
                 </div>
 
@@ -293,7 +293,7 @@ const EmulatorPanel: React.FC = () => {
                         alignItems: 'center',
                         gap: '6px'
                     }}>
-                        🟢 Available Virtual Devices
+                        Available Virtual Devices
                     </h4>
 
                     {availableAvds.length === 0 ? (
@@ -341,7 +341,7 @@ const EmulatorPanel: React.FC = () => {
                                             }}
                                             title="Launch emulator and embed in IDE"
                                         >
-                                            {isLoading ? '⏳ Launching...' : '🚀 Launch & Embed'}
+                                            {isLoading ? 'Launching...' : 'Launch & Embed'}
                                         </button>
                                         <button
                                             onClick={() => handleSpawnEmulator(avd.name)}
@@ -360,7 +360,7 @@ const EmulatorPanel: React.FC = () => {
                                             }}
                                             title="Start emulator in external window"
                                         >
-                                            {isLoading ? '⏳ Starting...' : '▶ External'}
+                                            {isLoading ? 'Starting...' : 'External'}
                                         </button>
                                     </div>
                                 </div>
@@ -394,7 +394,7 @@ const EmulatorPanel: React.FC = () => {
                         alignItems: 'center',
                         gap: '6px'
                     }}>
-                        🔵 Running Emulators
+                        Running Emulators
                     </h4>
 
                     {runningEmulators.length === 0 ? (
@@ -459,7 +459,7 @@ const EmulatorPanel: React.FC = () => {
                     borderTop: '1px solid var(--vscode-panel-border)',
                     background: 'var(--vscode-editor-background)'
                 }}>
-                    💡 Tip: Install Android SDK Platform Tools to manage emulators
+                    Tip: Install Android SDK Platform Tools to manage emulators
                 </div>
             </div>
         );
