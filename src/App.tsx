@@ -95,14 +95,12 @@ const App: React.FC = () => {
         }, 2_000);
 
         scheduleDeferredInit(() => {
-            import('./search').then(m => m.initSearch());
-            import('./status_bar').then(m => m.initStatusBar());
-            import('./extensions').then(m => m.initExtensions()).then(() => {
-                import('./specs').then(m => m.initSpecs());
-                import('./mobile').then(m => m.initMobile());
-                import('./scm').then(m => m.initScm());
-                import('./debug_ui').then(m => m.initDebugUI());
-            });
+            // Legacy vanilla-JS init modules (search/status_bar/specs/mobile/scm/
+            // debug_ui) were removed — they wired to getElementById() slots the
+            // React app no longer renders, so they no-op'd at boot. React panels
+            // (SearchView, StatusBar, EmulatorPanel, ScmView, DebugView, …)
+            // replaced them. Only the extension host still needs an explicit init.
+            import('./extensions').then(m => m.initExtensions());
         });
 
         // --- Platform Detection for Native Feel ---
