@@ -2872,16 +2872,19 @@ body.resizing .resizer-h {
   }
 }
 
-/* Markdown Rendering Styles */
+/* ── Markdown rendering — modelled on VS Code's built-in preview ──
+   Theme-aware (uses --color-* / --vscode-* tokens, works in light + dark).
+   Code blocks scroll horizontally like the editor; they do NOT force-wrap. */
 .markdown-content {
+  font-family: var(--font-ui);
+  font-size: 14px;
   line-height: 1.6;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.9);
-  word-break: break-word;
-  /* Ensure all text wraps */
-  overflow-x: hidden;
-  /* Prevent horizontal scrolling of the container */
+  color: var(--color-text, var(--vscode-editor-foreground, #cccccc));
+  word-wrap: break-word;
 }
+
+.markdown-content > :first-child { margin-top: 0; }
+.markdown-content > :last-child { margin-bottom: 0; }
 
 .markdown-content h1,
 .markdown-content h2,
@@ -2893,149 +2896,145 @@ body.resizing .resizer-h {
   margin-bottom: 16px;
   font-weight: 600;
   line-height: 1.25;
-  color: #ffffff;
+  color: var(--color-text, var(--vscode-editor-foreground, #eaeaea));
 }
 
-.markdown-content h1 {
+.markdown-content h1 { font-size: 1.5em; }
+.markdown-content h2 { font-size: 1.3em; }
+.markdown-content h3 { font-size: 1.15em; }
+.markdown-content h4 { font-size: 1em; }
+.markdown-content h5 { font-size: 0.9em; }
+.markdown-content h6 { font-size: 0.85em; color: var(--color-text-muted, #999); }
+
+/* Document-preview headings get VS Code's underlined h1/h2 treatment; chat
+   message headings stay compact (rules above). */
+.markdown-preview-content h1 {
+  font-size: 2em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--color-border, rgba(128, 128, 128, 0.25));
+}
+.markdown-preview-content h2 {
   font-size: 1.5em;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--color-border, rgba(128, 128, 128, 0.25));
 }
+.markdown-preview-content h3 { font-size: 1.25em; }
 
-.markdown-content h2 {
-  font-size: 1.25em;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  padding-bottom: 0.3em;
-}
-
-.markdown-content h3 {
-  font-size: 1.1em;
-}
-
-.markdown-content h4 {
-  font-size: 1em;
-}
-
-.markdown-content p {
+.markdown-content p,
+.markdown-content blockquote,
+.markdown-content ul,
+.markdown-content ol,
+.markdown-content dl,
+.markdown-content table,
+.markdown-content pre {
   margin-top: 0;
   margin-bottom: 16px;
 }
 
 .markdown-content a {
-  color: #3b82f6;
+  color: var(--vscode-textLink-foreground, var(--color-accent-blue, #4daafc));
   text-decoration: none;
 }
+.markdown-content a:hover { text-decoration: underline; }
 
-.markdown-content a:hover {
-  text-decoration: underline;
-}
-
-.markdown-content b,
-.markdown-content strong {
-  font-weight: 600;
-}
-
-.markdown-content i,
-.markdown-content em {
-  font-style: italic;
-}
+.markdown-content strong { font-weight: 600; }
+.markdown-content em { font-style: italic; }
 
 .markdown-content ul,
 .markdown-content ol {
-  padding-left: 1.5em;
-  /* Reduced from 2em for narrow sidebar */
-  margin-top: 0;
-  margin-bottom: 16px;
+  padding-left: 2em;
 }
+.markdown-content li { margin: 0.25em 0; }
+.markdown-content li > p { margin-bottom: 0.5em; }
+.markdown-content li + li { margin-top: 0.2em; }
+.markdown-content ul ul,
+.markdown-content ul ol,
+.markdown-content ol ol,
+.markdown-content ol ul { margin: 0.2em 0; }
 
-.markdown-content li {
-  margin-top: 0.25em;
-  word-break: break-word;
+.markdown-content ul.contains-task-list { list-style: none; padding-left: 1.2em; }
+.markdown-content .task-list-item { margin-left: -0.2em; }
+.markdown-content .task-list-item input { margin: 0 0.5em 0.15em -1.2em; vertical-align: middle; }
+
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 3px;
 }
 
 .markdown-content code {
-  padding: 0.2em 0.4em;
-  margin: 0;
-  font-size: 85%;
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
   font-family: var(--font-mono);
-  word-break: break-all;
-  /* Ensure long inline code wraps */
+  font-size: 0.9em;
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  background-color: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.17));
+  white-space: break-spaces;
 }
 
 .markdown-content pre {
-  padding: 12px;
-  /* Reduced from 16px */
-  overflow-x: auto;
-  font-size: 12px;
-  /* Consistency check */
-  line-height: 1.5;
-  background-color: rgba(0, 0, 0, 0.35);
-  border-radius: 8px;
-  margin-bottom: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  max-width: 100%;
-  /* Ensure it doesn't overflow */
+  padding: 14px 16px;
+  overflow: auto;
+  font-size: 0.9em;
+  line-height: 1.45;
+  border-radius: 3px;
+  background-color: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.14));
+  border: 1px solid var(--color-border, rgba(128, 128, 128, 0.2));
 }
 
 .markdown-content pre code {
   padding: 0;
-  margin: 0;
-  background-color: transparent;
-  border: 0;
   font-size: 100%;
-  word-break: break-word;
-  /* Change from normal to help wrapping */
-  white-space: pre-wrap;
-  /* Force wrap for code blocks */
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  white-space: pre;
+  word-wrap: normal;
 }
 
 .markdown-content blockquote {
   padding: 0 1em;
-  color: rgba(255, 255, 255, 0.6);
-  border-left: 0.25em solid rgba(255, 255, 255, 0.2);
-  margin: 0 0 16px 0;
+  color: var(--color-text-muted, rgba(160, 160, 160, 0.9));
+  border-left: 3px solid var(--color-border, rgba(128, 128, 128, 0.4));
 }
+.markdown-content blockquote > :first-child { margin-top: 0; }
+.markdown-content blockquote > :last-child { margin-bottom: 0; }
 
 .markdown-content table {
   display: block;
-  width: 100%;
   width: max-content;
   max-width: 100%;
   overflow: auto;
-  margin-top: 0;
-  margin-bottom: 16px;
-  border-spacing: 0;
   border-collapse: collapse;
 }
-
-.markdown-content table th {
-  font-weight: 600;
-  background-color: rgba(255, 255, 255, 0.05);
-}
-
-.markdown-content table th,
-.markdown-content table td {
+.markdown-content th,
+.markdown-content td {
   padding: 6px 13px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--color-border, rgba(128, 128, 128, 0.3));
 }
-
-.markdown-content table tr {
-  background-color: transparent;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+.markdown-content th {
+  font-weight: 600;
+  background-color: var(--color-hover, rgba(128, 128, 128, 0.08));
 }
-
-.markdown-content table tr:nth-child(2n) {
-  background-color: rgba(255, 255, 255, 0.02);
+.markdown-content tr:nth-child(2n) td {
+  background-color: var(--color-hover, rgba(128, 128, 128, 0.04));
 }
 
 .markdown-content hr {
-  height: 0.25em;
+  height: 1px;
   padding: 0;
   margin: 24px 0;
-  background-color: rgba(255, 255, 255, 0.1);
   border: 0;
+  background-color: var(--color-border, rgba(128, 128, 128, 0.3));
+}
+
+.markdown-content kbd {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--color-border, rgba(128, 128, 128, 0.4));
+  border-bottom-width: 2px;
+  background-color: var(--color-surface-raised, rgba(128, 128, 128, 0.12));
 }
 
 /* ── Markdown preview pane (resizable + responsive) ── */
@@ -3131,7 +3130,7 @@ body.resizing .resizer-h {
   overflow-y: auto;
   overflow-x: hidden;
   padding: clamp(10px, 2cqi, 20px) clamp(12px, 3cqi, 24px);
-  font-size: clamp(12px, 1.2cqi + 11px, 14px);
+  font-size: clamp(13px, 1cqi + 12px, 14.5px);
   line-height: 1.65;
   min-width: 0;
 }
