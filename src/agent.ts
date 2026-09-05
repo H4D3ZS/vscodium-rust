@@ -24,8 +24,15 @@ import { getAimTrustManifest, queryAimSpans } from './kortex/aim-vfs';
 import { extractSearchReplaceBlocks, classifyModels, modelKey, isHeavyLocalModel } from './model_capabilities';
 import { hybridPlannerAllowed } from './lib/localOllamaAgentDefaults';
 import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentContent';
-// AIRI Digital Entity Integration - The Sentient Core
-import { airiAgentBridge, activateAIRIAgent } from './airi_agent_bridge';
+// AIRI Digital Entity Integration - The Sentient Core.
+// Loaded lazily: airi_agent_bridge statically pulls the whole AIRI tree, some
+// of which imports Node `fs`/`fs/promises` and cannot be bundled for the
+// webview. Only Sentient mode needs it, so defer until it's actually used.
+let _airiBridgePromise: Promise<typeof import('./airi_agent_bridge')> | null = null;
+async function getAiriAgentBridge() {
+    if (!_airiBridgePromise) _airiBridgePromise = import('./airi_agent_bridge');
+    return (await _airiBridgePromise).airiAgentBridge;
+}
 
 /**Lazy-load AIRI subsystems so importing agent.ts doesn't spin background loops. */
 async function getAiriConsciousness() {
@@ -557,7 +564,7 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
         try {
             // Ensure bridge is ready
             if (!airiInitialized) {
-                await airiAgentBridge.initialize();
+                await (await getAiriAgentBridge()).initialize();
                 airiInitialized = true;
             }
 
@@ -579,7 +586,7 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
             state.setIsAgentThinking(true);
 
             // Process through AIRI's sentient mind — bridge handles streaming via broadcasts
-            const response = await airiAgentBridge.processUserMessage(prompt, attachedSnapshot);
+            const response = await (await getAiriAgentBridge()).processUserMessage(prompt, attachedSnapshot);
 
             // Final sync update
             state.updateLastAgentMessage(response);
@@ -2391,7 +2398,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             console.log('[Agent] Registering user prompt to Sentient AIRI Core...');
             if (!airiInitialized) {
                 console.log('[Agent] Initializing AIRI Bridge on demand...');
-                await airiAgentBridge.initialize();
+                await (await getAiriAgentBridge()).initialize();
                 airiInitialized = true;
             }
             // Record interaction in consciousness natively without double-triggering inference

@@ -8,6 +8,7 @@ import { useStore } from '../../store';
 import { airiBiology } from '../../airi/biology';
 import { airiConsciousness } from '../../airi/consciousness';
 import { type FeatureName, type ProviderName, defaultModelSelectionOfFeature } from '../../model_capabilities';
+import KortexLocalInferencePanel from './KortexLocalInferencePanel';
 
 export const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fields: string[]; keyUrl?: string; hint?: string; baseUrlKey?: string; baseUrlPlaceholder?: string }[] = [
     { id: 'anthropic', label: 'Anthropic', fields: ['apiKey'], keyUrl: 'https://console.anthropic.com/settings/keys', hint: 'Claude 3.5/4 — best for complex agentic tasks', baseUrlKey: 'anthropic_base_url', baseUrlPlaceholder: 'https://api.anthropic.com (or reseller proxy)' },
@@ -713,6 +714,8 @@ export function HadesIntelligencePanel() {
                     control={<Toggle checked={!!thermal} onChange={v => setThermal?.(v)} />}
                 />
             </div>
+
+            <KortexLocalInferencePanel />
         </div>
     );
 }

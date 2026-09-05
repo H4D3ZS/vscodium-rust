@@ -35,6 +35,8 @@ antigravity_ide*/
 src-tauri/binaries/lsp/clangd/
 src-tauri/binaries/browser-agent.exe
 src-tauri/binaries/lsp/typescript-language-server/node-v20.18.0-win-x64/node.exe
+# ROCmFPX llama-server build output (built locally via scripts/build-rocmfpx-windows.ps1)
+src-tauri/binaries/rocmfpx/
 /cursor/
 !src/components/cursor/
 Cursor/
