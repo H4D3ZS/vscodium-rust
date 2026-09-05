@@ -24,7 +24,5 @@ pub mod hermes_gateway;
 pub mod system_profile;
 #[cfg(feature = "tauri")]
 pub mod telemetry_pipeline;
-pub mod web_chat_driver;
-pub mod webui_mcp_bridge;
 #[cfg(feature = "tauri")]
 pub mod fcc_sidecar;

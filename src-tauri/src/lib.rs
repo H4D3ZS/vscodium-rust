@@ -137,7 +137,6 @@ pub(crate) use application::commands::voice as voice_commands;
 #[cfg(feature = "tauri")]
 pub(crate) use application::commands::web as web_commands;
 #[cfg(feature = "tauri")]
-pub(crate) use application::commands::webui_bridge as webui_bridge_commands;
 #[cfg(feature = "tauri")]
 pub(crate) use application::commands::window as window_commands;
 #[cfg(feature = "tauri")]
@@ -608,12 +607,6 @@ pub fn run() {
             probe_commands::probe_add_discovered,
             probe_commands::probe_list_sessions,
             // ═══ WebUI→MCP Bridge (ZeroScript-style) ═══
-            webui_bridge_commands::webui_bridge_status,
-            webui_bridge_commands::webui_bridge_providers,
-            webui_bridge_commands::webui_bridge_start_task,
-            webui_bridge_commands::webui_bridge_inject,
-            webui_bridge_commands::webchat_login,
-            webui_bridge_commands::webchat_sessions,
             // ═══ 24/7 Autonomous Supervisor ═══
             supervisor::supervisor_enqueue,
             supervisor::supervisor_status,

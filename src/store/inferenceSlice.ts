@@ -323,14 +323,6 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
             if (!providers.includes('Highwayapi') && ((keys as any).highwayapi || (keys as any).highwayapi_base_url)) {
                 providers.push('Highwayapi');
             }
-            // WebUI / personal-subscription models DISABLED — they scrape a browser session
-            // and don't work reliably. Focus is API-key (BYOK) + Cyber-Ifrit Cloud.
-            // Flip WEBUI_MODELS_ENABLED to true to re-enable.
-            const WEBUI_MODELS_ENABLED = false;
-            if (WEBUI_MODELS_ENABLED) {
-                providers.push('OpenWebUI', 'Claude (WebUI)', 'Gemini (WebUI)', 'OpenAI (WebUI)', 'DeepSeek (WebUI)', 'Qwen (WebUI)');
-            }
-
             // Per-provider enable toggle (Settings → Providers & Keys): a provider
             // explicitly disabled is hidden from the picker, so your own models
             // aren't buried among BYOB providers. Unset = enabled (default).
@@ -381,19 +373,11 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                         try { localStorage.setItem('provider.lemonade.url', lemonadeUrlToUse); } catch { }
                         await invoke('set_lemonade_url', { url: lemonadeUrlToUse }).catch(() => { });
                     }
-                    let models: string[] = [];
-                    if (p.includes('WebUI') && p !== 'OpenWebUI') {
-                        const baseProvider = p.split(' ')[0].toLowerCase();
-                        allModels.push({ id: `WebUI Session (${baseProvider})`, provider: p.toLowerCase() });
-                        continue;
-                    } else {
-                        models = await invoke<string[]>('list_provider_models', { provider: p });
-                        // Show only ACTUALLY-INSTALLED Ollama models in the picker —
-                        // do not flood it with registry pull-hints the user hasn't
-                        // downloaded (that belongs in the pull/install wizard). Keeps
-                        // the picker Cursor-clean: exactly `ollama list`.
-                        allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
-                    }
+                    // Show only ACTUALLY-INSTALLED Ollama models in the picker —
+                    // do not flood it with registry pull-hints the user hasn't
+                    // downloaded (that belongs in the pull/install wizard).
+                    let models: string[] = await invoke<string[]>('list_provider_models', { provider: p });
+                    allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
                     // Hardcoded fallback: if API returned empty, add known models
                     if (models.length === 0) {
                         const fallbackModels: Record<string, string[]> = {

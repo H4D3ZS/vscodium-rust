@@ -27,7 +27,6 @@ pub mod vision;
 #[cfg(feature = "tauri")]
 pub mod vision_bridge;
 pub mod vision_sidecar;
-pub mod webui_protocol;
 pub mod workflow_engine;
 #[cfg(feature = "tauri")]
 pub mod ml_studio;

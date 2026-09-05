@@ -61,17 +61,6 @@ function scheduleAiContent(content: string): void {
     }
 }
 
-function boundedWebUiCache(): Record<string, string> {
-    const w = window as any;
-    if (!w.__hadesWebUiResponseCache) w.__hadesWebUiResponseCache = {};
-    const cache = w.__hadesWebUiResponseCache as Record<string, string>;
-    const keys = Object.keys(cache);
-    while (keys.length > MAX_WEBUI_RESPONSE_CACHE_ENTRIES) {
-        delete cache[keys[0]];
-        keys.shift();
-    }
-    return cache;
-}
 
 function agentKeydownHandler(e: KeyboardEvent): void {
     if (!e.altKey) return;
@@ -239,16 +228,6 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         if (spec) useStore.getState().upsertCanvas(spec, { open: true });
     });
 
-    listen<any>('webui-response', (event) => {
-        const payload = event.payload || {};
-        const text = String(payload.text || '').trim();
-        if (!text) return;
-        const key = `${payload.provider || 'webui'}:${payload.window || ''}`;
-        const cache = boundedWebUiCache();
-        if (cache[key] === text) return;
-        cache[key] = text;
-        useStore.getState().addAgentMessage('assistant', `### ${payload.provider || 'WebUI'} response\n\n${text}`);
-    });
 
     listen<any>('ai-advisor-fallback', (event) => {
         const msg = event.payload?.error
