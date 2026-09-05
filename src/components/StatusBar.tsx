@@ -699,7 +699,7 @@ const StatusBar: React.FC = () => {
                                 : backend === 'llama-cpp' ? llamaCppStatus
                                 : lemonadeStatus;
                             const label = backend === 'lemonade' ? 'Lemonade'
-                                : backend === 'llama-cpp' ? 'llama.cpp'
+                                : backend === 'llama-cpp' ? 'Kortex ROCmFPX'
                                 : backend;
                             const isConnected = status === 'running';
                             return (

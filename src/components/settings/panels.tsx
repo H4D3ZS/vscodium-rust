@@ -8,7 +8,6 @@ import { useStore } from '../../store';
 import { airiBiology } from '../../airi/biology';
 import { airiConsciousness } from '../../airi/consciousness';
 import { type FeatureName, type ProviderName, defaultModelSelectionOfFeature } from '../../model_capabilities';
-import KortexLocalInferencePanel from './KortexLocalInferencePanel';
 
 export const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fields: string[]; keyUrl?: string; hint?: string; baseUrlKey?: string; baseUrlPlaceholder?: string }[] = [
     { id: 'anthropic', label: 'Anthropic', fields: ['apiKey'], keyUrl: 'https://console.anthropic.com/settings/keys', hint: 'Claude 3.5/4 — best for complex agentic tasks', baseUrlKey: 'anthropic_base_url', baseUrlPlaceholder: 'https://api.anthropic.com (or reseller proxy)' },
@@ -24,8 +23,7 @@ export const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fiel
     { id: 'mistral', label: 'Mistral', fields: ['apiKey'], keyUrl: 'https://console.mistral.ai/api-keys/', hint: 'Codestral / Devstral — best local coding models' },
     { id: 'huggingface', label: 'Hugging Face (Free GLM-5.2)', fields: ['apiKey'], keyUrl: 'https://huggingface.co/settings/tokens', hint: 'Free GLM-5.2 via HF Router — OpenAI-compatible API', baseUrlKey: 'huggingface_base_url', baseUrlPlaceholder: 'https://router.huggingface.co/v1' },
     { id: 'openmodel', label: 'OpenModel.ai', fields: ['apiKey'], hint: 'DeepSeek V4 Flash — 1M ctx, 8.2K output, function calling, streaming.', baseUrlKey: 'openmodel_base_url', baseUrlPlaceholder: 'https://api.openmodel.ai' },
-    { id: 'lemonade', label: 'Lemonade (Local)', local: true, fields: ['endpoint'], hint: 'Local llama.cpp inference — no API key needed' },
-    { id: 'lemonade', label: 'Lemonade (Local)', local: true, fields: ['endpoint'], hint: 'AMD NVIDIA/ROCm optimized — auto-detects models, proper tokenization' },
+    { id: 'lemonade', label: 'Lemonade (Local)', local: true, fields: ['endpoint'], hint: 'AMD NVIDIA/ROCm-optimized local llama.cpp — auto-detects models, no API key needed' },
     { id: 'vLLM', label: 'vLLM', local: true, fields: ['endpoint', 'apiKey'], hint: 'Production-grade local inference server' },
     { id: 'lmStudio', label: 'LM Studio', local: true, fields: ['endpoint'], hint: 'GUI-based local model runner' },
     { id: 'liteLLM', label: 'LiteLLM', local: true, fields: ['endpoint', 'apiKey'], hint: 'Proxy server to route between providers' },
@@ -715,7 +713,9 @@ export function HadesIntelligencePanel() {
                 />
             </div>
 
-            <KortexLocalInferencePanel />
+            <p style={{ fontSize: 11, opacity: 0.6, marginTop: 12 }}>
+                Local model launch (ROCmFPX + KV cache) lives under <strong>Settings → Inference Backend → Local AI</strong>.
+            </p>
         </div>
     );
 }

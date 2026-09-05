@@ -35,7 +35,7 @@ use tauri::command;
 
 pub use launcher::{
     await_healthy, build_argv, current_server_info, launch, resolve_server_binary,
-    stop_server, LaunchOpts, RunningInfo,
+    server_log_tail, stop_server, LaunchOpts, RunningInfo,
 };
 pub use planner::{plan_tiers, render_args};
 pub use profiler::{default_profile_path, profile_gguf, read_profile, write_profile};
@@ -183,6 +183,13 @@ pub async fn kortex_gac_stop() -> Result<(), String> {
 #[command]
 pub async fn kortex_gac_status() -> Result<Option<RunningInfo>, String> {
     Ok(current_server_info())
+}
+
+/// Tail of the running llama-server's stdout/stderr, so the UI can show load
+/// progress ("loaded 340/900 tensors…") instead of an opaque spinner.
+#[command]
+pub async fn kortex_gac_log(lines: Option<usize>) -> Result<Vec<String>, String> {
+    Ok(server_log_tail(lines.unwrap_or(80)))
 }
 
 /// Default profile path for a given model (helper for the UI to display).

@@ -1094,6 +1094,7 @@ pub fn run() {
             kortex_gac::kortex_gac_launch,
             kortex_gac::kortex_gac_stop,
             kortex_gac::kortex_gac_status,
+            kortex_gac::kortex_gac_log,
             kortex_gac::kortex_gac_default_profile_path,
             // ═══ Kortex KV Cache: ds4-style disk-persistent prefix reuse ═══
             kortex_kvcache::kortex_kvcache_start,

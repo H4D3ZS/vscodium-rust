@@ -57,7 +57,7 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
     { id: 'model-selection', label: 'Model Selection', section: 'ai-models', icon: 'chip', panel: 'model-selection', keywords: ['auto-detect', 'engines', 'apply to all'] },
     { id: 'lemonade', label: 'Lemonade', section: 'ai-models', icon: 'server-environment', panel: 'lemonade', keywords: ['local', 'nvidia', 'rocm', 'amd', 'gpu', 'glm'] },
     { id: 'fcc', label: 'Free Claude Code', section: 'ai-models', icon: 'server-process', panel: 'fcc', keywords: ['claude', 'codex', 'proxy', 'openrouter', 'nvidia nim', 'provider routing'] },
-    { id: 'inference', label: 'Inference Backend', section: 'ai-models', icon: 'server-process', panel: 'inference-backend', keywords: ['vllm', 'lm studio', 'litellm', 'endpoint'] },
+    { id: 'inference', label: 'Inference Backend', section: 'ai-models', icon: 'server-process', panel: 'inference-backend', keywords: ['vllm', 'lm studio', 'litellm', 'endpoint', 'kortex', 'rocmfpx', 'rocm', 'amd', 'local ai', 'llama.cpp', 'lemonade'] },
 
     // ── Agent ───────────────────────────────────────────────────────────
     { id: 'chat', label: 'Chat & Agent', section: 'agent', icon: 'comment-discussion', panel: 'chat', keywords: ['yolo', 'modes', 'backend', 'planner', 'reasoning'] },

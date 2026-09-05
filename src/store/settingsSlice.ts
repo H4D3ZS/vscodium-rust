@@ -120,7 +120,7 @@ export const createSettingsSlice: StateCreator<AppState, [], [], SettingsSlice> 
     indexingEnabled: (() => { try { return localStorage.getItem('indexing.enabled') !== '0'; } catch { return true; } })(),
     indexingDocsUrls: (() => { try { const raw = localStorage.getItem('indexing.docsUrls'); if (!raw) return []; const arr = JSON.parse(raw); return Array.isArray(arr) ? arr.filter((s: any) => typeof s === 'string') : []; } catch { return []; } })(),
     kortexGacEnabled: (() => { try { return localStorage.getItem('kortex.gacEnabled') !== '0'; } catch { return true; } })(),
-    kortexVramTotalMb: (() => { try { return parseInt(localStorage.getItem('kortex.vramTotalMb') || '8192'); } catch { return 8192; } })(),
+    kortexVramTotalMb: (() => { try { return parseInt(localStorage.getItem('kortex.vramTotalMb') || '16384'); } catch { return 16384; } })(),
     kortexTheta: (() => { try { return parseFloat(localStorage.getItem('kortex.theta') || '0.85'); } catch { return 0.85; } })(),
     kortexBackend: (() => {
         try {
