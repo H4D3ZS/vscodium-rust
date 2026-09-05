@@ -476,37 +476,15 @@ impl EditorState {
             println!("[profile] built-in MCP listener (:1537) not auto-started (opt-in via mcp_builtin.enabled)");
         }
 
-        // WebUI→MCP bridge (:1538). Shares the same AiTools registry as the MCP server.
-        // The browser extension connects here so free web-chat models drive real tools.
+        // WebUI web-chat feature (browser-session scraping) is disabled — it never
+        // worked reliably and the frontend picker gates it off (WEBUI_MODELS_ENABLED
+        // = false). The bridge (:1538) and OpenAI shim (:1539) no longer auto-start;
+        // the handle/driver are still constructed for the (unused) webchat_* commands.
         let webui_bridge = crate::infrastructure::webui_mcp_bridge::WebUiBridge::new(
             sentient.ai_tools.clone(),
         );
-        if !crate::system_profile::is_lite() {
-            let bridge_clone = webui_bridge.clone();
-            crate::event_sink::spawn_detached(async move {
-                tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
-                bridge_clone
-                    .start(crate::infrastructure::webui_mcp_bridge::BRIDGE_PORT)
-                    .await;
-            });
-        } else {
-            println!("[profile] lite: WebUI bridge (:1538) not auto-started");
-        }
-
-        // Headless web-chat driver + OpenAI shim (:1539). Own dedicated browser
-        // sidecar so the agent's browser tools never hijack the chat session.
         let web_chat = crate::infrastructure::web_chat_driver::WebChatDriver::new(&config_dir);
         app.manage(std::sync::Arc::clone(&web_chat)); // State<Arc<WebChatDriver>> for webchat_login
-        if !crate::system_profile::is_lite() {
-            let shim = crate::infrastructure::webchat_openai_shim::WebChatShim::new(web_chat.clone());
-            crate::event_sink::spawn_detached(async move {
-                tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
-                shim.start(crate::infrastructure::webchat_openai_shim::WEBCHAT_SHIM_PORT)
-                    .await;
-            });
-        } else {
-            println!("[profile] lite: web-chat shim (:1539) not auto-started");
-        }
 
         // Shared diagnostics map — owned by EditorState, borrowed by LspClient
         let shared_lsp_diags: lsp::DiagnosticsMap =
