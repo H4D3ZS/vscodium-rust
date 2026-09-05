@@ -1,8 +1,9 @@
-# Canonical identity — collapse all author/committer/co-author aliases to one.
-# GitHub applies this to the Contributors graph and `git shortlog -e`.
-H4D3ZS <adingferrer@yahoo.com> <aashleyjanaso2002@gmail.com>
-H4D3ZS <adingferrer@yahoo.com> <zhekary55@gmail.com>
-H4D3ZS <adingferrer@yahoo.com> H4D3ZS <noreply@github.com>
-H4D3ZS <adingferrer@yahoo.com> GitHub <noreply@github.com>
-H4D3ZS <adingferrer@yahoo.com> Cursor <cursoragent@cursor.com>
-H4D3ZS <adingferrer@yahoo.com> Cursor Agent <cursoragent@cursor.com>
+# Canonical identity for `git shortlog -e` and GitHub's Contributors graph.
+# Maps every alias (two personal emails already in history, GitHub web-edit
+# noreply, and the Cursor agent) to the account's GitHub noreply address.
+H4D3ZS <21985514+H4D3ZS@users.noreply.github.com> <adingferrer@yahoo.com>
+H4D3ZS <21985514+H4D3ZS@users.noreply.github.com> <aashleyjanaso2002@gmail.com>
+H4D3ZS <21985514+H4D3ZS@users.noreply.github.com> H4D3ZS <noreply@github.com>
+H4D3ZS <21985514+H4D3ZS@users.noreply.github.com> GitHub <noreply@github.com>
+H4D3ZS <21985514+H4D3ZS@users.noreply.github.com> Cursor <cursoragent@cursor.com>
+H4D3ZS <21985514+H4D3ZS@users.noreply.github.com> Cursor Agent <cursoragent@cursor.com>
