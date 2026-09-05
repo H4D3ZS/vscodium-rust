@@ -1,6 +1,6 @@
 /**
  * Antigravity IDE parity: Agent panel "..." menu → MCP Servers / Manage MCP Servers.
- * @see docs/MCP_STORE.md
+ * @see docs/mcp.md
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../store';

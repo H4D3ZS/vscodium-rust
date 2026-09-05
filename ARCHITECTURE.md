@@ -1,203 +1,145 @@
-# ARCHITECTURE — VSCodium-Rust
+# Architecture
 
-A map of the codebase organised by **bounded context** (DDD). The `src-tauri`
-backend is physically flat (~90 `.rs` files in one directory), so this doc is
-the logical grouping that makes it navigable. Each context lists its modules
-split into the DDD layers:
+Clean/DDD layering on both sides. Dependencies point **inward only**:
 
-- **Application** — Tauri `#[command]` adapters (the IPC boundary). Thin; they
-  validate input, call a domain service, and shape the response. Usually named
-  `*_commands.rs`.
-- **Domain / Engine** — the actual logic and stateful services.
-- **Infrastructure** — external-system adapters (process spawning, HTTP, FFI,
-  mmap, git2, tree-sitter).
+```
+components / presentation  →  application  →  domain  →  infrastructure
+```
 
-> Rule of thumb: a `*_commands.rs` file should contain almost no logic — it
-> delegates to an engine. When adding a feature, put logic in the engine and
-> only expose a command. This keeps the IPC surface auditable.
+| Layer | Rust (`src-tauri/src/`) | Frontend (`src/`) |
+|-------|-------------------------|-------------------|
+| **domain** | pure logic + stateful services. No `tauri::` imports. | entities, value objects, repository **ports** (interfaces). No React, no `@tauri-apps/api`. |
+| **application** | the **only** place `#[tauri::command]` lives — thin adapters that validate, call a domain service, map errors. | **use-cases**, one file per user goal (`sendAgentTurn`, `restoreWorkspaceOnBoot`). |
+| **infrastructure** | the only place that spawns processes / does HTTP / FFI / mmap / git2 / tree-sitter. | adapters — Tauri IPC, lazy legacy engines, event subscribers. |
+| **presentation** | — | React UI. Reads via `src/hooks/` selectors, calls the application layer. **Never `invoke()` directly** (enforced by `scripts/check-architecture.mjs`). |
 
----
-
-## Central state
-
-| Module | Layer | Role |
-|--------|-------|------|
-| `state.rs` | Domain | `EditorState` — the single Tauri managed state. All async fields are `Arc<Mutex<…>>`. Every command receives `tauri::State<EditorState>`. |
-| `lib.rs` | Application | App builder + the **one** `invoke_handler![…]` registering every command. Background tasks (memory watchdog, working-set trim). |
-| `main.rs` | Application | Binary entry → `lib::run()`. |
-| `domain.rs` | Domain | Shared value objects (`FileEntry`, …). |
-| `repository.rs` | Infrastructure | Project/FS abstraction (gpui/zed `Project`, `RealFs`). |
+`scripts/check-architecture.mjs` runs in `npm test` and fails the build on layer violations.
 
 ---
 
-## 1. AI / Agent (the Sentient autonomous loop)
+## Composition root
 
-The flagship context: prompt → tool-calling loop → patches.
+| Module | Role |
+|--------|------|
+| `src-tauri/src/state.rs` | `EditorState` — the single Tauri managed state; every command receives `State<'_, EditorState>`. Async fields are `Arc<Mutex<…>>`, grouped into per-domain substructs (`state.ai`, `state.terminal`, …). |
+| `src-tauri/src/lib.rs` | app builder + the **one** `invoke_handler![…]` registering every command; background tasks (memory watchdog, working-set trim). |
+| `src-tauri/src/main.rs` | binary entry → `lib::run()`. |
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `ai_engine.rs` | Domain | `Sentient` — autonomous loop, streaming, phase-wrap, context budgeting, BRAIN injection. |
-| `ai_tools.rs` | Domain | 150+ tool implementations + dispatch. |
-| `tool_invoker.rs` | Domain | Tool permission classifier (Safe/Dangerous) + execution gate. |
-| `task_planner.rs` | Domain | Plan-mode state, `task-phase-update` events. |
-| `workflow_engine.rs` | Domain | Multi-step workflow orchestration. |
-| `attachment_manager.rs` | Domain | Context attachments + neural gist injector. |
-| `ghost_runtime.rs` | Domain | Sandboxed `ghost_test` execution. |
-| `hades_harness.rs` | Domain | MCTS verify loop (propose → shadow VFS → `cargo check` → commit). |
-| `kairos.rs` | Domain | Time/scheduling-aware background indexing helper. |
-| `jobs.rs`, `workers.rs` | Domain | Background job queue + worker pool. |
-| `ai_prompts.rs` | Domain | Prompt templates (incl. dual-use offensive playbooks). |
-| `ai_commands.rs`, `ai_agent_commands.rs`, `ai_project_commands.rs` | Application | Chat / agent / project command adapters. |
-| `ai_patch_commands.rs` | Application | Accept/reject Sentient patches. |
-| `ai_auth.rs` | Infrastructure | AI provider auth tokens. |
+---
 
-## 2. APEX / Offensive security (user-owned, unrestricted)
+## Backend bounded contexts (`src-tauri/src/`)
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `apex_orchestrator.rs` | Domain | 7 specialist engines (architect, threat, perf, …) over Ollama. |
-| `apex_red_team.rs` | Domain | Red-team scan engine + MITRE ATT&CK tactics (BugTraceAI). |
-| `security_distiller.rs` | Domain | Distils security findings into knowledge. |
-| `hunter.rs` | Domain | Bug-bounty recon (URL/asset scanning). |
-| `binary_analyzer.rs` | Domain | Mach-O / binary analysis (Capstone). |
-| `apex_commands.rs` | Application | APEX command adapters. |
+| Context | Path | What lives here |
+|---------|------|-----------------|
+| **AI / agent** | `domain/ai/` | `Sentient` autonomous loop, streaming, context budgeting, tool dispatch, task planner, workflow engine, verify (MCTS) harness, prompt templates |
+| **Tools** | `domain/tools/` | tool implementations + the permission classifier (Safe / Dangerous) gate |
+| **APEX / offensive security** | `domain/security/` | 7-specialist orchestrator, red-team scan engine (MITRE ATT&CK), finding distiller, recon, binary analysis. Analysis is `Safe`; execution stays `Dangerous`. |
+| **Kortex memory / indexing** | `domain/memory/`, `domain/indexing/`, `kortex_kvcache/`, `kortex_gac/`, `kortex_retrieval/`, `kortex_vfs.rs` | `.aim` snapshot format, semantic slots + compact gist, rayon/tree-sitter parallel indexer, embedding index, KV-slot cache proxy |
+| **Editor / files / LSP / patching** | `domain/editor/` | editor model, surgical SEARCH/REPLACE patch engine (`diffy`), shadow workspace, LSP client + tree-sitter diagnostics, keybinding registry |
+| **Version control** | `domain/vcs/` | git2 operations, savepoints / rollback |
+| **Workspace** | `domain/workspace/` | project / multi-root FS abstraction, workspace settings |
+| **Mobile** | `domain/mobile/` | iPhone emulator driver (acheron / Xcode-simulator mirror), Android frame streaming, scrcpy, ADB, Gradle |
+| **Extensions / marketplace / specs** | `domain/extensions/` | extension host manager, Open VSX marketplace client, specs DB, project rules engine |
+| **Providers / auth / web** | `domain/services/` | model-provider resolution, OpenWebUI client, browser actuation, license activation |
+| **Web scanner** | `vega/` | crawler, injection host, fingerprint, alert model (Vega-derived, EPL) |
+| **Compat shims** | `domain/compat/` | temporary re-exports during layer migration — deleted as their last caller moves |
+| **IDE-parity mirror** | `architecture/{domain,application,infrastructure}/` | android / gradle / test contexts modelled with explicit ports + adapters (the reference pattern for new contexts) |
 
-> These are **analysis-only** and classified `Safe` in `tool_invoker.rs`.
-> Execution (`run_command`) remains `Dangerous`. Do not add censorship/filters.
+Command adapters for every context are in `application/commands/*.rs`.
 
-## 3. Kortex AIM — memory, indexing, zero-grep VFS
+---
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `aim_store.rs` | Infrastructure | `.aim` binary format read/write (memmap2). |
-| `memory_store.rs` | Domain | `KortexSnapshot` + `SemanticSlot`; `build_compact_gist()`, tree summary. |
-| `memory_layer.rs` | Domain | Retrieval facade over `memory_store`. |
-| `memory_optimizer.rs` | Domain | RSS-aware trimming. |
-| `context_indexer.rs` | Domain | Rayon + tree-sitter parallel codebase indexer. |
-| `vector_indexer.rs` | Domain | Embedding index (lazy-started). |
-| `context_key.rs`, `context_quantizer.rs` | Domain | Context keying + quantisation. |
-| `knowledge_distiller.rs` | Domain | Knowledge-brief distillation. |
-| `vfs_bridge.rs` | Infrastructure | Bridge to kortex VFS daemon. |
-| `kortex_commands.rs`, `vector_commands.rs` | Application | AIM / vector command adapters (`aim_pack_context`, `aim_query_spans`, `trigger_workspace_index`). |
+## Frontend bounded contexts (`src/`)
 
-## 4. Editor / Files / LSP / Patching
+`domain/<ctx>/` (ports) · `application/<ctx>/` (use-cases) · `infrastructure/<ctx>/` (Tauri adapters) · `components/<ctx>/` (UI).
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `editor_service.rs` | Domain | Editor model/state. |
-| `patch_engine.rs` | Domain | Surgical SEARCH/REPLACE via `diffy` (no full-file rewrites). |
-| `shadow_workspace.rs` | Domain | Virtual branch for safe mutation before commit. |
-| `lsp.rs` | Domain | LSP client + tree-sitter diagnostics. |
-| `keybindings.rs` | Domain | Keybinding registry. |
-| `editor_commands.rs`, `file_commands.rs`, `lsp_commands.rs` | Application | Editor/file/LSP command adapters. |
+Contexts: `agent` · `editor` · `terminal` · `workspace` · `security` · `debug`
+(DAP) · `symbols` · `performance` · `android` · `gradle` · `test` · `canvas` ·
+`settings` · `research`.
 
-## 5. Git / version control
+Public entry points to use in new code are listed in [`src/README.md`](src/README.md).
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `git.rs` | Domain | git2 operations. |
-| `git_checkpoints.rs` | Domain | Savepoints / rollback. |
-| `git_commands.rs` | Application | Git command adapters. |
+Bridge dirs — `src/kortex/`, `src/hermes/`, `src/claurst/`, `src/airi/` — are thin
+frontends over their backend/subprocess counterparts; treat them as infrastructure.
 
-## 6. Terminal / process / system
+---
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `terminal_commands.rs` | Application+Infra | PTY terminals (`portable-pty`). |
-| `process_ext.rs` | Infrastructure | Process spawning helpers. |
-| `system_commands.rs` | Application | System/window/permission-response commands. |
+## Conventions (every change follows these)
 
-## 7. Emulators (iPhone / Android)
+### 1. Command-extraction pattern (Rust)
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `iphone_emulator.rs` | Application+Infra | Spawns acheron, streams console + frames, `send_iphone_touch`, `create_stub_ramdisk`. |
-| `emulator_stream.rs` | Infrastructure | Android frame streaming. |
-| `scrcpy.rs` | Infrastructure | scrcpy mirroring. |
-| `android_commands.rs` | Application | Android command adapters. |
+Every Tauri command is a thin wrapper around a testable plain function:
 
-> The iPhone emulator's own C++ core (`Virtual-iPhone-Emulator/`) is DDD-layered
-> separately — see that repo's `PROGRESS.md` / `CLAUDE.md`.
+```rust
+// application/commands/ai.rs
+#[tauri::command]
+pub async fn ai_chat(state: State<'_, EditorState>, req: ChatReq) -> Result<ChatResp, String> {
+    crate::domain::ai::chat(&state.ai, req).await.map_err(|e| e.to_string())
+}
+```
 
-## 8. MCP (Model Context Protocol)
+Logic + `#[cfg(test)]` unit tests go in `domain/`. Nothing beyond state plumbing
+and error mapping goes in a `#[tauri::command]` body.
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `mcp_server.rs` | Infrastructure | MCP server. |
-| `mcp_client.rs` | Infrastructure | MCP client. |
-| `mcp_registry.rs` | Domain | Server registry. |
-| `mcp_commands.rs` | Application | MCP command adapters. |
+### 2. Adding a feature
 
-## 9. Providers / auth / web
+1. Put logic in the right context's **domain** service, with tests there.
+2. Expose it via a thin adapter in `application/commands/<ctx>.rs`.
+3. Register it in the single `invoke_handler!` in `lib.rs`.
+4. Shared state → a field on the right `EditorState` substruct in `state.rs`.
+5. Frontend: port in `domain/` → adapter in `infrastructure/` → use-case in
+   `application/` → thin UI. Components never call `invoke()`.
+6. Keep patches surgical (`patch_engine` / `diffy`) — no full-file rewrites.
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `provider_manager.rs` | Domain | Model-provider resolution (Ollama/cloud). |
-| `openwebui_client.rs` | Infrastructure | OpenWebUI HTTP client. |
-| `browser.rs`, `web_commands.rs` | Infra+App | Web fetch / browser actuation. |
-| `auth_commands.rs`, `activation.rs` | Application | Auth + license activation. |
-| `provider_commands.rs` | Application | Provider command adapters. |
+### 3. Migration mechanics (keep the build green)
 
-## 10. Extensions / marketplace / specs / rules
+- Move a file with `git mv`; leave a one-line re-export shim at the old path
+  (`domain/compat/`), delete shims in the final cleanup commit.
+- `cargo check` + `npm run typecheck` pass after **every** commit; one concern per commit.
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `extension_host.rs` | Domain | Extension host manager. |
-| `marketplace.rs` | Infrastructure | Marketplace client. |
-| `specs_db.rs` | Infrastructure | Specs persistence. |
-| `rules_engine.rs` | Domain | Project rules. |
-| `extensions_commands.rs`, `specs_commands.rs` | Application | Adapters. |
+### 4. UI budget
 
-## 11. Debug (DAP)
+- No animation libraries. CSS transitions only, on `opacity` / `color` /
+  `background-color` / `transform`, max `var(--duration-base)` (150 ms). Never
+  animate width/height/top/left.
+- All colours via tokens in `src/styles/tokens.css` (VS Code theme-key names). No raw hex in component CSS.
+- Icons: codicons (`src/codicon/`) only. No emoji, no one-off inline SVGs.
+- Density: 13 px UI font, 22 px list/tree rows, 35 px tabs, 22 px status bar, 48 px activity bar.
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `debug_adapter.rs` | Infrastructure | DAP adapter. |
-| `debug_commands.rs` | Application | Debug command adapters. |
+### 5. Settings
 
-## 12. Multimodal — vision / voice / visual / AIRI / ANE
+- Every setting is declared once in `src/domain/settings/registry.ts`
+  (`{ id, label, description, section, keywords, type, default, storage }`); UI,
+  search, and persistence derive from it. Never add an ad-hoc `localStorage` key.
+- Persistence: one `settings.json` in the Tauri config dir via
+  `src/infrastructure/SettingsRepository.ts`. Secrets (API keys) stay backend-side
+  in `api_keys.json`, never in renderer storage.
+- Sections are fixed (8): Editor, Appearance, AI Models, Agent, Extensions,
+  Privacy & Account, Keyboard, Advanced.
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `vision.rs`, `hades_vision.rs`, `vision_bridge.rs` | Domain+Infra | Screen/image understanding. |
-| `voice_commands.rs` | Application | Voice command adapters. |
-| `visual_lab.rs`, `visual_commands.rs` | Domain+App | reactflow Visual Lab diagram builder. |
-| `airi_bridge.rs` | Infrastructure | AIRI 3D avatar bridge. |
-| `ane.rs` | Infrastructure | Apple Neural Engine FFI (macOS only). |
+### 6. Verification gate (every commit)
 
-## 13. Performance + IDE-parity test modules
+```bash
+cd src-tauri && cargo check && cargo test
+npm run typecheck && npm test        # includes check-architecture.mjs
+```
 
-| Module | Layer | Role |
-|--------|-------|------|
-| `performance.rs`, `performance_commands.rs` | Domain+App | RSS/inference telemetry. |
-| `antigravity_commands.rs` | Application | Antigravity-IDE-parity commands. |
-| `zed_test.rs` | Test | Zed-integration probe. |
+Risky changes also get a manual smoke: `npx tauri dev` → open a file, agent chat,
+terminal, git panel, settings.
 
 ---
 
 ## Dependency direction (target)
 
 ```
-Application (*_commands.rs, lib.rs)
-        │  calls
-        ▼
-Domain / Engine (ai_engine, memory_store, patch_engine, apex_*, …)
-        │  uses
-        ▼
-Infrastructure (aim_store, vfs_bridge, process_ext, git2, reqwest, FFI)
+application (commands, use-cases, lib.rs)
+      │ calls
+      ▼
+domain (engines, services, ports)
+      │ uses
+      ▼
+infrastructure (process spawn, HTTP, FFI, git2, tree-sitter, Tauri IPC)
 ```
 
-Commands must not contain business logic; engines must not call Tauri command
-APIs. `EditorState` is the composition root that wires engines together.
-
----
-
-## When adding a feature (checklist)
-
-1. Put logic in the right context's **engine**, not in a command.
-2. Expose it with a thin `#[tauri::command]` in that context's `*_commands.rs`.
-3. Register the command in `lib.rs` (the single `invoke_handler!`).
-4. If it touches shared state, add the field to `EditorState` in `state.rs`.
-5. Keep patches surgical (`patch_engine` / `diffy`) — no full-file rewrites.
-6. Run `cargo check` (backend) and `npm run typecheck` (frontend).
-7. Update `PROGRESS.md`.
+Commands hold no business logic; engines never call Tauri command APIs.
+`EditorState` is the only place engines are wired together.

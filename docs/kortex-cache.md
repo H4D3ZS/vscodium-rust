@@ -1,9 +1,5 @@
 # Kortex Provider-Agnostic Caching — Design
 
-> Status: **DRAFT for review** (2026-07-06). No code written from this doc yet.
-> Author handoff: read this before touching `src-tauri/src/kortex_kvcache/*` or
-> `src-tauri/src/domain/ai/ollama_offload.rs`. Update the status line + the
-> Milestones table as work lands.
 
 ## 1. Goal (and honest scope)
 
@@ -174,8 +170,7 @@ A visible number is what turns an invisible optimization into trust.
 | 6 | Config surface + KortexInferencePanel stats/tier badge | todo |
 | 7 | Ollama end-to-end validation; Lemonade (both recipes) validation | todo |
 
-Each milestone lands with unit tests in the `store`/`proxy` test modules (the
-project's first-real-tests-here precedent) and a PROGRESS.md entry.
+Each milestone lands with unit tests in the `store`/`proxy` test modules (the project's first-real-tests-here precedent).
 
 ## 11. Non-goals / honest limitations
 - Not modifying Ollama or contributing slot-save upstream (out of scope; huge).

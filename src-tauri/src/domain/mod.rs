@@ -1,5 +1,5 @@
 //! Domain layer: pure business logic. No `tauri::` imports allowed here.
-//! See docs/overhaul/CONVENTIONS.md §1.
+//! See ARCHITECTURE.md.
 
 pub mod ai;
 pub mod tools;

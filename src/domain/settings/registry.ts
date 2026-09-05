@@ -1,5 +1,5 @@
 // Declarative settings registry — single source of truth for the Settings UI
-// (Milestone C, docs/overhaul/MASTER_PLAN.md). Sections, search, and routing
+// (Milestone C, ARCHITECTURE.md). Sections, search, and routing
 // all derive from this data. PURE DATA: the domain layer must not import
 // React — SettingsPage.tsx maps each item's `panel` key to a component.
 

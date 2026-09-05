@@ -159,7 +159,7 @@ pub(crate) use infrastructure::vfs_bridge;
 
 pub mod domain;
 // ── Overhaul shims: old flat-module paths re-exported from their new DDD homes.
-// Deleted in the A1 cleanup commit. See docs/overhaul/CONVENTIONS.md §3.
+// Deleted in the A1 cleanup commit. See ARCHITECTURE.md.
 pub(crate) use domain::vcs::git;
 pub(crate) use domain::vcs::git_checkpoints;
 pub(crate) use domain::vcs::patch_engine;

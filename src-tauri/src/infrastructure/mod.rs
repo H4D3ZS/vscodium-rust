@@ -1,6 +1,6 @@
 //! Infrastructure layer: external-world adapters — processes, sockets, files,
 //! browsers, MCP transport, system metrics. No business logic here.
-//! See docs/overhaul/CONVENTIONS.md §1.
+//! See ARCHITECTURE.md.
 
 pub mod browser;
 #[cfg(feature = "tauri")]

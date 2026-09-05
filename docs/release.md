@@ -101,3 +101,58 @@ gateway). So the download link is public:
 
 `npx tauri build` on the Mac → `.dmg` in `bundle/dmg/`. Freeze the sidecar with a
 macOS PyInstaller run (or ship Python-required). Notarize with `xcrun notarytool`.
+
+---
+
+## Quick ship checklist
+
+Run a full Windows release:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\release.ps1
+```
+
+Or step-by-step:
+
+```powershell
+npm run typecheck
+powershell -ExecutionPolicy Bypass -File scripts\fetch-lsp-binaries.ps1   # once
+powershell -ExecutionPolicy Bypass -File scripts\build-sidecar.ps1        # once (invisible_playwright)
+powershell -ExecutionPolicy Bypass -File scripts\build-claurst.ps1        # once (optional agent backend)
+npm run build:tauri
+```
+
+Output: `src-tauri\target\release\bundle\nsis\` (`VSCodium Rust IDE_*-setup.exe`).
+
+## Bundled runtime
+
+| Component | Location | Notes |
+|-----------|----------|--------|
+| LSP servers | `src-tauri/binaries/lsp/` | rust-analyzer, gopls, pyright, tsserver |
+| Stealth browser | `src-tauri/binaries/browser-agent.exe` | invisible_playwright via PyInstaller |
+| Claurst agent | `src-tauri/binaries/claurst.exe` | optional external agent backend (GPL, separate process) |
+| Extension host | `src-tauri/ext-host/` | Open VSX extensions |
+
+Dev mode uses Python + `invisible_playwright/src` on `PYTHONPATH` when `browser-agent.exe` is absent. Claurst falls back to `claurst/src-rust/target/release/` in dev when `claurst.exe` is not prebuilt.
+
+Both sidecars are built automatically by `npm run prebuild:sidecar` (runs before `npx tauri build`).
+
+## Pre-ship smoke test
+
+1. Open folder → chat → agent edits a file → accept diff
+2. **+** new chat tab → close tab with **×** → History → **Restore conversation**
+3. `/manus` web mission (stealth Firefox launches)
+4. Settings → Account → plan card layout
+5. Install one Open VSX extension (ESLint or Prettier)
+6. F9 breakpoint → debug panel
+7. Ctrl+T ghost completion + Tab next-edit toast (if enabled in Settings)
+
+## Optional services (user machine)
+
+- **Ollama** `:11434` — local models
+- **aim-proxy** `:1536` — `.aim` context injection
+- Cloud keys in Settings → Providers
+
+## Updater
+
+Tauri updater is **disabled** until signing keys are configured in `tauri.conf.json`.

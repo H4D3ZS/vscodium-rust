@@ -1,5 +1,5 @@
 //! Tiered codebase map — the "always-on, tiny" half of cheap AI codebase
-//! awareness (see docs/overhaul/KORTEX_CACHE_DESIGN.md, context strategy).
+//! awareness (see docs/kortex-cache.md, context strategy).
 //!
 //! A full signature blueprint of a large repo is 30–80K tokens — too big to
 //! inject every turn (it breaks small-context local models and costs real money

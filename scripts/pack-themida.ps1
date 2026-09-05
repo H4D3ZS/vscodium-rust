@@ -22,4 +22,4 @@ if (-not (Test-Path $exe))         { Write-Error "Build artifact not found: $exe
 Write-Host "==> Protecting $exe with Themida" -ForegroundColor Cyan
 # Themida CLI: /protect <project.tmd> <input> <output>  (flags vary by version — check Themida docs)
 & $ThemidaCli /protect $ThemidaProj $exe $exe
-Write-Host "OK -> protected in place. Now code-sign (see docs/RELEASE.md)." -ForegroundColor Green
+Write-Host "OK -> protected in place. Now code-sign (see docs/release.md)." -ForegroundColor Green

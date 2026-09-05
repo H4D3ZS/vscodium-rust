@@ -5,7 +5,7 @@
  * writes to mcp_config.json (`mcpServers` root), external process spawns, tools join the agent.
  * We use the same package IDs and @toolbox-sdk/server prebuilts where Antigravity docs specify them.
  *
- * @see docs/MCP_STORE.md
+ * @see docs/mcp.md
  * @see https://cloud.google.com/bigquery/docs/pre-built-tools-with-mcp-toolbox
  */
 

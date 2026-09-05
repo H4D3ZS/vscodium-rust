@@ -7,7 +7,7 @@ import { useStore } from '../store';
 /**
  * MCP Store editor tab — UX parity with Google Antigravity IDE.
  * Antigravity: Agent "..." → MCP Servers → browse/install → Manage → View raw config.
- * @see docs/MCP_STORE.md
+ * @see docs/mcp.md
  */
 
 type View = 'store' | 'manage' | 'raw';
@@ -328,7 +328,7 @@ const McpStorePanel: React.FC = () => {
                     <footer className="mcp-store-footer">
                         Catalog follows Antigravity&apos;s curated MCP Store pattern. See{' '}
                         <a href="https://cloud.google.com/bigquery/docs/pre-built-tools-with-mcp-toolbox" target="_blank" rel="noreferrer">Google Cloud MCP + Antigravity</a>
-                        {' '}and <code>docs/MCP_STORE.md</code> in this repo.
+                        {' '}and <code>docs/mcp.md</code> in this repo.
                     </footer>
                 </>
             )}

@@ -2,7 +2,7 @@
 //! ANE acceleration, Ollama offloading, agent/MCTS harnesses, and vision.
 //!
 //! NOTE: ai_engine.rs (7.2K LOC) and ai_tools.rs (8.5K LOC) are slated to be
-//! split into focused submodules — see docs/overhaul/MASTER_PLAN.md §A1.
+//! split into focused submodules — see ARCHITECTURE.md
 
 pub mod agent_harness;
 pub mod engine;

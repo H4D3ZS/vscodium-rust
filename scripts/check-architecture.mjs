@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Architecture layering check (docs/overhaul/CONVENTIONS.md §1).
+// Architecture layering check (ARCHITECTURE.md).
 //
 // Rule: UI layers never talk to Tauri directly. `invoke(` / `@tauri-apps/api`
 // belong in src/infrastructure (adapters) and src/tauri_bridge / tauri_api_shim.

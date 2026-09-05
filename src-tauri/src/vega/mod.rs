@@ -5,7 +5,7 @@
 //! modules and 85 alert definitions are reused verbatim (shipped under
 //! `resources/vega/`); only the engine that hosts them is rewritten here.
 //!
-//! Build progresses in phases — see `.planning/vega-integration/PROGRESS.md`.
+//! Build progresses in phases — see `the vega integration plan`.
 //! Phases 0–3 complete: model, alerts, JS host, HTTP scan engine + modern layer.
 
 pub mod alerts;
