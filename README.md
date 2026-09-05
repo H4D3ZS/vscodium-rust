@@ -27,9 +27,12 @@ native process, not an Electron main thread.
   diagnostics, distilled knowledge briefs.
 - **Security & ML** — APEX specialist routing, headless-browser automation, secret
   scanning, PyTorch train loop + ONNX export.
-- **iOS on Windows/Linux** — ARM64 Mach-O compile, `.ipa` packaging, `zsign`/`ldid`
-  signing, `go-ios` install — no macOS/Xcode. See [`docs/mobile.md`](docs/mobile.md)
-  (`iPhoneOS.sdk` is the one asset you supply yourself).
+- **iOS build on Windows/Linux** — ARM64 Mach-O compile, `.ipa` packaging,
+  `zsign`/`ldid` signing, `go-ios` install — no macOS/Xcode (`iPhoneOS.sdk` is the
+  one asset you supply). The iPhone **emulator** is a separate in-progress Rust
+  component; on Apple Silicon the Devices panel drives
+  [vphone-cli](https://github.com/Lakr233/vphone-cli) /
+  [darwin-vm](https://github.com/jprx/darwin-vm) today. See [`docs/mobile.md`](docs/mobile.md).
 
 ## Quick start
 
@@ -79,3 +82,8 @@ Built on [VSCodium](https://vscodium.com/), [Tauri](https://tauri.app/),
 [go-ios](https://github.com/danielpaulus/go-ios),
 [ldid](https://github.com/ProcursusTeam/ldid),
 [Monaco](https://microsoft.github.io/monaco-editor/).
+
+iPhone emulation on Apple Silicon builds on two MIT projects — credit to their
+authors: [vphone-cli](https://github.com/Lakr233/vphone-cli) by
+[Lakr233](https://github.com/Lakr233), and
+[darwin-vm](https://github.com/jprx/darwin-vm) by [jprx](https://github.com/jprx).
