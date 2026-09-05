@@ -5,6 +5,26 @@ import type { AppState } from './index';
 import type { EditorTab, FileEntry, PendingChange, WorkspaceFolder } from './types';
 import { boundedPush, boundedTail, MAX_TAB_HISTORY, MAX_PENDING_CHANGES, MAX_PENDING_CHANGE_CONTENT } from '../domain/utils/boundedArray';
 
+/**
+ * Dispose the Monaco text model backing a file tab. Monaco keeps a model per
+ * opened URI for the app's lifetime unless explicitly disposed, so every
+ * tab-close path must call this or models (and their tokenization state) leak.
+ */
+function disposeTabModel(path: string | undefined): void {
+    if (!path) return;
+    try {
+        const monaco = (window as any).monaco;
+        if (!monaco?.editor) return;
+        const clean = (p: string) => p.replace(/\\/g, '/').replace(/^\//, '').toLowerCase();
+        const target = clean(path);
+        const model = monaco.editor.getModels().find((m: any) => {
+            const mp = clean(m.uri.path);
+            return mp === target || decodeURIComponent(m.uri.toString()).toLowerCase().includes(target);
+        });
+        if (model) model.dispose();
+    } catch { /* best effort */ }
+}
+
 export interface EditorSlice {
     // State
     activeTabId: string | null;
@@ -240,21 +260,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     closeTab: (id: string) => {
         const state = get();
         const tab = state.tabs.find((t: any) => t.id === id);
-        if (tab) {
-            try {
-                const monaco = (window as any).monaco;
-                if (monaco?.editor) {
-                    const models = monaco.editor.getModels();
-                    const cleanPath = (p: string) => p.replace(/\\/g, '/').replace(/^\//, '').toLowerCase();
-                    const targetPath = cleanPath(tab.path);
-                    const model = models.find((m: any) => {
-                        const modelPath = cleanPath(m.uri.path);
-                        return modelPath === targetPath || decodeURIComponent(m.uri.toString()).toLowerCase().includes(targetPath);
-                    });
-                    if (model) model.dispose();
-                }
-            } catch { /* best effort */ }
-        }
+        if (tab) disposeTabModel(tab.path);
         set((state) => {
             const tabs = state.tabs.filter((t: any) => t.id !== id);
             let activeTabId = state.activeTabId;
@@ -332,6 +338,9 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
 
     showWelcomeTab: () => {
         try { localStorage.removeItem('welcome.dismissed'); } catch { /* */ }
+        // Bulk tab-clear: dispose every model, otherwise this leaks one Monaco
+        // model per file opened before the workspace switch.
+        for (const t of get().tabs) disposeTabModel((t as any).path);
         set({
             welcomeForceVisible: true,
             tabs: [],

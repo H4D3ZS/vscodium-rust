@@ -182,6 +182,10 @@ export class AIRIVRMAvatar {
         if (container && this.renderer.domElement.parentElement === container) {
           container.removeChild(this.renderer.domElement);
         }
+        // dispose() alone does not release the WebGL context in Chromium/WebView;
+        // without forceContextLoss() repeated mount/unmount hits the browser's
+        // active-context cap ("Too many active WebGL contexts") and then a crash.
+        this.renderer.forceContextLoss();
         this.renderer.dispose();
       } catch { /* ignore */ }
       this.renderer = null;
@@ -507,6 +511,9 @@ export class AIRIVRMAvatar {
     }
 
     if (this.renderer) {
+      // Force-release the WebGL context (see _cleanupRenderer) — dispose() by
+      // itself leaves it live and the WebView eventually runs out.
+      try { this.renderer.forceContextLoss(); } catch { /* ignore */ }
       this.renderer.dispose();
       this.renderer.domElement.remove();
       this.renderer = null;
