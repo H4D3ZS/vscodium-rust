@@ -1,31 +1,35 @@
 //! 24/7 autonomous supervisor.
 //!
-//! Maintains a durable task queue and works it unattended, forever, using free
-//! web-chat models via the WebUI→MCP bridge. For each task it:
+//! Maintains a durable task queue and works it unattended, forever, using the
+//! local **Sentient** agent (Lemonade / BYOK). For each task it:
 //!   1. snapshots the current git branch and starts an isolated branch,
-//!   2. picks a healthy connected provider tab (rotating on stall / rate-limit),
-//!   3. injects the task and watches the bridge's events until `TASK_COMPLETE`,
-//!   4. runs the verify gate (`cargo check` / `npm run typecheck`),
-//!   5. on green → checkpoint commit on the isolated branch; on red → revert.
+//!   2. runs the task prompt through `Sentient::autonomous_loop` (its own tool
+//!      loop does the edits / commands),
+//!   3. runs the verify gate (`cargo check` / `npm run typecheck`),
+//!   4. on green → checkpoint commit on the isolated branch; on red → revert.
 //!
 //! It never pushes, never holds the state lock during long work, and recovers from
-//! every error path (no connected tab, provider timeout, verify failure) by cooling
-//! down and moving on — so it survives being left running overnight.
+//! every error path (agent error, timeout, verify failure) by requeuing or failing
+//! the task — so it survives being left running overnight.
 
 use std::{
     collections::VecDeque,
     path::PathBuf,
     process::Stdio,
     sync::Arc,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 
-use crate::domain::ai::webui_protocol::is_task_complete;
-use crate::infrastructure::webui_mcp_bridge::{BridgeEvent, WebUiBridgeHandle};
+use crate::domain::ai::engine::types::{AiRequest, ChatMessage, MessageContent};
+
+const SUPERVISOR_SYSTEM: &str = "You are an autonomous background engineer. \
+Complete the task end to end using your tools: read the relevant files, make \
+the change, and make sure it is coherent. Do not ask questions. When the task \
+is fully done, stop.";
 
 // ── Task model ────────────────────────────────────────────────────────────────
 
@@ -94,7 +98,7 @@ pub struct SupervisorState {
     running: Option<SupervisorTask>,
     paused: bool,
     config: SupervisorConfig,
-    bridge: WebUiBridgeHandle,
+    state: Arc<crate::EditorState>,
     workspace_root: PathBuf,
     queue_file: PathBuf,
     seq: u64,
@@ -169,7 +173,7 @@ pub type SupervisorHandle = Arc<Mutex<SupervisorState>>;
 /// Initialise the supervisor, load any persisted queue, and spawn the always-on loop.
 pub fn init(
     app: AppHandle,
-    bridge: WebUiBridgeHandle,
+    state_arc: Arc<crate::EditorState>,
     workspace_root: PathBuf,
     config_dir: PathBuf,
 ) -> SupervisorHandle {
@@ -194,7 +198,7 @@ pub fn init(
         running: None,
         paused: false,
         config: SupervisorConfig::default(),
-        bridge,
+        state: state_arc,
         workspace_root,
         queue_file,
         seq: loaded.seq,
@@ -231,16 +235,16 @@ async fn run_loop(handle: SupervisorHandle, app: AppHandle) {
         };
 
         // Snapshot the bits we need without holding the lock during long work.
-        let (bridge, workspace_root, config) = {
+        let (state, workspace_root, config) = {
             let s = handle.lock().await;
-            (s.bridge.clone(), s.workspace_root.clone(), s.config.clone())
+            (s.state.clone(), s.workspace_root.clone(), s.config.clone())
         };
 
         task.status = TaskStatus::Running;
         task.attempts += 1;
         set_running(&handle, Some(task.clone()), &app).await;
 
-        let result = execute_task(&bridge, &workspace_root, &config, &mut task).await;
+        let result = execute_task(&state, &workspace_root, &config, &mut task).await;
 
         match result {
             Ok(commit) => {
@@ -249,12 +253,6 @@ async fn run_loop(handle: SupervisorHandle, app: AppHandle) {
                 task.last_error = None;
             }
             Err(TaskError::Retryable(msg)) if task.attempts < config.max_attempts => {
-                // Cool down the provider that stalled and requeue for another provider.
-                if let Some(p) = &task.provider {
-                    bridge
-                        .set_cooldown(p, Duration::from_secs(config.provider_cooldown_secs))
-                        .await;
-                }
                 task.status = TaskStatus::Queued;
                 task.last_error = Some(msg);
                 let mut s = handle.lock().await;
@@ -318,26 +316,18 @@ impl TaskError {
     }
 }
 
-/// Run one full attempt: isolate branch → drive provider → verify → commit/revert.
+/// Run one full attempt: isolate branch → run local agent → verify → commit/revert.
 async fn execute_task(
-    bridge: &WebUiBridgeHandle,
+    state: &Arc<crate::EditorState>,
     workspace_root: &PathBuf,
     config: &SupervisorConfig,
     task: &mut SupervisorTask,
 ) -> Result<Option<String>, TaskError> {
-    // 1. Pick a connected, healthy provider tab.
-    let tab = match bridge.pick_tab(None).await {
-        Some(t) => t,
-        None => {
-            return Err(TaskError::Retryable(
-                "no connected browser-chat tab — open a chat and click Start".into(),
-            ))
-        }
-    };
-    // Record which provider we landed on (best-effort from status).
-    if let Some(status) = bridge.status().await.into_iter().find(|s| s.tab_id == tab) {
-        task.provider = Some(status.provider);
-    }
+    // 1. Local agent: the user's active model on the local backend. (BYOK models
+    //    still work — autonomous_loop resolves provider-specific routing.)
+    let model = state.ai.current_model.lock().await.clone();
+    let provider = "lemonade".to_string();
+    task.provider = Some(provider.clone());
 
     // 2. Isolate work on a fresh branch (only when auto-commit + inside a git repo).
     let is_git = git(workspace_root, &["rev-parse", "--is-inside-work-tree"]).await.is_ok();
@@ -361,36 +351,49 @@ async fn execute_task(
         task.branch = Some(branch.clone());
     }
 
-    // 3. Drive the provider until TASK_COMPLETE (subscribe BEFORE injecting).
-    let mut rx = bridge.subscribe();
-    if !bridge.start_task_on_tab(&tab, &task.prompt).await {
-        return Err(TaskError::Retryable("failed to inject task into tab".into()));
-    }
-
-    let deadline = Instant::now() + Duration::from_secs(config.task_timeout_secs);
-    let mut steps = 0u32;
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err(TaskError::Retryable("task timed out".into()));
-        }
-        match tokio::time::timeout(remaining, rx.recv()).await {
-            Ok(Ok(BridgeEvent::AssistantText { tab_id, text, .. })) if tab_id == tab => {
-                steps += 1;
-                if is_task_complete(&text) {
-                    break;
-                }
-                if steps >= config.max_steps_per_task {
-                    return Err(TaskError::Retryable("step budget exhausted".into()));
-                }
-            }
-            Ok(Ok(BridgeEvent::TabDisconnected { tab_id, .. })) if tab_id == tab => {
-                return Err(TaskError::Retryable("provider tab disconnected".into()));
-            }
-            Ok(Ok(_)) => continue,
-            Ok(Err(_lagged)) => continue, // broadcast overflow — keep waiting
-            Err(_elapsed) => return Err(TaskError::Retryable("task timed out".into())),
-        }
+    // 3. Run the task through the local Sentient agent. Its own tool loop makes
+    //    the edits / runs commands; it returns when the task is done. We bound it
+    //    with the per-task wall-clock budget.
+    let req = AiRequest {
+        provider: provider.clone(),
+        model: model.clone(),
+        messages: vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: Some(MessageContent::Text(SUPERVISOR_SYSTEM.to_string())),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: Some(MessageContent::Text(task.prompt.clone())),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+        ],
+        temperature: Some(0.2),
+        autonomous: true,
+        cyber_mode: None,
+        root_access: Some(false),
+        mode: Some("Agent".to_string()),
+        ollama_url: None,
+        tools: None,
+        reasoning_budget: None,
+        reasoning_effort: None,
+        reasoning_enabled: None,
+        feature: None,
+    };
+    let run = tokio::time::timeout(
+        Duration::from_secs(config.task_timeout_secs),
+        state.ai.engine.clone().autonomous_loop(req, None),
+    )
+    .await;
+    match run {
+        Err(_) => return Err(TaskError::Retryable("task timed out".into())),
+        Ok(Err(e)) => return Err(TaskError::Retryable(format!("agent error: {e}"))),
+        Ok(Ok(_final_text)) => { /* agent finished — proceed to verify */ }
     }
 
     // 4. Verify gate.

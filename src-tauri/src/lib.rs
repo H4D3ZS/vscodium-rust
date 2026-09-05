@@ -365,19 +365,16 @@ pub fn run() {
                 app.manage(orch);
             }
 
-            // 24/7 autonomous supervisor — durable task queue driven via the WebUI bridge.
+            // 24/7 autonomous supervisor — durable task queue run through the local agent.
             {
-                let workspace = state.editor.active_root
+                let st = state.inner().clone();
+                let workspace = st.editor.active_root
                     .try_lock()
                     .ok()
                     .and_then(|r| r.clone())
-                    .unwrap_or_else(|| state.config_dir.clone());
-                let sup = supervisor::init(
-                    app.handle().clone(),
-                    state.webui_bridge.clone(),
-                    workspace,
-                    state.config_dir.clone(),
-                );
+                    .unwrap_or_else(|| st.config_dir.clone());
+                let cfg_dir = st.config_dir.clone();
+                let sup = supervisor::init(app.handle().clone(), st, workspace, cfg_dir);
                 app.manage(sup);
             }
 
