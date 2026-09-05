@@ -297,6 +297,13 @@ Attached image(s) — use the Read tool to view:
     cmd.env("ANTHROPIC_BASE_URL", &lemonade_base);
     cmd.env("ANTHROPIC_AUTH_TOKEN", "lemonade");
     cmd.env("ANTHROPIC_API_KEY", "lemonade");
+    // Recent Claude Code builds validate ANTHROPIC_MODEL against a known list and
+    // abort with `[claude-code:unrecognized_model]` on anything that isn't a real
+    // Claude id — a raw GGUF name like `Escha-…-ROCmFP2.gguf` never passes. The
+    // local server (llama-server, directly or via the Kortex proxy) ignores the
+    // model field and serves whatever it loaded, so we hand Claude Code a
+    // recognised alias and let the backend do the right thing.
+    const CC_MODEL_ALIAS: &str = "claude-sonnet-4-20250514";
     for var in [
         "ANTHROPIC_MODEL",
         "ANTHROPIC_SMALL_FAST_MODEL",
@@ -304,7 +311,7 @@ Attached image(s) — use the Read tool to view:
         "ANTHROPIC_DEFAULT_SONNET_MODEL",
         "ANTHROPIC_DEFAULT_OPUS_MODEL",
     ] {
-        cmd.env(var, &model);
+        cmd.env(var, CC_MODEL_ALIAS);
     }
     let (ctx_size, _, _) = super::ai::lemonade_tuning(&model);
     // Small on purpose. llama.cpp requires `prompt + max_tokens <= n_ctx`, so a
