@@ -70,7 +70,7 @@ const PlanApprovalBanner: React.FC = memo(() => {
                         background: '#d97706', color: 'var(--vscode-editor-foreground, #fff)', border: 'none', cursor: 'pointer',
                     }}
                 >
-                    {approving ? '…' : '✓ Approve & Execute'}
+                    {approving? '…': ' Approve & Execute'}
                 </button>
                 <button
                     onClick={handleReject}
@@ -80,7 +80,7 @@ const PlanApprovalBanner: React.FC = memo(() => {
                         border: '1px solid rgba(248,113,113,0.3)', cursor: 'pointer',
                     }}
                 >
-                    ✕ Cancel
+                     Cancel
                 </button>
             </div>
         </div>
@@ -114,12 +114,12 @@ const RestoreCheckpointBanner: React.FC = memo(() => {
                     setBusy(true);
                     const r = await rollback();
                     setBusy(false);
-                    setMsg(r.ok ? 'Restored.' : r.message);
+                    setMsg(r.ok? 'Restored.': r.message);
                     if (r.ok) setTimeout(() => setMsg(null), 1800);
                 }}
-                style={{ background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)', border: 'none', padding: '2px 8px', fontSize: 10, fontWeight: 600, borderRadius: 2, cursor: busy ? 'wait' : 'pointer' }}
+                style={{ background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)', border: 'none', padding: '2px 8px', fontSize: 10, fontWeight: 600, borderRadius: 2, cursor: busy? 'wait': 'pointer' }}
             >
-                {busy ? '…' : '↶ Restore'}
+                {busy? '…': '↶ Restore'}
             </button>
             <i
                 className="codicon codicon-close"
@@ -183,7 +183,7 @@ const MultiFileReviewBanner: React.FC = memo(() => {
             <i className="codicon codicon-chevron-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', opacity: 0.5, fontSize: 11 }} />
             <i className="codicon codicon-diff-multiple" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: '#4ade80', fontSize: 12 }} />
             <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontWeight: 500 }}>
-                {edits.length} {edits.length === 1 ? 'File' : 'Files'}
+                {edits.length} {edits.length === 1? 'File': 'Files'}
             </span>
             {lastCheckpoint && (
                 <span onClick={rejectAll} style={{ ...pill, background: 'rgba(239,68,68,0.14)', color: '#f87171', borderColor: 'rgba(239,68,68,0.35)' }} title="Revert all files to the checkpoint">

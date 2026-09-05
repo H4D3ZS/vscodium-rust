@@ -167,7 +167,7 @@ export class AIRISurgicalEditor {
 
 FILE: ${filePath}
 ERROR: ${errorMessage}
-${context ? `CONTEXT:\n${context}\n` : ''}
+${context? `CONTEXT:\n${context}\n`: ''}
 CODE:
 ${fileContent}
 
@@ -195,9 +195,9 @@ DESCRIPTION: <brief explanation>`;
     const descMatch = text.match(/DESCRIPTION:\s*([\s\S]*)/i);
 
     return {
-      search: searchMatch ? searchMatch[1].trim() : '',
-      replace: replaceMatch ? replaceMatch[1].trim() : '',
-      description: descMatch ? descMatch[1].trim() : 'Auto-fix generated',
+      search: searchMatch? searchMatch[1].trim(): '',
+      replace: replaceMatch? replaceMatch[1].trim(): '',
+      description: descMatch? descMatch[1].trim(): 'Auto-fix generated',
     };
   }
 
@@ -254,7 +254,7 @@ DESCRIPTION: <brief explanation>`;
       });
 
       const { airiConsciousness } = await import('./consciousness');
-      airiConsciousness.addThought('execution', `✅ Edit committed: ${proposal.operation.description}`);
+      airiConsciousness.addThought('execution', ` Edit committed: ${proposal.operation.description}`);
 
       const result: EditResult = { success: true, file: proposal.operation.filePath, editsApplied: 1, errors: [] };
       this.appliedEdits.push(result);
@@ -270,7 +270,7 @@ DESCRIPTION: <brief explanation>`;
 
       return result;
     } catch (error: any) {
-      const err = error instanceof Error ? error.message : String(error);
+      const err = error instanceof Error? error.message: String(error);
       return { success: false, file: proposal.operation.filePath, editsApplied: 0, errors: [err] };
     }
   }

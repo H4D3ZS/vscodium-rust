@@ -10,7 +10,7 @@
 //!   Community (free) · Pro Developer ($30) · Security Researcher ($75) · Enterprise ($225)
 //!
 //! The offensive-security ("bug bounty") tooling is gated behind a versioned ToS
-//! acceptance that is recorded **on the account** — so consent is auditable and
+//! acceptance that is recorded **on the account**— so consent is auditable and
 //! travels with the user, not the machine.
 
 use serde::{Deserialize, Serialize};
@@ -206,7 +206,7 @@ pub fn require_feature_at(config_dir: &Path, feature: &str) -> Result<(), String
         Ok(())
     } else {
         Err(format!(
-            "🔒 \"{feature}\" requires Cyber-Ifrit Pro. Open Settings → Account for a free trial or upgrade at https://cyberifrit.xyz/pricing"
+            " \"{feature}\" requires Cyber-Ifrit Pro. Open Settings → Account for a free trial or upgrade at https://cyberifrit.xyz/pricing"
         ))
     }
 }
@@ -216,7 +216,7 @@ pub fn require_security_suite(config_dir: &Path) -> Result<(), String> {
         Ok(())
     } else {
         Err(
-            "🔒 Security / bug-bounty tools require the Security Researcher plan ($75/mo) or an active free trial. Upgrade at https://cyberifrit.xyz/pricing".into(),
+            " Security / bug-bounty tools require the Security Researcher plan ($75/mo) or an active free trial. Upgrade at https://cyberifrit.xyz/pricing".into(),
         )
     }
 }

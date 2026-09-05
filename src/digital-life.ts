@@ -184,7 +184,7 @@ export class DigitalLifeCore {
   private addToChat(type: string, message: string): void {
     const store = useStore.getState();
     
-    const prefix = type === 'ambient' ? '💭' : '👁️';
+    const prefix = type === 'ambient'? '': '';
     store.addAgentMessage('assistant', `${prefix} ${message}`);
   }
 

@@ -74,7 +74,7 @@ export class AIRIVisionSystem {
         console.log('[AIRI Vision] Skipping start — disabled in settings (airi.vision.enabled!=1).');
         return;
       }
-      const model = typeof localStorage !== 'undefined' ? localStorage.getItem('airi.vision.model') : '';
+      const model = typeof localStorage !== 'undefined'? localStorage.getItem('airi.vision.model'): '';
       if (!model || model.trim() === '') {
         console.log('[AIRI Vision] Skipping start — no vision model configured in settings.');
         return;
@@ -85,7 +85,7 @@ export class AIRIVisionSystem {
       await invoke<number[]>('airi_vision_capture_screen');
       this.isRunning = true;
       this.startCaptureLoop();
-      console.log(`[AIRI Vision] ✅ Started (${this.config.captureFps} FPS)`);
+      console.log(`[AIRI Vision] Started (${this.config.captureFps} FPS)`);
     } catch (error: any) {
       const msg = String(error?.message || error || '');
       if (msg.toLowerCase().includes('screen capture not supported')) {
@@ -200,7 +200,7 @@ export class AIRIVisionSystem {
 
   private parseAnswer(text: string, key: string): string | null {
     const m = text.match(new RegExp(`${key}:\\s*([^\\n]+)`, 'i'));
-    return m ? m[1].trim() : null;
+    return m? m[1].trim(): null;
   }
 
    private parseErrors(text: string): string[] {
@@ -245,7 +245,7 @@ export class AIRIVisionSystem {
       isRunning: this.isRunning,
       fps: this.config.captureFps,
       frameCount: this.frameBuffer.length,
-      lastFrameTime: this.frameBuffer.length > 0 ? this.frameBuffer[this.frameBuffer.length - 1].timestamp : null,
+      lastFrameTime: this.frameBuffer.length > 0? this.frameBuffer[this.frameBuffer.length - 1].timestamp: null,
     };
   }
 }

@@ -119,8 +119,8 @@ const SpecsGenerator: React.FC = () => {
         if (!idea || idea.length < 4) { alert('Enter a project name / idea first.'); return; }
         setGuiding(true);
         const isLocal = preferredProvider.toLowerCase().includes('lemonade');
-        const provider = isLocal ? 'lemonade' : 'google';
-        const model = isLocal ? (ollamaModel || '') : 'gemini-2.0-flash';
+        const provider = isLocal? 'lemonade': 'google';
+        const model = isLocal? (ollamaModel || ''): 'gemini-2.0-flash';
         const ask = async (sys: string, user: string): Promise<string> => {
             const r = await invoke<string>('ai_chat_fast', {
                 request: {
@@ -141,7 +141,7 @@ const SpecsGenerator: React.FC = () => {
                 'You are a senior software architect. Given these requirements, write a concise DESIGN document (markdown only): architecture overview, components, data models, key APIs, and the file/module layout. No preamble.',
                 requirements);
             setSpecs(`# Requirements\n\n${requirements}\n\n# Design\n\n${design}\n`);
-            setGuideStatus('✓ Requirements + design generated — review, then Generate.');
+            setGuideStatus(' Requirements + design generated — review, then Generate.');
         } catch (e) {
             setGuideStatus(`Guided generation failed: ${e}`);
         } finally {
@@ -158,7 +158,7 @@ const SpecsGenerator: React.FC = () => {
             const id = await invoke<number>("cmd_specs_create_project", {
                 name: projectName,
                 specs,
-                provider: preferredProvider.toLowerCase().includes('lemonade') ? `lemonade:${ollamaModel}` : 'google'
+                provider: preferredProvider.toLowerCase().includes('lemonade')? `lemonade:${ollamaModel}`: 'google'
             });
             setCurrentSpecProjectId(id);
             setSpecsWizardStep('status');
@@ -221,14 +221,14 @@ const SpecsGenerator: React.FC = () => {
                             style={{
                                 flex: 1,
                                 padding: '10px',
-                                background: preferredProvider === p ? 'rgba(0, 122, 204, 0.2)' : 'rgba(255,255,255,0.03)',
-                                border: `1px solid ${preferredProvider === p ? '#007acc' : 'var(--vscode-panel-border)'}`,
+                                background: preferredProvider === p? 'rgba(0, 122, 204, 0.2)': 'rgba(255,255,255,0.03)',
+                                border: `1px solid ${preferredProvider === p? '#007acc': 'var(--vscode-panel-border)'}`,
                                 borderRadius: '8px',
-                                color: preferredProvider === p ? '#fff' : 'rgba(255,255,255,0.6)',
+                                color: preferredProvider === p? '#fff': 'rgba(255,255,255,0.6)',
                                 fontSize: '12px',
                                 cursor: 'pointer',
                                 transition: 'all 0.2s',
-                                fontWeight: preferredProvider === p ? 600 : 400
+                                fontWeight: preferredProvider === p? 600: 400
                             }}
                         >
                             {p}
@@ -252,9 +252,9 @@ const SpecsGenerator: React.FC = () => {
                                 outline: 'none'
                             }}
                         >
-                            {availableModels.length === 0 ? (
+                            {availableModels.length === 0? (
                                 <option disabled>No local models found / Loading...</option>
-                            ) : (
+                            ): (
                                 availableModels.map(m => (
                                     <option key={m} value={m}>{m}</option>
                                 ))
@@ -271,9 +271,9 @@ const SpecsGenerator: React.FC = () => {
                         onClick={handleGuided}
                         disabled={guiding}
                         title="Generate a requirements doc → design doc from your idea, then review before generating tasks."
-                        style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6, cursor: guiding ? 'wait' : 'pointer', border: '1px solid rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}
+                        style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6, cursor: guiding? 'wait': 'pointer', border: '1px solid rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}
                     >
-                        {guiding ? '⟳ Generating…' : 'Guided (Requirements → Design)'}
+                        {guiding? '⟳ Generating…': 'Guided (Requirements → Design)'}
                     </button>
                 </div>
                 {guideStatus && <div style={{ fontSize: 10, opacity: 0.6 }}>{guideStatus}</div>}
@@ -412,12 +412,12 @@ const ProjectStatusView: React.FC<{ projectId: number }> = ({ projectId }) => {
             </div>
 
             <div className="task-list" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {tasks.length === 0 ? (
+                {tasks.length === 0? (
                     <div style={{ padding: '40px', textAlign: 'center', opacity: 0.5 }}>
                         <Clock size={32} style={{ margin: '0 auto 12px' }} />
                         <p>Waking up background workers...</p>
                     </div>
-                ) : (
+                ): (
                     tasks.map(task => (
                         <div key={task.id} style={{
                             background: 'rgba(255,255,255,0.03)',
@@ -433,14 +433,14 @@ const ProjectStatusView: React.FC<{ projectId: number }> = ({ projectId }) => {
                                     alignItems: 'center',
                                     justifyContent: 'space-between',
                                     cursor: 'pointer',
-                                    borderBottom: expandedTasks[task.id] ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                                    background: expandedTasks[task.id] ? 'rgba(255,255,255,0.02)' : 'transparent'
+                                    borderBottom: expandedTasks[task.id]? '1px solid rgba(255,255,255,0.05)': 'none',
+                                    background: expandedTasks[task.id]? 'rgba(255,255,255,0.02)': 'transparent'
                                 }}
                             >
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    {task.status === 'Done' ? <CheckCircle size={14} color="#10b981" /> :
-                                        task.status === 'Failed' ? <AlertCircle size={14} color="#f87171" /> :
-                                            task.status === 'Processing' ? <div className="spinner" style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.2)', borderTop: '2px solid #007acc', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> :
+                                    {task.status === 'Done'? <CheckCircle size={14} color="#10b981" /> :
+                                        task.status === 'Failed'? <AlertCircle size={14} color="#f87171" /> :
+                                            task.status === 'Processing'? <div className="spinner" style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.2)', borderTop: '2px solid #007acc', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> :
                                                 <Clock size={14} style={{ opacity: 0.5 }} />}
                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                                         <span style={{ fontSize: '13px', fontWeight: 500 }}>{task.work_type}</span>
@@ -450,7 +450,7 @@ const ProjectStatusView: React.FC<{ projectId: number }> = ({ projectId }) => {
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                     {task.status === 'Failed' && (
                                         <button
-                                            onClick={(e) => { e.stopPropagation(); setExpandedErrorId(expandedErrorId === task.id ? null : task.id); }}
+                                            onClick={(e) => { e.stopPropagation(); setExpandedErrorId(expandedErrorId === task.id? null: task.id); }}
                                             style={{
                                                 background: 'transparent',
                                                 color: '#f87171',
@@ -462,7 +462,7 @@ const ProjectStatusView: React.FC<{ projectId: number }> = ({ projectId }) => {
                                                 fontWeight: 600
                                             }}
                                         >
-                                            {expandedErrorId === task.id ? 'Hide Error' : 'View Error'}
+                                            {expandedErrorId === task.id? 'Hide Error': 'View Error'}
                                         </button>
                                     )}
                                     <span style={{ fontSize: '11px', opacity: 0.5, textTransform: 'uppercase' }}>{task.status}</span>
@@ -506,21 +506,21 @@ const ProjectStatusView: React.FC<{ projectId: number }> = ({ projectId }) => {
                                     {(task.current_log || task.logs) && (
                                         <div style={{
                                             padding: '10px 16px',
-                                            background: task.status === 'Processing' ? 'rgba(0, 122, 204, 0.05)' : 'rgba(255,255,255,0.01)',
+                                            background: task.status === 'Processing'? 'rgba(0, 122, 204, 0.05)': 'rgba(255,255,255,0.01)',
                                             display: 'flex',
                                             alignItems: 'start',
                                             gap: '12px',
                                             fontSize: '12px',
-                                            color: task.status === 'Processing' ? '#60a5fa' : 'rgba(255,255,255,0.7)',
-                                            fontWeight: task.status === 'Processing' ? 500 : 400,
+                                            color: task.status === 'Processing'? '#60a5fa': 'rgba(255,255,255,0.7)',
+                                            fontWeight: task.status === 'Processing'? 500: 400,
                                             borderTop: '1px solid rgba(255,255,255,0.03)',
-                                            animation: task.status === 'Processing' ? 'pulse-blue 2s infinite' : 'none'
+                                            animation: task.status === 'Processing'? 'pulse-blue 2s infinite': 'none'
                                         }}>
                                             <div style={{ position: 'relative', width: 10, height: 10, marginTop: '4px' }}>
                                                 <div style={{
                                                     position: 'absolute',
                                                     inset: 0,
-                                                    background: task.status === 'Done' ? '#10b981' : task.status === 'Failed' ? '#f87171' : '#007acc',
+                                                    background: task.status === 'Done'? '#10b981': task.status === 'Failed'? '#f87171': '#007acc',
                                                     borderRadius: '50%',
                                                     opacity: 0.8
                                                 }} />
@@ -608,13 +608,13 @@ const ProjectStatusView: React.FC<{ projectId: number }> = ({ projectId }) => {
                     onClick={() => setSpecsWizardStep('project')}
                     disabled={tasks.length === 0}
                     style={{
-                        background: tasks.length > 0 ? 'var(--terminator-accent)' : 'transparent',
+                        background: tasks.length > 0? 'var(--terminator-accent)': 'transparent',
                         border: '1px solid var(--vscode-panel-border)',
-                        color: tasks.length > 0 ? 'white' : 'inherit',
+                        color: tasks.length > 0? 'white': 'inherit',
                         padding: '10px 24px',
                         borderRadius: '8px',
-                        cursor: tasks.length > 0 ? 'pointer' : 'not-allowed',
-                        opacity: tasks.length > 0 ? 1 : 0.5,
+                        cursor: tasks.length > 0? 'pointer': 'not-allowed',
+                        opacity: tasks.length > 0? 1: 0.5,
                         display: 'flex',
                         alignItems: 'center',
                         gap: '8px',
@@ -657,11 +657,11 @@ const GeneratedProjectView: React.FC<{ projectId: number }> = ({ projectId }) =>
     return (
         <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
             <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-                {loading ? (
+                {loading? (
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.2)' }}>
                         <div className="spinner" style={{ width: 40, height: 40, border: '4px solid rgba(255,255,255,0.1)', borderTop: '4px solid #007acc', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
                     </div>
-                ) : (
+                ): (
                     <ArchitectureVisualizer files={projectData} tasks={tasks} />
                 )}
             </div>

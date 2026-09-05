@@ -81,16 +81,16 @@ type AiriActivity =
     | 'error';
 
 const ACTIVITY_META: Record<AiriActivity, { color: string; glow: string; label: string; emoji: string }> = {
-    idle: { color: '#818cf8', glow: 'rgba(129,140,248,0.3)', label: 'Idle', emoji: '✦' },
+    idle: { color: '#818cf8', glow: 'rgba(129,140,248,0.3)', label: 'Idle', emoji: '' },
     thinking: { color: '#c084fc', glow: 'rgba(192,132,252,0.4)', label: 'Thinking', emoji: '◎' },
     coding: { color: '#34d399', glow: 'rgba(52,211,153,0.4)', label: 'Coding', emoji: '⌨' },
-    reading: { color: '#60a5fa', glow: 'rgba(96,165,250,0.35)', label: 'Reading', emoji: '👁' },
-    executing: { color: '#f59e0b', glow: 'rgba(245,158,11,0.4)', label: 'Executing', emoji: '⚡' },
-    browsing: { color: '#38bdf8', glow: 'rgba(56,189,248,0.35)', label: 'Browsing', emoji: '🌐' },
-    committing: { color: '#a3e635', glow: 'rgba(163,230,53,0.35)', label: 'Committing', emoji: '📦' },
-    patching: { color: '#fb923c', glow: 'rgba(251,146,60,0.35)', label: 'Patching', emoji: '🔧' },
-    success: { color: '#10b981', glow: 'rgba(16,185,129,0.4)', label: 'Done', emoji: '✓' },
-    error: { color: '#ef4444', glow: 'rgba(239,68,68,0.4)', label: 'Error', emoji: '✗' },
+    reading: { color: '#60a5fa', glow: 'rgba(96,165,250,0.35)', label: 'Reading', emoji: '' },
+    executing: { color: '#f59e0b', glow: 'rgba(245,158,11,0.4)', label: 'Executing', emoji: '' },
+    browsing: { color: '#38bdf8', glow: 'rgba(56,189,248,0.35)', label: 'Browsing', emoji: '' },
+    committing: { color: '#a3e635', glow: 'rgba(163,230,53,0.35)', label: 'Committing', emoji: '' },
+    patching: { color: '#fb923c', glow: 'rgba(251,146,60,0.35)', label: 'Patching', emoji: '' },
+    success: { color: '#10b981', glow: 'rgba(16,185,129,0.4)', label: 'Done', emoji: '' },
+    error: { color: '#ef4444', glow: 'rgba(239,68,68,0.4)', label: 'Error', emoji: '' },
 };
 
 const TOOL_TO_ACTIVITY: Record<string, AiriActivity> = {
@@ -109,7 +109,7 @@ function useTypewriter(text: string, speed = 18): string {
     useEffect(() => {
         if (text === prevRef.current) return;
         // If new text extends old, continue from where we stopped
-        const base = text.startsWith(prevRef.current) ? prevRef.current : '';
+        const base = text.startsWith(prevRef.current)? prevRef.current: '';
         const remaining = text.slice(base.length);
         prevRef.current = text;
         if (!remaining) return;
@@ -345,8 +345,8 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                 // Extract meaningful context from args
                 const file = args.path || args.file_path || args.uri || args.target_file || null;
                 const cmd = args.command || args.cmd || null;
-                if (file) setCurrentFile(stripAnsi(typeof file === 'string' ? file.split(/[\\/]/).slice(-2).join('/') : ''));
-                if (cmd) setCurrentCommand(stripAnsi(typeof cmd === 'string' ? cmd.slice(0, 60) : ''));
+                if (file) setCurrentFile(stripAnsi(typeof file === 'string'? file.split(/[\\/]/).slice(-2).join('/'): ''));
+                if (cmd) setCurrentCommand(stripAnsi(typeof cmd === 'string'? cmd.slice(0, 60): ''));
 
                 // Inject a live status into thought
                 const label = ACTIVITY_META[act]?.label || name;
@@ -355,7 +355,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                 else setThoughtText(`${label}...`);
 
                 // Set avatar emotion directly
-                airiVRMAvatar.setEmotion(act === 'coding' ? 'focused' : 'thinking');
+                airiVRMAvatar.setEmotion(act === 'coding'? 'focused': 'thinking');
             });
             subs.push(u1);
 
@@ -365,7 +365,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                 if (act !== 'thinking') {
                     setCompletedCount(c => c + 1);
                 }
-                setActivity(isAgentThinking ? 'thinking' : 'success');
+                setActivity(isAgentThinking? 'thinking': 'success');
                 wakeUp(); // Interaction wake
             });
             subs.push(u2);
@@ -418,7 +418,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
             style={{ width: '100%', height: '100%', position: 'relative', background: 'transparent', border: 'none', ...style }}
         >
             {/* ── VRM Manifold Canvas ────────────────────────────────────── */}
-            {isHibernating ? (
+            {isHibernating? (
                 <div
                     onClick={wakeUp}
                     style={{
@@ -428,7 +428,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                         borderRadius: '12px', border: '1px dashed rgba(255,255,255,0.1)'
                     }}
                 >
-                    <div style={{ fontSize: '32px', marginBottom: '8px', opacity: 0.6 }}>💤</div>
+                    <div style={{ fontSize: '32px', marginBottom: '8px', opacity: 0.6 }}></div>
                     <div style={{ color: meta.color, fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>
                         Eco Mode Active
                     </div>
@@ -436,7 +436,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                         Click to wake AIRI
                     </div>
                 </div>
-            ) : vrmFailed ? (
+            ): vrmFailed? (
                 /* ── Glowing orb fallback when VRM model isn't available ────── */
                 <div style={{
                     position: 'absolute', inset: 0,
@@ -451,7 +451,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                             position: 'absolute', inset: '-12px',
                             borderRadius: '50%',
                             background: `radial-gradient(circle, ${meta.glow} 0%, transparent 70%)`,
-                            animation: activity === 'thinking' ? 'airiGlowPulse 1.4s ease-in-out infinite' : 'none',
+                            animation: activity === 'thinking'? 'airiGlowPulse 1.4s ease-in-out infinite': 'none',
                         }} />
                         {/* Core orb */}
                         <div style={{
@@ -481,14 +481,14 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                         color: meta.color, opacity: 0.7,
                     }}>AIRI</div>
                 </div>
-            ) : (
+            ): (
                 <>
                     {isAiriLoading && (
                         <div style={{
                             position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
                             color: meta.color, fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.5
                         }}>
-                            {isSmall ? '...' : 'Syncing Manifold...'}
+                            {isSmall? '...': 'Syncing Manifold...'}
                         </div>
                     )}
                     <div
@@ -496,7 +496,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                         style={{
                             width: '100%',
                             height: '100%',
-                            opacity: isAiriLoading ? 0 : 1,
+                            opacity: isAiriLoading? 0: 1,
                             background: 'transparent',
                             transition: 'opacity 0.3s ease',
                             transform: `scale(${scale ?? 1}) translateY(${yOffset ?? '0px'})`,
@@ -514,7 +514,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                     boxShadow: `0 0 40px 20px ${meta.glow}`,
                     background: 'transparent', pointerEvents: 'none',
                     transition: 'box-shadow 0.8s ease',
-                    animation: activity === 'thinking' ? 'airiGlowPulse 1.4s ease-in-out infinite' : 'none',
+                    animation: activity === 'thinking'? 'airiGlowPulse 1.4s ease-in-out infinite': 'none',
                 }} />
             )}
 
@@ -528,7 +528,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                     pointerEvents: 'none',
                     animation: 'airiSlideDown 0.25s ease-out',
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: currentFile || currentCommand ? '4px' : 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: currentFile || currentCommand? '4px': 0 }}>
                         <span style={{ fontSize: '13px' }}>{meta.emoji}</span>
                         <span style={{ fontSize: '10px', fontWeight: 700, color: meta.color, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                             {meta.label}
@@ -635,13 +635,13 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                         }}
                         style={{
                             marginLeft: '4px', cursor: 'pointer', fontSize: '10px',
-                            opacity: isTtsEnabled ? 1 : 0.35,
-                            color: isTtsEnabled ? '#c084fc' : 'rgba(255,255,255,0.5)',
+                            opacity: isTtsEnabled? 1: 0.35,
+                            color: isTtsEnabled? '#c084fc': 'rgba(255,255,255,0.5)',
                             display: 'flex', alignItems: 'center'
                         }}
-                        title={isTtsEnabled ? 'Mute AIRI voice' : 'Enable AIRI voice'}
+                        title={isTtsEnabled? 'Mute AIRI voice': 'Enable AIRI voice'}
                     >
-                        {isTtsEnabled ? '🔊' : '🔇'}
+                        {isTtsEnabled? '': ''}
                     </div>
 
                     {/* Microphone toggle - Voice Activation */}
@@ -661,13 +661,13 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                         }}
                         style={{
                             marginLeft: '8px', cursor: 'pointer', fontSize: '10px',
-                            opacity: isListening ? 1 : 0.35,
-                            color: isListening ? '#f97316' : 'rgba(255,255,255,0.5)',
+                            opacity: isListening? 1: 0.35,
+                            color: isListening? '#f97316': 'rgba(255,255,255,0.5)',
                             display: 'flex', alignItems: 'center'
                         }}
-                        title={isListening ? 'Stop voice interaction' : 'Start voice interaction (say "Hey AIRI" or click to talk)'}
+                        title={isListening? 'Stop voice interaction': 'Start voice interaction (say "Hey AIRI" or click to talk)'}
                     >
-                        🎤
+
                     </div>
 
                     {/* Error badge */}

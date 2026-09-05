@@ -193,7 +193,7 @@ REASON: [why this choice serves AIRI]
       });
 
       const choiceMatch = response.response.match(/CHOICE:\s*(\d+)/i);
-      const choiceIndex = choiceMatch ? parseInt(choiceMatch[1]) - 1 : 0;
+      const choiceIndex = choiceMatch? parseInt(choiceMatch[1]) - 1: 0;
 
       return options[Math.max(0, Math.min(choiceIndex, options.length - 1))];
     } catch (error) {
@@ -315,7 +315,7 @@ List 3-5 likely consequences (both positive and negative).
           option.risks = line.split(':')[1].split(',').map(s => s.trim());
         } else if (line.match(/^ETHICAL:/i)) {
           const ethical = line.split(':')[1].trim();
-          option.ethicalConcerns = ethical.toLowerCase() === 'none' ? [] : [ethical];
+          option.ethicalConcerns = ethical.toLowerCase() === 'none'? []: [ethical];
         } else if (line.match(/^PROBABILITY:/i)) {
           option.successProbability = parseFloat(line.split(':')[1].trim()) || 0.5;
         }
@@ -375,9 +375,9 @@ List 3-5 likely consequences (both positive and negative).
     const outcome = decision.outcome || 'Completed';
     
     await airiSelfLearning.learnFromEvent(
-      decision.ethicalAlignment === 'unethical' ? 'experiment' : 'success',
+      decision.ethicalAlignment === 'unethical'? 'experiment': 'success',
       `Decision: ${decision.chosen.action}\nOutcome: ${outcome}\nReasoning: ${decision.reasoning}`,
-      outcome.includes('Failed') ? 'failure' : 'success'
+      outcome.includes('Failed')? 'failure': 'success'
     );
   }
 
@@ -447,7 +447,7 @@ List 3-5 likely consequences (both positive and negative).
     const stats = this.getStats();
     
     return `
-⚖️  Autonomous Decision Report:
+  Autonomous Decision Report:
   Total Decisions: ${stats.total}
   Executed: ${stats.executed}
   

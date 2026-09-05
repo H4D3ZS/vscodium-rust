@@ -45,7 +45,7 @@ const AgentManagerPanel: React.FC = () => {
                     disabled={spawning || !prompt.trim()}
                     style={primaryBtn}
                 >
-                    {spawning ? '…' : 'Spawn'}
+                    {spawning? '…': 'Spawn'}
                 </button>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, opacity: 0.6 }}>
@@ -74,10 +74,10 @@ const AgentManagerPanel: React.FC = () => {
                             <span style={{ fontSize: 11, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {agent.prompt.slice(0, 80)}
                             </span>
-                            <button onClick={() => setExpanded(expanded === agent.id ? null : agent.id)} style={ghostBtn}>
-                                {expanded === agent.id ? 'Hide' : 'Log'}
+                            <button onClick={() => setExpanded(expanded === agent.id? null: agent.id)} style={ghostBtn}>
+                                {expanded === agent.id? 'Hide': 'Log'}
                             </button>
-                            <button onClick={() => remove(agent.id)} style={ghostBtn}>✕</button>
+                            <button onClick={() => remove(agent.id)} style={ghostBtn}></button>
                         </div>
                         <div style={{ fontSize: 9, opacity: 0.45 }}>
                             {agent.status} · {new Date(agent.startedAt).toLocaleTimeString()}
@@ -99,7 +99,7 @@ const AgentManagerPanel: React.FC = () => {
 };
 
 const StatusDot: React.FC<{ status: string }> = ({ status }) => {
-    const color = status === 'running' ? '#60a5fa' : status === 'done' ? '#4ade80' : status === 'error' ? '#f87171' : '#888';
+    const color = status === 'running'? '#60a5fa': status === 'done'? '#4ade80': status === 'error'? '#f87171': '#888';
     return <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />;
 };
 

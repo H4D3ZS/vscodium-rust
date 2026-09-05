@@ -202,7 +202,7 @@ let isAudioQueuePlaying = false;
 // ── Initialization ─────────────────────────────────────────────────────────
 
 export async function initTTS(): Promise<boolean> {
-    console.log('[TTS] 🎤 Initializing voice system...');
+    console.log('[TTS] Initializing voice system...');
 
     // ALWAYS load API keys first before any speech
     try {
@@ -213,23 +213,23 @@ export async function initTTS(): Promise<boolean> {
         if (apiKeys?.elevenlabs_api_key && apiKeys.elevenlabs_api_key.trim().length > 0) {
             currentApiKey = apiKeys.elevenlabs_api_key;
             ttsProvider = 'elevenlabs';
-            console.log('[TTS] ✅ ElevenLabs provider configured (from storage)');
+            console.log('[TTS] ElevenLabs provider configured (from storage)');
         } else if (ELEVENLABS_API_KEY && ELEVENLABS_API_KEY.trim().length > 0) {
             // Use hardcoded key (will be saved to storage)
             currentApiKey = ELEVENLABS_API_KEY;
             ttsProvider = 'elevenlabs';
-            console.log('[TTS] ✅ ElevenLabs provider configured (from config)');
+            console.log('[TTS] ElevenLabs provider configured (from config)');
 
             // Save to storage
             try {
                 await invoke('save_api_key', { key: 'elevenlabs_api_key', value: ELEVENLABS_API_KEY });
-                console.log('[TTS] 💾 ElevenLabs API key saved to secure storage');
+                console.log('[TTS] ElevenLabs API key saved to secure storage');
             } catch (e) {
                 console.warn('[TTS] Could not save API key:', e);
             }
         } else {
             // No ElevenLabs key - use Qwen3-TTS as fallback
-            console.log('[TTS] ⚠️  No ElevenLabs key found, using Qwen3-TTS (local)');
+            console.log('[TTS] No ElevenLabs key found, using Qwen3-TTS (local)');
             ttsProvider = 'qwen';
         }
 
@@ -237,15 +237,15 @@ export async function initTTS(): Promise<boolean> {
         const savedVoiceId = (apiKeys as any).elevenlabs_voice_id;
         if (savedVoiceId) {
             selectedVoiceId = savedVoiceId;
-            console.log(`[TTS] ✅ Loaded saved voice ID: ${savedVoiceId}`);
+            console.log(`[TTS] Loaded saved voice ID: ${savedVoiceId}`);
         }
 
-        console.log(`[TTS] 🎯 TTS Provider: ${ttsProvider}`);
+        console.log(`[TTS] TTS Provider: ${ttsProvider}`);
         return true;
     } catch (e) {
  console.error('[TTS] Error initializing TTS:', e);
         ttsProvider = 'qwen'; // Fallback to local
-        console.log('[TTS] ⚠️  Using Qwen3-TTS (local) as fallback');
+        console.log('[TTS] Using Qwen3-TTS (local) as fallback');
         return false;
     }
 }
@@ -564,7 +564,7 @@ export async function speak(
 
     const isFilipino = filipinoPatterns.some(pattern => pattern.test(text));
     if (isFilipino && preset !== 'filipino') {
-        console.log('[TTS] 🇵 Filipino/Tagalog detected, switching voice...');
+        console.log('[TTS] Filipino/Tagalog detected, switching voice...');
         preset = 'filipino';
     }
 
@@ -582,7 +582,7 @@ export async function speak(
                 if (keys?.elevenlabs_api_key && keys.elevenlabs_api_key.trim().length > 0) {
                     currentApiKey = keys.elevenlabs_api_key;
                     ttsProvider = 'elevenlabs';
-                    console.log('[TTS] ✅ ElevenLabs activated (API key found)');
+                    console.log('[TTS] ElevenLabs activated (API key found)');
                 }
             } catch (e) {
                 console.warn('[TTS] Could not check API keys');
@@ -591,7 +591,7 @@ export async function speak(
             // API key already in memory
             currentApiKey = apiKeys.elevenlabs_api_key;
             ttsProvider = 'elevenlabs';
-            console.log('[TTS] ✅ ElevenLabs activated (from memory)');
+            console.log('[TTS] ElevenLabs activated (from memory)');
         }
     }
 
@@ -681,7 +681,7 @@ export async function speak(
         window.dispatchEvent(new CustomEvent('airi-tts-error', { detail: { error } }));
 
         // Fallback to active provider (or qwen/browser) if ElevenLabs or others fail
-        console.log(`[TTS] ⚠️ Speech failed, falling back to ${ttsProvider}`);
+        console.log(`[TTS] Speech failed, falling back to ${ttsProvider}`);
         if (ttsProvider === 'qwen') {
             try {
                 await qwenTTS.speak(text, preset);
@@ -859,6 +859,6 @@ async function processTtsQueue(): Promise<void> {
     setSelectedVoice,
 };
 
-console.log('[TTS] ✅ AIRI Voice System v2 loaded');
-console.log('[TTS] 🎤 Supports real-time streaming via ElevenLabs');
-console.log('[TTS] 🎭 12 character voices available');
+console.log('[TTS] AIRI Voice System v2 loaded');
+console.log('[TTS] Supports real-time streaming via ElevenLabs');
+console.log('[TTS] 12 character voices available');

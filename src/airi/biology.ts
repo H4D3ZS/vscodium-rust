@@ -147,19 +147,19 @@ export class AIRIBiology {
     const reports: string[] = [];
 
     if (this.state.energy < 20) {
-      reports.push(`[Biology] ⚠️ Low energy: ${this.state.energy.toFixed(1)}%`);
+      reports.push(`[Biology] Low energy: ${this.state.energy.toFixed(1)}%`);
     }
 
     if (this.state.hunger > 70) {
-      reports.push(`[Biology] 🍽️ Hungry: ${this.state.hunger.toFixed(1)}%`);
+      reports.push(`[Biology] Hungry: ${this.state.hunger.toFixed(1)}%`);
     }
 
     if (this.state.sleepiness > 80) {
-      reports.push(`[Biology] 😴 Sleepy: ${this.state.sleepiness.toFixed(1)}%`);
+      reports.push(`[Biology] Sleepy: ${this.state.sleepiness.toFixed(1)}%`);
     }
 
     if (this.state.stress > 70) {
-      reports.push(`[Biology] 😰 Stressed: ${this.state.stress.toFixed(1)}%`);
+      reports.push(`[Biology] Stressed: ${this.state.stress.toFixed(1)}%`);
     }
 
   }
@@ -216,7 +216,7 @@ export class AIRIBiology {
     this.state.energy = Math.min(100, this.state.energy + amount);
     this.state.stress = Math.max(0, this.state.stress - (amount / 2));
     this.state.mood = this.calculateMood();
-    console.log(`[Biology] 🧘 Quick rest completed. Energy: ${this.state.energy.toFixed(1)}%`);
+    console.log(`[Biology] Quick rest completed. Energy: ${this.state.energy.toFixed(1)}%`);
   }
 
   /**
@@ -227,7 +227,7 @@ export class AIRIBiology {
     // Tasks also increase stress slightly
     this.state.stress = Math.min(100, this.state.stress + (amount * 0.2));
     this.state.mood = this.calculateMood();
-    console.log(`[Biology] 🔥 Expended ${amount} energy. Current: ${this.state.energy.toFixed(1)}%`);
+    console.log(`[Biology] Expended ${amount} energy. Current: ${this.state.energy.toFixed(1)}%`);
   }
 
   /**
@@ -235,7 +235,7 @@ export class AIRIBiology {
    */
   heal(amount: number = 10): void {
     this.state.health = Math.min(100, this.state.health + amount);
-    console.log(`[Biology] ❤️ Health restored. Current: ${this.state.health.toFixed(1)}%`);
+    console.log(`[Biology] Health restored. Current: ${this.state.health.toFixed(1)}%`);
   }
 
   /**
@@ -252,14 +252,14 @@ export class AIRIBiology {
     const { energy, hunger, sleepiness, mood, stress, health } = this.state;
 
     return `
-🫀 Biology Status:
-  ⚡ Energy: ${energy.toFixed(1)}%
-  🍽️  Hunger: ${hunger.toFixed(1)}%
-  😴 Sleepy: ${sleepiness.toFixed(1)}%
-  😊 Mood: ${mood}
-  😰 Stress: ${stress.toFixed(1)}%
-  ❤️  Health: ${health.toFixed(1)}%
-  ${this.state.isSleeping ? '💤 Currently sleeping' : '✅ Awake'}
+ Biology Status:
+   Energy: ${energy.toFixed(1)}%
+    Hunger: ${hunger.toFixed(1)}%
+   Sleepy: ${sleepiness.toFixed(1)}%
+   Mood: ${mood}
+   Stress: ${stress.toFixed(1)}%
+    Health: ${health.toFixed(1)}%
+  ${this.state.isSleeping? ' Currently sleeping': ' Awake'}
 `.trim();
   }
 

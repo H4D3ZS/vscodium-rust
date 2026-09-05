@@ -92,7 +92,7 @@ const AgentSetupWizard: React.FC = () => {
                                 <button
                                     key={p.id}
                                     type="button"
-                                    className={`ollama-wizard-model${persona === p.id ? ' is-selected' : ''}`}
+                                    className={`ollama-wizard-model${persona === p.id? ' is-selected': ''}`}
                                     onClick={() => setPersona(p.id)}
                                 >
                                     <span className="ollama-wizard-model-name">{p.title}</span>
@@ -139,7 +139,7 @@ const AgentSetupWizard: React.FC = () => {
                 {step === 'done' && (
                     <div className="ollama-wizard-body ollama-wizard-center">
                         <p className="ollama-wizard-success">
-                            ✓ Mode set to <strong>{chosen.mode}</strong> — open chat with <kbd>Ctrl+L</kbd>, pick a model, send a mission.
+                             Mode set to <strong>{chosen.mode}</strong> — open chat with <kbd>Ctrl+L</kbd>, pick a model, send a mission.
                         </p>
                     </div>
                 )}

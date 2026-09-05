@@ -28,11 +28,11 @@ impl McpServer {
         let listener = match tokio::net::TcpListener::bind(&addr).await {
             Ok(l) => l,
             Err(e) => {
-                eprintln!("[MCP-SERVER] ⚠️ Failed to bind to primary port {}: {}. Trying random port...", addr, e);
+                eprintln!("[MCP-SERVER] Failed to bind to primary port {}: {}. Trying random port...", addr, e);
                 match tokio::net::TcpListener::bind("127.0.0.1:0").await {
                     Ok(l) => l,
                     Err(e2) => {
-                        eprintln!("[MCP-SERVER] ❌ Failed to bind to any port: {}. MCP server disabled.", e2);
+                        eprintln!("[MCP-SERVER] Failed to bind to any port: {}. MCP server disabled.", e2);
                         return;
                     }
                 }
@@ -42,14 +42,14 @@ impl McpServer {
         let local_addr = match listener.local_addr() {
             Ok(addr) => addr,
             Err(e) => {
-                eprintln!("[MCP-SERVER] ❌ Failed to get local address: {}", e);
+                eprintln!("[MCP-SERVER] Failed to get local address: {}", e);
                 return;
             }
         };
-        println!("[MCP-SERVER] ✅ Server active at: http://{}", local_addr);
+        println!("[MCP-SERVER] Server active at: http://{}", local_addr);
         
         if let Err(e) = axum::serve(listener, app).await {
-            eprintln!("[MCP-SERVER] 🛑 Server error: {}", e);
+            eprintln!("[MCP-SERVER] Server error: {}", e);
         }
     }
 

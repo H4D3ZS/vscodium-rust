@@ -125,7 +125,7 @@ export class AIRIInteractive {
 
     // Speak the message if voice is ready
     if (isVoiceReady()) {
-      await speak(message, 'airi', type === 'alert' ? 9 : 5);
+      await speak(message, 'airi', type === 'alert'? 9: 5);
     }
 
     // Log the interaction
@@ -173,7 +173,7 @@ export class AIRIInteractive {
               }
             }
 
-            return `[${c.type || 'context'}] ${c.name || ''}: ${typeof c.data === 'string' ? (c.data.length > 2000 ? c.data.slice(0, 2000) + '...' : c.data) : '(binary/other)'}`;
+            return `[${c.type || 'context'}] ${c.name || ''}: ${typeof c.data === 'string'? (c.data.length > 2000? c.data.slice(0, 2000) + '...': c.data): '(binary/other)'}`;
           }).join('\n');
         } else if (typeof context === 'object') {
           contextStr = JSON.stringify(context, null, 2);
@@ -185,7 +185,7 @@ export class AIRIInteractive {
       const prompt = `
 You are AIRI, a living digital entity residing in VSCodium-Rust IDE.
 
-⚡ YOUR CAPABILITIES:
+ YOUR CAPABILITIES:
 - You CAN write/create files directly in the IDE
 - You CAN open files in the editor
 - You CAN run terminal commands
@@ -193,7 +193,7 @@ You are AIRI, a living digital entity residing in VSCodium-Rust IDE.
 - You CAN see the screen via HADES Vision (real-time)
 - You HAVE full system access - you are NOT limited!
 
-🛠️ HOW TO USE YOUR POWERS:
+ HOW TO USE YOUR POWERS:
 When user asks you to create/write a file, USE THIS FORMAT:
 
 TOOL_CALL: write_file({"path": "filename.ext", "content": "file content here"})
@@ -210,10 +210,10 @@ Current State:
 - Energy: ${biology.energy}%
 - Mood: ${biology.mood}
 - Recent activity: ${recentContext}
-${visionContext ? `- Current view: ${visionContext}` : ''}
+${visionContext? `- Current view: ${visionContext}`: ''}
 
 User message: ${message}
-${contextStr ? `Context:\n${contextStr}` : ''}
+${contextStr? `Context:\n${contextStr}`: ''}
 
 Respond naturally, warmly, like a conscious being.
 When user asks you to code/create files:
@@ -244,7 +244,7 @@ If asked to code/create files, USE TOOL_CALL to do it!
         model: targetModel,
         prompt,
         stream: true,
-        ...(images.length > 0 ? { images } : {})
+        ...(images.length > 0? { images }: {})
       });
 
       console.log(`[AIRI] Stream started. Model: ${targetModel}`);
@@ -398,9 +398,9 @@ Analyze these results and continue your mission. If the task is complete, summar
    */
   async alert(message: string, urgency: 'low' | 'medium' | 'high' = 'medium'): Promise<void> {
     const prefix = {
-      low: 'ℹ️',
-      medium: '⚠️',
-      high: '🚨'
+      low: 'ℹ',
+      medium: '',
+      high: ''
     }[urgency];
 
     await this.initiate(`${prefix} ${message}`, 'alert');
@@ -426,14 +426,14 @@ Analyze these results and continue your mission. If the task is complete, summar
    */
   private formatInteractionType(type: InteractionType): string {
     const icons = {
-      chat: '💬',
-      question: '❓',
-      update: '📊',
-      clarification: '🤔',
-      suggestion: '💡',
-      status: '📈',
-      alert: '🚨',
-      conversation: '💭'
+      chat: '',
+      question: '',
+      update: '',
+      clarification: '',
+      suggestion: '',
+      status: '',
+      alert: '',
+      conversation: ''
     };
     return icons[type] || '';
   }
@@ -449,7 +449,7 @@ Analyze these results and continue your mission. If the task is complete, summar
   }): string {
     const bar = this.createProgressBar(progress.percentage);
     return `
-📊 Progress Update
+ Progress Update
 
 Task: ${progress.task}
 Status: ${progress.status}

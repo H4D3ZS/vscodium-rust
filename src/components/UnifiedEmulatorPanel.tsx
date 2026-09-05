@@ -41,15 +41,15 @@ const UnifiedEmulatorPanel: React.FC = () => {
                         fontSize: '10px',
                         fontWeight: 600,
                         background: activeEmulator === 'android' 
-                            ? 'var(--vscode-button-background)' 
-                            : 'transparent',
+? 'var(--vscode-button-background)' 
+: 'transparent',
                         color: activeEmulator === 'android'
-                            ? 'var(--vscode-button-foreground)'
-                            : 'var(--vscode-descriptionForeground)',
+? 'var(--vscode-button-foreground)'
+: 'var(--vscode-descriptionForeground)',
                         border: 'none',
                         borderBottom: activeEmulator === 'android'
-                            ? '2px solid var(--vscode-button-background)'
-                            : '2px solid transparent',
+? '2px solid var(--vscode-button-background)'
+: '2px solid transparent',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
@@ -67,15 +67,15 @@ const UnifiedEmulatorPanel: React.FC = () => {
                         fontSize: '10px',
                         fontWeight: 600,
                         background: activeEmulator === 'iphone'
-                            ? 'var(--vscode-button-background)'
-                            : 'transparent',
+? 'var(--vscode-button-background)'
+: 'transparent',
                         color: activeEmulator === 'iphone'
-                            ? 'var(--vscode-button-foreground)'
-                            : 'var(--vscode-descriptionForeground)',
+? 'var(--vscode-button-foreground)'
+: 'var(--vscode-descriptionForeground)',
                         border: 'none',
                         borderBottom: activeEmulator === 'iphone'
-                            ? '2px solid var(--vscode-button-background)'
-                            : '2px solid transparent',
+? '2px solid var(--vscode-button-background)'
+: '2px solid transparent',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
@@ -83,7 +83,7 @@ const UnifiedEmulatorPanel: React.FC = () => {
                         gap: '4px'
                     }}
                 >
-                    🍎 iPhone
+                     iPhone
                 </button>
                 <button
                     onClick={() => useStore.getState().setEmulatorPanelPosition('device')}
@@ -93,15 +93,15 @@ const UnifiedEmulatorPanel: React.FC = () => {
                         fontSize: '10px',
                         fontWeight: 600,
                         background: activeEmulator === 'device'
-                            ? 'var(--vscode-button-background)'
-                            : 'transparent',
+? 'var(--vscode-button-background)'
+: 'transparent',
                         color: activeEmulator === 'device'
-                            ? 'var(--vscode-button-foreground)'
-                            : 'var(--vscode-descriptionForeground)',
+? 'var(--vscode-button-foreground)'
+: 'var(--vscode-descriptionForeground)',
                         border: 'none',
                         borderBottom: activeEmulator === 'device'
-                            ? '2px solid var(--vscode-button-background)'
-                            : '2px solid transparent',
+? '2px solid var(--vscode-button-background)'
+: '2px solid transparent',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
@@ -109,7 +109,7 @@ const UnifiedEmulatorPanel: React.FC = () => {
                         gap: '4px'
                     }}
                 >
-                    📱 Device
+                     Device
                 </button>
                 <button
                     onClick={() => useStore.getState().setEmulatorPanelPosition('toolchain')}
@@ -119,15 +119,15 @@ const UnifiedEmulatorPanel: React.FC = () => {
                         fontSize: '10px',
                         fontWeight: 600,
                         background: activeEmulator === 'toolchain'
-                            ? 'var(--vscode-button-background)'
-                            : 'transparent',
+? 'var(--vscode-button-background)'
+: 'transparent',
                         color: activeEmulator === 'toolchain'
-                            ? 'var(--vscode-button-foreground)'
-                            : 'var(--vscode-descriptionForeground)',
+? 'var(--vscode-button-foreground)'
+: 'var(--vscode-descriptionForeground)',
                         border: 'none',
                         borderBottom: activeEmulator === 'toolchain'
-                            ? '2px solid var(--vscode-button-background)'
-                            : '2px solid transparent',
+? '2px solid var(--vscode-button-background)'
+: '2px solid transparent',
                         cursor: 'pointer',
                     }}
                 >
@@ -141,15 +141,15 @@ const UnifiedEmulatorPanel: React.FC = () => {
                         fontSize: '10px',
                         fontWeight: 600,
                         background: activeEmulator === 'gradle'
-                            ? 'var(--vscode-button-background)'
-                            : 'transparent',
+? 'var(--vscode-button-background)'
+: 'transparent',
                         color: activeEmulator === 'gradle'
-                            ? 'var(--vscode-button-foreground)'
-                            : 'var(--vscode-descriptionForeground)',
+? 'var(--vscode-button-foreground)'
+: 'var(--vscode-descriptionForeground)',
                         border: 'none',
                         borderBottom: activeEmulator === 'gradle'
-                            ? '2px solid var(--vscode-button-background)'
-                            : '2px solid transparent',
+? '2px solid var(--vscode-button-background)'
+: '2px solid transparent',
                         cursor: 'pointer',
                     }}
                 >

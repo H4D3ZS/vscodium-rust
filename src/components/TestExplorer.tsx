@@ -37,11 +37,11 @@ const TestExplorer: React.FC = () => {
         try {
             const result = await runTestFile(activeRoot, f.path);
             const text = formatTestOutput(result);
-            setStatus(s => ({ ...s, [f.path]: result.ok ? 'pass' : 'fail' }));
+            setStatus(s => ({ ...s, [f.path]: result.ok? 'pass': 'fail' }));
             setLastOutput(text);
         } catch (e: unknown) {
             setStatus(s => ({ ...s, [f.path]: 'fail' }));
-            setLastOutput(e instanceof Error ? e.message : String(e));
+            setLastOutput(e instanceof Error? e.message: String(e));
         }
     }, [activeRoot]);
 
@@ -54,14 +54,14 @@ const TestExplorer: React.FC = () => {
             const result = await runAllTests(activeRoot);
             const text = formatTestOutput(result);
             const final: Record<string, RunStatus> = {};
-            files.forEach(f => { final[f.path] = result.ok ? 'pass' : 'fail'; });
+            files.forEach(f => { final[f.path] = result.ok? 'pass': 'fail'; });
             setStatus(final);
             setLastOutput(text);
         } catch (e: unknown) {
             const final: Record<string, RunStatus> = {};
             files.forEach(f => { final[f.path] = 'fail'; });
             setStatus(final);
-            setLastOutput(e instanceof Error ? e.message : String(e));
+            setLastOutput(e instanceof Error? e.message: String(e));
         }
     }, [activeRoot, files]);
 
@@ -89,8 +89,8 @@ const TestExplorer: React.FC = () => {
 
             <div style={{ padding: '4px 12px', fontSize: 11, opacity: 0.55, display: 'flex', gap: 12, borderBottom: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.04))' }}>
                 <span>{files.length} files</span>
-                {counts.pass > 0 && <span style={{ color: '#22c55e' }}>✓ {counts.pass}</span>}
-                {counts.fail > 0 && <span style={{ color: '#f87171' }}>✗ {counts.fail}</span>}
+                {counts.pass > 0 && <span style={{ color: '#22c55e' }}> {counts.pass}</span>}
+                {counts.fail > 0 && <span style={{ color: '#f87171' }}> {counts.fail}</span>}
                 {counts.running > 0 && <span style={{ color: '#3b82f6' }}>● {counts.running}</span>}
             </div>
 
@@ -104,9 +104,9 @@ const TestExplorer: React.FC = () => {
                 {files.map(f => {
                     const st = status[f.path] || 'idle';
                     const colour =
-                        st === 'pass' ? '#22c55e' :
-                        st === 'fail' ? '#f87171' :
-                        st === 'running' ? '#3b82f6' :
+                        st === 'pass'? '#22c55e' :
+                        st === 'fail'? '#f87171' :
+                        st === 'running'? '#3b82f6' :
                         'rgba(255,255,255,0.35)';
                     const label = f.name || f.path.replace(activeRoot || '', '').replace(/^[\\/]+/, '');
                     return (
@@ -122,9 +122,9 @@ const TestExplorer: React.FC = () => {
                         >
                             <i
                                 className={`codicon codicon-${
-                                    st === 'running' ? 'sync' :
-                                    st === 'pass' ? 'pass-filled' :
-                                    st === 'fail' ? 'error' :
+                                    st === 'running'? 'sync' :
+                                    st === 'pass'? 'pass-filled' :
+                                    st === 'fail'? 'error' :
                                     'beaker'
                                 }`}
                                 style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 12, color: colour }}

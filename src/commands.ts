@@ -382,7 +382,7 @@ function registerCoreCommands() {
                     const pre = await invoke<{ ready_flutter: boolean; notes: string[] }>('iphone_deploy_preflight');
                     if (!pre.ready_flutter) {
                         alert('Flutter deploy toolchain incomplete:\n\n' + pre.notes.join('\n') +
-                            '\n\nOpen the 📱 Device tab → Build & Deploy to configure and run.');
+                            '\n\nOpen the Device tab → Build & Deploy to configure and run.');
                     }
                 } catch { /* panel still opens */ }
             },
@@ -398,7 +398,7 @@ function registerCoreCommands() {
                     const pre = await invoke<{ ready_react_native: boolean; notes: string[] }>('iphone_deploy_preflight');
                     if (!pre.ready_react_native) {
                         alert('React Native deploy toolchain incomplete:\n\n' + pre.notes.join('\n') +
-                            '\n\nOpen the 📱 Device tab → Build & Deploy to configure and run.');
+                            '\n\nOpen the Device tab → Build & Deploy to configure and run.');
                     }
                 } catch { /* panel still opens */ }
             },
@@ -438,7 +438,7 @@ function registerCoreCommands() {
                     return;
                 }
                 const isRust = getStore().activeRoot && getStore().activeRoot.includes('rust');
-                const cmd = isRust ? 'cargo build' : 'npm run build';
+                const cmd = isRust? 'cargo build': 'npm run build';
                 runInTerminal(cmd);
             },
         },
@@ -514,7 +514,7 @@ function isTypingInInput(): boolean {
 
 function handleGlobalKeydown(e: KeyboardEvent) {
     const isMac = navigator.platform.toLowerCase().includes('mac');
-    const cmd = isMac ? e.metaKey : e.ctrlKey;
+    const cmd = isMac? e.metaKey: e.ctrlKey;
 
     // Always allow command palette (Ctrl+Shift+P) even when typing
     if (cmd && e.shiftKey && e.key.toLowerCase() === 'p') {

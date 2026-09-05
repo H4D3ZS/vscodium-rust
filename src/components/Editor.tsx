@@ -51,7 +51,7 @@ function uriToPath(uri: string): string {
 function pathToUri(path: string): string {
     if (path.includes('://')) return path;
     const normalized = path.replace(/\\/g, '/');
-    return normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`;
+    return normalized.startsWith('/')? `file://${normalized}`: `file:///${normalized}`;
 }
 
 const CTRL_S = 2048 | 49;    // KeyMod.CtrlCmd | KeyCode.KeyS
@@ -277,8 +277,8 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
         editor.onDidChangeCursorPosition((e) => {
             const selection = editor.getSelection();
             const selectionLength = selection && !selection.isEmpty()
-                ? editor.getModel()?.getValueInRange(selection)?.length ?? 0
-                : 0;
+? editor.getModel()?.getValueInRange(selection)?.length ?? 0
+: 0;
             window.dispatchEvent(new CustomEvent('editor:cursor-position', {
                 detail: { line: e.position.lineNumber, column: e.position.column, selectionLength }
             }));
@@ -323,8 +323,8 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
         editor.addCommand(CTRL_L, () => {
             const selection = editor.getSelection();
             const selText = selection && !selection.isEmpty()
-                ? editor.getModel()?.getValueInRange(selection) || ''
-                : editor.getModel()?.getValue() || '';
+? editor.getModel()?.getValueInRange(selection) || ''
+: editor.getModel()?.getValue() || '';
             if (selText) {
                 const store = useStore.getState();
                 store.attachFile?.({
@@ -497,7 +497,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                             label: item.label,
                             kind: lspKindToMonaco(item.kind ?? 1),
                             insertText: item.insertText ?? item.textEdit?.newText ?? item.label,
-                            insertTextRules: item.insertTextFormat === 2 ? 4 : 0,
+                            insertTextRules: item.insertTextFormat === 2? 4: 0,
                             detail: item.detail ?? '',
                             documentation: { value: item.documentation?.value ?? item.documentation ?? '' },
                             sortText: item.sortText ?? item.label,
@@ -537,17 +537,17 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         });
                         if (res) {
                             const raw = res.contents ?? res;
-                            const contents = Array.isArray(raw) ? raw : [raw];
+                            const contents = Array.isArray(raw)? raw: [raw];
                             const mdParts = contents.map((c: any) => ({
-                                value: typeof c === 'string' ? c : (c.value ?? String(c)),
+                                value: typeof c === 'string'? c: (c.value ?? String(c)),
                             }));
                             if (mdParts.length && mdParts[0].value) {
-                                const range = res.range ? {
+                                const range = res.range? {
                                     startLineNumber: res.range.start.line + 1,
                                     startColumn: res.range.start.character + 1,
                                     endLineNumber: res.range.end.line + 1,
                                     endColumn: res.range.end.character + 1,
-                                } : undefined;
+                                }: undefined;
                                 return { contents: mdParts, range };
                             }
                         }
@@ -575,12 +575,12 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                             character: position.column - 1,
                         });
                         if (res) {
-                            const locs = Array.isArray(res) ? res : [res];
+                            const locs = Array.isArray(res)? res: [res];
                             return locs.map((loc: any) => {
                                 const locUri = loc.uri ?? loc.targetUri ?? '';
                                 const r = loc.range ?? loc.targetSelectionRange ?? {};
                                 return {
-                                    uri: monaco.Uri.parse(locUri.startsWith('file:') ? locUri : `file:///${locUri.replace(/\\/g, '/')}`),
+                                    uri: monaco.Uri.parse(locUri.startsWith('file:')? locUri: `file:///${locUri.replace(/\\/g, '/')}`),
                                     range: {
                                         startLineNumber: (r.start?.line ?? 0) + 1,
                                         startColumn: (r.start?.character ?? 0) + 1,
@@ -615,7 +615,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         });
                         if (!res) return [];
                         return res.map((ref: any) => ({
-                            uri: monaco.Uri.parse(ref.uri.startsWith('file:') ? ref.uri : `file:///${ref.uri.replace(/\\/g, '/')}`),
+                            uri: monaco.Uri.parse(ref.uri.startsWith('file:')? ref.uri: `file:///${ref.uri.replace(/\\/g, '/')}`),
                             range: {
                                 startLineNumber: (ref.range?.start?.line ?? 0) + 1,
                                 startColumn: (ref.range?.start?.character ?? 0) + 1,
@@ -715,7 +715,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                                     suffix: textAfter,
                                     language: lang,
                                     filePath: uriToPath(getFileUri(model)),
-                                    ...(acSel?.modelName ? { model: acSel.modelName, provider: acSel.providerName } : {}),
+                                    ...(acSel?.modelName? { model: acSel.modelName, provider: acSel.providerName }: {}),
                                 });
                                 resolve(res ?? null);
                             } catch { resolve(null); }
@@ -748,11 +748,11 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                                 endLineNumber: (cl.range?.end?.line ?? 0) + 1,
                                 endColumn: (cl.range?.end?.character ?? 0) + 1,
                             },
-                            command: cl.command ? {
+                            command: cl.command? {
                                 id: cl.command.command || '',
                                 title: cl.command.title || '',
                                 arguments: cl.command.arguments,
-                            } : { id: '', title: cl.data?.toString() ?? '' },
+                            }: { id: '', title: cl.data?.toString() ?? '' },
                         }));
                         return { lenses, dispose: () => { } };
                     } catch { return { lenses: [], dispose: () => { } }; }
@@ -795,7 +795,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         edit: null,
                         command: {
                             id: 'airi-fix-command',
-                            title: '✦ Fix with AI',
+                            title: ' Fix with AI',
                             arguments: [{ resource: model.uri, marker: m }],
                         },
                     }));
@@ -807,7 +807,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
             // ── Editor Actions ───────────────────────────────────────────────
             const fixAction = editor.addAction({
                 id: 'airi-fix-with-ai',
-                label: '✦ Fix with AIRI',
+                label: ' Fix with AIRI',
                 contextMenuGroupId: 'navigation',
                 contextMenuOrder: 0.5,
                 run: async (ed) => {
@@ -817,8 +817,8 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     const markers = (monaco.editor.getModelMarkers({ resource: model.uri }))
                         .filter((m: any) => m.severity >= 4);
                     const errMsg = markers.length
-                        ? markers.map((m: any) => `Line ${m.startLineNumber}: [${m.source}] ${m.message}`).join('\n')
-                        : `Code at line ${pos.lineNumber}`;
+? markers.map((m: any) => `Line ${m.startLineNumber}: [${m.source}] ${m.message}`).join('\n')
+: `Code at line ${pos.lineNumber}`;
                     const code = model.getValue();
                     const store = (window as any).useStore?.getState?.();
                     if (!store) return;
@@ -846,9 +846,9 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         const selection = ed.getSelection();
                         const model = ed.getModel();
                         const selText = selection && !selection.isEmpty() && model
-                            ? model.getValueInRange(selection)
-                            : model?.getValue()?.slice(0, 4000) ?? '';
-                        const filePath = model ? uriToPath(getFileUri(model)) : '';
+? model.getValueInRange(selection)
+: model?.getValue()?.slice(0, 4000) ?? '';
+                        const filePath = model? uriToPath(getFileUri(model)): '';
                         const store = (window as any).useStore?.getState?.();
                         if (!store) return;
                         const prompt = `${command}\n\nFile: \`${filePath}\`\n\`\`\`${lang}\n${selText}\n\`\`\``;
@@ -862,10 +862,10 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     },
                 });
 
-            disposables.push(agentSlashAction('airi.explain', '✦ /explain — Explain this code', '/explain the following code in detail', 1));
-            disposables.push(agentSlashAction('airi.refactor', '✦ /refactor — Refactor this code', '/refactor the following code for clarity and performance', 2));
-            disposables.push(agentSlashAction('airi.test', '✦ /test — Generate tests', '/test generate comprehensive unit tests for the following code', 3));
-            disposables.push(agentSlashAction('airi.document', '✦ /document — Add documentation', '/document add inline documentation to the following code', 4));
+            disposables.push(agentSlashAction('airi.explain', ' /explain — Explain this code', '/explain the following code in detail', 1));
+            disposables.push(agentSlashAction('airi.refactor', ' /refactor — Refactor this code', '/refactor the following code for clarity and performance', 2));
+            disposables.push(agentSlashAction('airi.test', ' /test — Generate tests', '/test generate comprehensive unit tests for the following code', 3));
+            disposables.push(agentSlashAction('airi.document', ' /document — Add documentation', '/document add inline documentation to the following code', 4));
         });
 
         return () => {
@@ -894,7 +894,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         const lineLen = model.getLineMaxColumn(Math.min(f.line, model.getLineCount()));
                         return {
                             severity: sevMap[f.severity] ?? 4,
-                            message: `[${f.severity}] ${f.message}${f.cwe ? ` (${f.cwe})` : ''}`,
+                            message: `[${f.severity}] ${f.message}${f.cwe? ` (${f.cwe})`: ''}`,
                             startLineNumber: f.line,
                             startColumn: (f.column ?? 0) + 1,
                             endLineNumber: f.line,
@@ -1065,7 +1065,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                                     isWholeLine: true,
                                     className: 'agent-diff-added-line',
                                     linesDecorationsClassName: 'agent-diff-added-gutter',
-                                    glyphMarginHoverMessage: { value: `**Added line** — right-click to accept/reject this hunk` },
+                                    glyphMarginHoverMessage: { value: `**Added line**— right-click to accept/reject this hunk` },
                                 },
                             });
                         }
@@ -1076,7 +1076,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                             range: new monaco.Range(Math.max(1, newLine - 1), 1, Math.max(1, newLine - 1), 1),
                             options: {
                                 linesDecorationsClassName: 'agent-diff-deleted-gutter',
-                                glyphMarginHoverMessage: { value: `**Deleted ${count} line(s)** — right-click to accept/reject` },
+                                glyphMarginHoverMessage: { value: `**Deleted ${count} line(s)**— right-click to accept/reject` },
                             },
                         });
                         hunkData.push({ startLine: Math.max(1, newLine - 1), endLine: Math.max(1, newLine - 1), type: 'removed', newContent: '', oldContent: hunk.value });
@@ -1099,7 +1099,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                 // Register context-menu actions for per-hunk accept/reject
                 const acceptAction = editor.addAction({
                     id: 'agent-diff-accept-hunk',
-                    label: '✓ Accept this hunk',
+                    label: ' Accept this hunk',
                     contextMenuGroupId: 'agent-diff',
                     contextMenuOrder: 0,
                     precondition: null,
@@ -1121,7 +1121,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
 
                 const rejectAction = editor.addAction({
                     id: 'agent-diff-reject-hunk',
-                    label: '✕ Reject this hunk',
+                    label: ' Reject this hunk',
                     contextMenuGroupId: 'agent-diff',
                     contextMenuOrder: 1,
                     precondition: null,
@@ -1178,7 +1178,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
             import('monaco-editor').then(monaco => {
                 if (!editorRef.current) return;
                 const [, author, date, summary] = (entry ?? '').split('|');
-                const newDecorations = (!author || author === 'Not Committed Yet') ? [] : [{
+                const newDecorations = (!author || author === 'Not Committed Yet')? []: [{
                     range: new monaco.Range(line, 1, line, 1),
                     options: {
                         isWholeLine: true,
@@ -1268,7 +1268,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     theme={theme}
                     path={pathToUri(activeTab.path)}
                     language={activeTab.language}
-                    value={activeFilePendingChange ? activeFilePendingChange.newContent : activeTab.content}
+                    value={activeFilePendingChange? activeFilePendingChange.newContent: activeTab.content}
                     onMount={handleMount}
                     onChange={(value, ev) => {
                         if (!ev || ev.isFlush) return;
@@ -1286,14 +1286,14 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     lineDecorationsWidth: 10,
                     minimap: { enabled: false },
                     scrollBeyondLastLine: false,
-                    wordWrap: activeTab?.isLargePaged ? 'off' : (editorWordWrap ? 'on' : 'off'),
+                    wordWrap: activeTab?.isLargePaged? 'off': (editorWordWrap? 'on': 'off'),
                     tabSize: 4,
                     insertSpaces: true,
                     automaticLayout: true,
                     renderWhitespace: 'selection',
                     smoothScrolling: !activeTab?.isLargePaged,
                     cursorBlinking: 'smooth',
-                    cursorSmoothCaretAnimation: activeTab?.isLargePaged ? 'off' : 'on',
+                    cursorSmoothCaretAnimation: activeTab?.isLargePaged? 'off': 'on',
                     bracketPairColorization: { enabled: !activeTab?.isLargePaged },
                     stickyScroll: { enabled: !activeTab?.isLargePaged },
                     codeLens: !activeTab?.isLargePaged,
@@ -1307,7 +1307,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                 <button
                     onClick={() => {
                         setVisualLabData(activeTab.content);
-                        const mode = activeTab.path.endsWith('.sql') ? 'erd' : 'json';
+                        const mode = activeTab.path.endsWith('.sql')? 'erd': 'json';
                         setVisualLabMode(mode);
                         toggleVisualLab(true);
                     }}
@@ -1316,10 +1316,10 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         top: '10px',
                         right: '40px',
                         zIndex: 100,
-                        background: activeTab.path.endsWith('.sql') ? 'rgba(16, 185, 129, 0.15)' : 'rgba(168, 85, 247, 0.15)',
-                        border: `1px solid ${activeTab.path.endsWith('.sql') ? 'rgba(16, 185, 129, 0.3)' : 'rgba(168, 85, 247, 0.3)'}`,
+                        background: activeTab.path.endsWith('.sql')? 'rgba(16, 185, 129, 0.15)': 'rgba(168, 85, 247, 0.15)',
+                        border: `1px solid ${activeTab.path.endsWith('.sql')? 'rgba(16, 185, 129, 0.3)': 'rgba(168, 85, 247, 0.3)'}`,
                         borderRadius: '6px',
-                        color: activeTab.path.endsWith('.sql') ? '#10b981' : '#c084fc',
+                        color: activeTab.path.endsWith('.sql')? '#10b981': '#c084fc',
                         padding: '4px 10px',
                         fontSize: '11px',
                         fontWeight: 600,
@@ -1331,16 +1331,16 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         transition: 'all 0.2s'
                     }}
                     onMouseEnter={(e) => {
-                        e.currentTarget.style.background = activeTab.path.endsWith('.sql') ? 'rgba(16, 185, 129, 0.25)' : 'rgba(168, 85, 247, 0.25)';
-                        e.currentTarget.style.borderColor = activeTab.path.endsWith('.sql') ? 'rgba(16, 185, 129, 0.5)' : 'rgba(168, 85, 247, 0.5)';
+                        e.currentTarget.style.background = activeTab.path.endsWith('.sql')? 'rgba(16, 185, 129, 0.25)': 'rgba(168, 85, 247, 0.25)';
+                        e.currentTarget.style.borderColor = activeTab.path.endsWith('.sql')? 'rgba(16, 185, 129, 0.5)': 'rgba(168, 85, 247, 0.5)';
                     }}
                     onMouseLeave={(e) => {
-                        e.currentTarget.style.background = activeTab.path.endsWith('.sql') ? 'rgba(16, 185, 129, 0.15)' : 'rgba(168, 85, 247, 0.15)';
-                        e.currentTarget.style.borderColor = activeTab.path.endsWith('.sql') ? 'rgba(16, 185, 129, 0.3)' : 'rgba(168, 85, 247, 0.3)';
+                        e.currentTarget.style.background = activeTab.path.endsWith('.sql')? 'rgba(16, 185, 129, 0.15)': 'rgba(168, 85, 247, 0.15)';
+                        e.currentTarget.style.borderColor = activeTab.path.endsWith('.sql')? 'rgba(16, 185, 129, 0.3)': 'rgba(168, 85, 247, 0.3)';
                     }}
                 >
-                    {activeTab.path.endsWith('.sql') ? <Database size={12} /> : <FileJson size={12} />}
-                    {activeTab.path.endsWith('.sql') ? 'Visualize Schema' : 'Visualize Content'}
+                    {activeTab.path.endsWith('.sql')? <Database size={12} />: <FileJson size={12} />}
+                    {activeTab.path.endsWith('.sql')? 'Visualize Schema': 'Visualize Content'}
                 </button>
             )}
 
@@ -1353,10 +1353,10 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         top: '10px',
                         right: '40px',
                         zIndex: 100,
-                        background: isMarkdownPreviewOpen ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.06)',
-                        border: `1px solid ${isMarkdownPreviewOpen ? 'rgba(56, 189, 248, 0.45)' : 'rgba(255,255,255,0.12)'}`,
+                        background: isMarkdownPreviewOpen? 'rgba(56, 189, 248, 0.2)': 'rgba(255,255,255,0.06)',
+                        border: `1px solid ${isMarkdownPreviewOpen? 'rgba(56, 189, 248, 0.45)': 'rgba(255,255,255,0.12)'}`,
                         borderRadius: '6px',
-                        color: isMarkdownPreviewOpen ? '#38bdf8' : 'inherit',
+                        color: isMarkdownPreviewOpen? '#38bdf8': 'inherit',
                         padding: '4px 10px',
                         fontSize: '11px',
                         fontWeight: 600,
@@ -1421,7 +1421,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                                 onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; }}
                                 onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
                             >
-                                ✓ Accept Changes
+                                 Accept Changes
                             </button>
                             <button
                                 onClick={() => {
@@ -1441,7 +1441,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                                     cursor: 'pointer',
                                 }}
                             >
-                                ✗ Reject Changes
+                                 Reject Changes
                             </button>
                         </div>
                         <style>{`
@@ -1490,9 +1490,9 @@ ${selectedText}
                         const rawModel = qeSel?.modelName || store.agentModel || 'cyberifrit|cyberifrit/qwen3.6:35b';
                         const pipe = rawModel.indexOf('|');
                         const inlineProvider = qeSel?.providerName
-                            || (pipe >= 0 ? rawModel.slice(0, pipe).toLowerCase() : 'cyberifrit');
+                            || (pipe >= 0? rawModel.slice(0, pipe).toLowerCase(): 'cyberifrit');
                         const inlineModel = qeSel?.modelName
-                            || (pipe >= 0 ? rawModel.slice(pipe + 1) : rawModel);
+                            || (pipe >= 0? rawModel.slice(pipe + 1): rawModel);
 
                         try {
                             const { invoke } = await import('@tauri-apps/api/core');
@@ -1533,7 +1533,7 @@ ${selectedText}
                                 newContent: newContent,
                             });
                         } catch (error: any) {
-                            store.updateLastAgentMessage(`**Error:** ${error.message || error}`);
+                            store.updateLastAgentMessage(`**Error:**${error.message || error}`);
                         } finally {
                             store.setIsAgentThinking?.(false);
                         }

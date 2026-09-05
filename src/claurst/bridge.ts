@@ -44,7 +44,7 @@ export async function runClaurstTurn(userPrompt: string): Promise<void> {
     const status = await claurstStatus();
     if (!status.available) {
         store.getState().updateLastAgentMessage?.(
-            `❌ **Claurst backend unavailable.**\n\n${status.reason ?? 'Binary not found.'}\n\n` +
+            ` **Claurst backend unavailable.**\n\n${status.reason ?? 'Binary not found.'}\n\n` +
             'Build it once with:\n```powershell\ncd claurst/src-rust\ncargo build --release --bin claurst\n```\n' +
             'or set the `CLAURST_BIN` environment variable, then reselect the Claurst backend.'
         );
@@ -64,11 +64,11 @@ export async function runClaurstTurn(userPrompt: string): Promise<void> {
                 store.getState().updateLastAgentMessage?.(acc + toolNote);
                 break;
             case 'tool_start':
-                toolNote = `\n\n_⚙ running tool: ${p.tool}…_`;
+                toolNote = `\n\n_ running tool: ${p.tool}…_`;
                 store.getState().updateLastAgentMessage?.(acc + toolNote);
                 break;
             case 'error':
-                store.getState().updateLastAgentMessage?.(`${acc}\n\n❌ ${p.error ?? 'claurst error'}`);
+                store.getState().updateLastAgentMessage?.(`${acc}\n\n ${p.error ?? 'claurst error'}`);
                 break;
             case 'done':
             default:
@@ -81,7 +81,7 @@ export async function runClaurstTurn(userPrompt: string): Promise<void> {
         // Prefer the streamed accumulation; fall back to the returned text.
         store.getState().updateLastAgentMessage?.((acc.trim() || finalText || '').trim() || '_(no output)_');
     } catch (e: any) {
-        store.getState().updateLastAgentMessage?.(`${acc}\n\n❌ **Claurst failed:** ${e?.message ?? e}`);
+        store.getState().updateLastAgentMessage?.(`${acc}\n\n **Claurst failed:**${e?.message ?? e}`);
     } finally {
         unlisten();
         store.getState().setIsAgentThinking?.(false);

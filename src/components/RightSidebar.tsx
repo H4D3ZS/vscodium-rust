@@ -52,7 +52,7 @@ const RightSidebar: React.FC = () => {
     const webUiProviderKey = useMemo(() => {
         const lower = String(model || '').toLowerCase();
         if (!lower.includes('webui') && !lower.includes('openwebui')) return '';
-        const rawProvider = model.includes('|') ? model.split('|')[0] : model;
+        const rawProvider = model.includes('|')? model.split('|')[0]: model;
         const p = rawProvider.toLowerCase();
         if (p.includes('openwebui')) return 'openwebui';
         return p
@@ -334,7 +334,7 @@ const RightSidebar: React.FC = () => {
                     setTimeout(async () => {
                         const { speak } = await import('../voice');
                         const greetings = [
-                            "Hey! I'm AIRI! I live here now! 👋",
+                            "Hey! I'm AIRI! I live here now! ",
                             "Hi there! Ready to work together?",
                             "Hello! I'm your AI companion!",
                         ];
@@ -442,7 +442,7 @@ const RightSidebar: React.FC = () => {
                 const label = TOOL_LABELS[name] || name.replace(/_/g, ' ');
                 setLiveToolCalls(prev => [{
                     id, tool: name, label, status: 'running' as const,
-                    detail: e.payload?.args ? (typeof e.payload.args === 'string' ? e.payload.args.slice(0, 50) : JSON.stringify(e.payload.args).slice(0, 50)) : undefined
+                    detail: e.payload?.args? (typeof e.payload.args === 'string'? e.payload.args.slice(0, 50): JSON.stringify(e.payload.args).slice(0, 50)): undefined
                 }, ...prev].slice(0, 8));
 
                 // Track which files the agent edited during this turn so the
@@ -461,8 +461,8 @@ const RightSidebar: React.FC = () => {
                             path,
                             tool: name,
                             preview: typeof args === 'object'
-                                ? (args.content || args.replace || args.patch || '').slice(0, 240)
-                                : '',
+? (args.content || args.replace || args.patch || '').slice(0, 240)
+: '',
                         });
                     }
                 }
@@ -474,21 +474,21 @@ const RightSidebar: React.FC = () => {
                     tool: name,
                     title: TOOL_LABELS[name] || name.replace(/_/g, ' '),
                     detail: e.payload?.args
-                        ? (typeof e.payload.args === 'string'
-                            ? e.payload.args.slice(0, 400)
-                            : JSON.stringify(e.payload.args).slice(0, 400))
-                        : undefined,
+? (typeof e.payload.args === 'string'
+? e.payload.args.slice(0, 400)
+: JSON.stringify(e.payload.args).slice(0, 400))
+: undefined,
                 });
             }).then(u => subs.push(u));
             listen<any>('ai-tool-result', (e) => {
                 const name = e.payload?.name;
                 const raw = e.payload?.result ?? '';
-                let rs = typeof raw === 'string' ? raw : JSON.stringify(raw);
+                let rs = typeof raw === 'string'? raw: JSON.stringify(raw);
                 let failed = rs.startsWith('Error:') || rs.startsWith('Tool execution error:')
                     || rs.startsWith('Tool not found:') || rs.includes('"Tool not found:');
                 if (!failed) {
                     try {
-                        const j = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                        const j = typeof raw === 'string'? JSON.parse(raw): raw;
                         if (j && (j.status === 'error' || j.status === 'blocked' || j.success === false)) {
                             failed = true;
                         }
@@ -501,19 +501,19 @@ const RightSidebar: React.FC = () => {
                 setLiveToolCalls(prev =>
                     prev.map(a =>
                         a.tool === name && a.status === 'running'
-                            ? {
+? {
                                 ...a,
-                                status: failed ? ('error' as const) : ('done' as const),
+                                status: failed? ('error' as const): ('done' as const),
                                 detail: rs.slice(0, 120),
                             }
-                            : a
+: a
                     )
                 );
 
                 useStore.getState().pushTrajectoryEvent({
                     kind: 'tool_result',
                     tool: name,
-                    title: failed ? `✗ ${name}` : `✓ ${name}`,
+                    title: failed? ` ${name}`: ` ${name}`,
                     detail: rs.slice(0, 800),
                     success: !failed,
                 });
@@ -527,17 +527,17 @@ const RightSidebar: React.FC = () => {
                 const attempt = e.payload?.attempt;
                 const passed = status === 'passed';
                 const title =
-                    passed ? `✓ Verified — ${tool} passed`
-                        : status === 'exhausted' ? `Verify retries exhausted — finishing with warnings`
-                            : `✗ ${tool} failed — self-fixing${attempt ? ` (${attempt}/3)` : ''}`;
+                    passed? ` Verified — ${tool} passed`
+: status === 'exhausted'? `Verify retries exhausted — finishing with warnings`
+: ` ${tool} failed — self-fixing${attempt? ` (${attempt}/3)`: ''}`;
                 setLiveToolCalls(prev => [{
                     id: `verify-${Date.now()}`,
                     tool: 'verify',
-                    label: `🔬 ${title}`,
-                    status: passed ? ('done' as const) : ('error' as const),
+                    label: ` ${title}`,
+                    status: passed? ('done' as const): ('error' as const),
                 }, ...prev].slice(0, 8));
                 useStore.getState().pushTrajectoryEvent({
-                    kind: passed ? 'tool_result' : 'error',
+                    kind: passed? 'tool_result': 'error',
                     tool: 'verify',
                     title,
                     success: passed,
@@ -574,7 +574,7 @@ const RightSidebar: React.FC = () => {
                 messages,
                 agentInfo: {
                     name: 'AIRI',
-                    status: isAgentThinking ? 'thinking' : (aiStatus === 'dead' ? 'error' : 'idle'),
+                    status: isAgentThinking? 'thinking': (aiStatus === 'dead'? 'error': 'idle'),
                     context: 'vscodium-rust',
                 },
                 biology: {
@@ -715,8 +715,8 @@ const RightSidebar: React.FC = () => {
         }
 
         const specials = (query === '' || SPECIAL_MENTIONS.some(s => s.name.slice(1).startsWith(query)))
-            ? SPECIAL_MENTIONS.filter(s => s.name.slice(1).startsWith(query) || query === '')
-            : [];
+? SPECIAL_MENTIONS.filter(s => s.name.slice(1).startsWith(query) || query === '')
+: [];
         const files = allFiles.filter(f => f.name.toLowerCase().includes(query)).slice(0, 8);
         return [...specials, ...files] as any[];
     }, [inputValue, allFiles]);
@@ -755,7 +755,7 @@ const RightSidebar: React.FC = () => {
     const [currentActivity, setCurrentActivity] = React.useState<AvatarState>('idle');
     React.useEffect(() => {
         const running = liveToolCalls.find(t => t.status === 'running');
-        if (!isAgentThinking) { setCurrentActivity(aiStatus === 'dead' ? 'error' : 'idle'); return; }
+        if (!isAgentThinking) { setCurrentActivity(aiStatus === 'dead'? 'error': 'idle'); return; }
         if (!running) { setCurrentActivity('thinking'); return; }
         const toolActivity: Record<string, AvatarState> = {
             write_to_file: 'coding', search_replace_edit: 'coding', patch_file_content: 'coding',
@@ -788,8 +788,8 @@ const RightSidebar: React.FC = () => {
 
             let cleanInvokeModel = "";
             if (dedicatedEmbedder) {
-                cleanInvokeModel = dedicatedEmbedder.includes('|') ? dedicatedEmbedder.split('|').pop()! :
-                    (dedicatedEmbedder.includes('/') ? dedicatedEmbedder.split('/').pop()! : dedicatedEmbedder);
+                cleanInvokeModel = dedicatedEmbedder.includes('|')? dedicatedEmbedder.split('|').pop()! :
+                    (dedicatedEmbedder.includes('/')? dedicatedEmbedder.split('/').pop()!: dedicatedEmbedder);
             }
 
             let results: any[];
@@ -803,7 +803,7 @@ const RightSidebar: React.FC = () => {
                 const { open } = await import('@tauri-apps/plugin-dialog');
                 const selected = await open({ multiple: true, filters: [{ name: 'All Files', extensions: ['*'] }] });
                 if (selected) {
-                    const paths = Array.isArray(selected) ? selected : [selected];
+                    const paths = Array.isArray(selected)? selected: [selected];
                     results = paths.map((p: string) => ({
                         path: p,
                         name: p.split(/[\\/]/).pop() || p,
@@ -836,7 +836,7 @@ const RightSidebar: React.FC = () => {
     };
 
     const onSend = async (overrideMsg?: string) => {
-        const val = (overrideMsg !== undefined ? overrideMsg : inputValue).trim();
+        const val = (overrideMsg !== undefined? overrideMsg: inputValue).trim();
 
         if (isSpecModeActive && val) {
             setSpecsPrompt(val);
@@ -1001,20 +1001,20 @@ const RightSidebar: React.FC = () => {
     const modeStyle = useMemo(() => {
         const m = (mode || '').toLowerCase();
         const customId = (mode || '').match(/^custom:(.+)$/i)?.[1];
-        const custom = customId ? customModes?.find((c: { id: string }) => c.id === customId) : null;
+        const custom = customId? customModes?.find((c: { id: string }) => c.id === customId): null;
         const displayMode = custom?.label || mode || 'Harness';
         const readOnly = custom?.readOnly || m === 'chat' || m === 'planning' || m.includes('source control');
         const bug = m === 'bugbounty' || m === 'bug bounty';
         const harness = m === 'harness' && !custom;
         const danger = m === 'sentient' || bug;
         return {
-            label: bug ? 'Bug Bounty' : displayMode,
-            color: readOnly ? '#f59e0b' : (danger ? '#ef4444' : (harness ? '#38bdf8' : '#10b981')),
-            background: readOnly ? 'rgba(245,158,11,0.10)' : (danger ? 'rgba(239,68,68,0.10)' : (harness ? 'rgba(56,189,248,0.10)' : 'rgba(16,185,129,0.10)')),
-            border: readOnly ? '1px solid rgba(245,158,11,0.35)' : (danger ? '1px solid rgba(239,68,68,0.35)' : (harness ? '1px solid rgba(56,189,248,0.35)' : '1px solid rgba(16,185,129,0.30)')),
+            label: bug? 'Bug Bounty': displayMode,
+            color: readOnly? '#f59e0b': (danger? '#ef4444': (harness? '#38bdf8': '#10b981')),
+            background: readOnly? 'rgba(245,158,11,0.10)': (danger? 'rgba(239,68,68,0.10)': (harness? 'rgba(56,189,248,0.10)': 'rgba(16,185,129,0.10)')),
+            border: readOnly? '1px solid rgba(245,158,11,0.35)': (danger? '1px solid rgba(239,68,68,0.35)': (harness? '1px solid rgba(56,189,248,0.35)': '1px solid rgba(16,185,129,0.30)')),
             title: readOnly
-                ? `${displayMode} — READ-ONLY (no tool calls). Click to switch mode.`
-                : `${displayMode} — agent will write files and run commands. Click to change.`,
+? `${displayMode} — READ-ONLY (no tool calls). Click to switch mode.`
+: `${displayMode} — agent will write files and run commands. Click to change.`,
         };
     }, [mode, customModes]);
 
@@ -1026,7 +1026,7 @@ const RightSidebar: React.FC = () => {
     const modelLabel = useMemo(() => {
         const raw = (model || '').trim();
         if (!raw) return 'Select model';
-        const id = raw.includes('|') ? raw.split('|').slice(1).join('|') : raw;
+        const id = raw.includes('|')? raw.split('|').slice(1).join('|'): raw;
         return id || 'Select model';
     }, [model]);
 
@@ -1108,7 +1108,7 @@ const RightSidebar: React.FC = () => {
     const handleMentionSelect = (file: any) => {
         const words = inputValue.split(/\s+/);
         // For special mentions, insert the full name; for files, insert @filename
-        words[words.length - 1] = (file as any)._special ? file.name : `@${file.name}`;
+        words[words.length - 1] = (file as any)._special? file.name: `@${file.name}`;
         const newValue = words.join(' ') + ' ';
         setInputValue(newValue);
         setIsMentionDropdownOpen(false);
@@ -1304,10 +1304,10 @@ const RightSidebar: React.FC = () => {
                                 display: 'flex', alignItems: 'center', gap: 4,
                                 padding: '3px 6px 3px 8px', borderRadius: '4px 4px 0 0',
                                 background: activeAgentThreadId === thread.id
-                                    ? 'rgba(255,255,255,0.07)' : 'transparent',
+? 'rgba(255,255,255,0.07)': 'transparent',
                                 border: '1px solid rgba(255,255,255,0.1)',
                                 borderBottom: activeAgentThreadId === thread.id
-                                    ? '1px solid var(--vscode-sideBar-background)' : '1px solid transparent',
+? '1px solid var(--vscode-sideBar-background)': '1px solid transparent',
                                 fontSize: 11, cursor: 'pointer',
                                 whiteSpace: 'nowrap', maxWidth: 160,
                             }}
@@ -1360,7 +1360,7 @@ const RightSidebar: React.FC = () => {
                         onClick={() => setView('history')}
                         title="Chat History"
                         style={{
-                            background: view === 'history' ? 'rgba(255,255,255,0.08)' : 'transparent',
+                            background: view === 'history'? 'rgba(255,255,255,0.08)': 'transparent',
                             border: 'none', padding: '3px 5px', borderRadius: 4,
                             color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 11,
                         }}
@@ -1398,12 +1398,12 @@ const RightSidebar: React.FC = () => {
                                 style={{
                                     border: 'none',
                                     borderBottom: view === v
-                                        ? '1.5px solid var(--vscode-panelTitle-activeBorder, var(--vscode-focusBorder, #007acc))'
-                                        : '1.5px solid transparent',
+? '1.5px solid var(--vscode-panelTitle-activeBorder, var(--vscode-focusBorder, #007acc))'
+: '1.5px solid transparent',
                                     background: 'transparent',
                                     color: view === v
-                                        ? 'var(--vscode-panelTitle-activeForeground, #e7e7e7)'
-                                        : 'var(--vscode-panelTitle-inactiveForeground, rgba(231,231,231,0.55))',
+? 'var(--vscode-panelTitle-activeForeground, #e7e7e7)'
+: 'var(--vscode-panelTitle-inactiveForeground, rgba(231,231,231,0.55))',
                                     padding: '6px 7px 5px',
                                     borderRadius: 0,
                                     fontSize: '11px',
@@ -1426,29 +1426,29 @@ const RightSidebar: React.FC = () => {
                         {/* UI Mode toggle: Chat ↔ AIRI 3D — hidden when VRM is disabled */}
                         {showVrmAvatar && (
                             <div
-                                onClick={() => setAgentUiMode(agentUiMode === 'chat' ? 'airi' : 'chat')}
+                                onClick={() => setAgentUiMode(agentUiMode === 'chat'? 'airi': 'chat')}
                                 style={{
                                     cursor: 'pointer',
                                     display: 'flex', alignItems: 'center', gap: '3px',
                                     fontSize: '9px', fontWeight: 700,
                                     padding: '2px 6px', borderRadius: '5px',
-                                    background: agentUiMode === 'airi' ? 'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.08))' : 'transparent',
-                                    border: agentUiMode === 'airi' ? '1px solid var(--vscode-focusBorder, #007acc)' : '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))',
-                                    color: agentUiMode === 'airi' ? 'var(--vscode-foreground)' : 'rgba(255,255,255,0.5)',
+                                    background: agentUiMode === 'airi'? 'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.08))': 'transparent',
+                                    border: agentUiMode === 'airi'? '1px solid var(--vscode-focusBorder, #007acc)': '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))',
+                                    color: agentUiMode === 'airi'? 'var(--vscode-foreground)': 'rgba(255,255,255,0.5)',
                                     transition: 'all 0.2s'
                                 }}
-                                title={agentUiMode === 'airi' ? 'Switch to Chat mode' : 'Switch to AIRI 3D mode'}
+                                title={agentUiMode === 'airi'? 'Switch to Chat mode': 'Switch to AIRI 3D mode'}
                             >
-                                <Icon name={agentUiMode === 'airi' ? 'agent' : 'code'} size={14} />
-                                <span>{agentUiMode === 'airi' ? 'AIRI' : 'CHAT'}</span>
+                                <Icon name={agentUiMode === 'airi'? 'agent': 'code'} size={14} />
+                                <span>{agentUiMode === 'airi'? 'AIRI': 'CHAT'}</span>
                             </div>
                         )}
                         <div
                             onClick={() => setAiriToggleOpen(v => !v)}
                             style={{
                                 cursor: 'pointer',
-                                opacity: airiToggleOpen ? 1 : 0.6,
-                                color: airiToggleOpen ? 'var(--vscode-textLink-foreground, #3794ff)' : 'inherit',
+                                opacity: airiToggleOpen? 1: 0.6,
+                                color: airiToggleOpen? 'var(--vscode-textLink-foreground, #3794ff)': 'inherit',
                                 display: 'flex',
                                 alignItems: 'center'
                             }}
@@ -1515,13 +1515,13 @@ const RightSidebar: React.FC = () => {
                                 fontWeight: 700,
                                 letterSpacing: '0.08em',
                                 textTransform: 'uppercase',
-                                color: airiVisionEnabled ? '#34d399' : 'rgba(255,255,255,0.55)',
-                                background: airiVisionEnabled ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.05)',
-                                border: airiVisionEnabled ? '1px solid rgba(52,211,153,0.45)' : '1px solid rgba(255,255,255,0.1)',
+                                color: airiVisionEnabled? '#34d399': 'rgba(255,255,255,0.55)',
+                                background: airiVisionEnabled? 'rgba(52,211,153,0.12)': 'rgba(255,255,255,0.05)',
+                                border: airiVisionEnabled? '1px solid rgba(52,211,153,0.45)': '1px solid rgba(255,255,255,0.1)',
                             }}
-                            title={airiVisionEnabled ? 'Disable screen vision (heavy — VL model + capture)' : 'Enable screen vision (off by default — requires vision model)'}
+                            title={airiVisionEnabled? 'Disable screen vision (heavy — VL model + capture)': 'Enable screen vision (off by default — requires vision model)'}
                         >
-                            Vision {airiVisionEnabled ? 'ON' : 'OFF'}
+                            Vision {airiVisionEnabled? 'ON': 'OFF'}
                         </button>
                         <input
                             type="text"
@@ -1553,13 +1553,13 @@ const RightSidebar: React.FC = () => {
                                 fontWeight: 700,
                                 letterSpacing: '0.08em',
                                 textTransform: 'uppercase',
-                                color: airiConsciousnessEnabled ? 'var(--vscode-focusBorder, #007acc)' : 'rgba(255,255,255,0.55)',
-                                background: airiConsciousnessEnabled ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.05)',
-                                border: airiConsciousnessEnabled ? '1px solid var(--vscode-focusBorder, rgba(0,122,204,0.45))' : '1px solid rgba(255,255,255,0.1)',
+                                color: airiConsciousnessEnabled? 'var(--vscode-focusBorder, #007acc)': 'rgba(255,255,255,0.55)',
+                                background: airiConsciousnessEnabled? 'rgba(255,255,255,0.08)': 'rgba(255,255,255,0.05)',
+                                border: airiConsciousnessEnabled? '1px solid var(--vscode-focusBorder, rgba(0,122,204,0.45))': '1px solid rgba(255,255,255,0.1)',
                             }}
-                            title={airiConsciousnessEnabled ? 'Pause AIRI background thoughts' : 'Resume AIRI background thoughts'}
+                            title={airiConsciousnessEnabled? 'Pause AIRI background thoughts': 'Resume AIRI background thoughts'}
                         >
-                            Thoughts {airiConsciousnessEnabled ? 'ON' : 'OFF'}
+                            Thoughts {airiConsciousnessEnabled? 'ON': 'OFF'}
                         </button>
                         <input
                             type="text"
@@ -1626,7 +1626,7 @@ const RightSidebar: React.FC = () => {
             <div style={{ flex: '1 1 auto', height: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
 
                 {/* ── AIRI 3D FULL MODE — only available when VRM is enabled ── */}
-                {showVrmAvatar && agentUiMode === 'airi' ? (
+                {showVrmAvatar && agentUiMode === 'airi'? (
                     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', position: 'relative' }}>
 
                         {/* Full-height 3D avatar */}
@@ -1669,7 +1669,7 @@ const RightSidebar: React.FC = () => {
                                     <div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
                                             <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--vscode-focusBorder, #007acc)' }}>
-                                                {airiSpeaking ? '◉ Speaking' : '✦ AIRI'}
+                                                {airiSpeaking? '◉ Speaking': ' AIRI'}
                                             </span>
                                             {airiSpeaking && <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--vscode-focusBorder, #007acc)', display: 'inline-block', animation: 'hubPulse 0.8s infinite' }} />}
                                         </div>
@@ -1699,12 +1699,12 @@ const RightSidebar: React.FC = () => {
                                     style={{
                                         background: 'transparent', border: 'none', outline: 'none', color: 'var(--vscode-editor-foreground, #fff)',
                                         resize: 'none', fontSize: '13px', lineHeight: '1.5', flex: 1, minHeight: '22px',
-                                        opacity: isAgentThinking ? 0.4 : 1
+                                        opacity: isAgentThinking? 0.4: 1
                                     }}
                                 />
                                 <div onClick={() => onSend()} style={{
                                     width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
-                                    background: (inputValue.trim() && !isAgentThinking) ? 'var(--vscode-button-background, #0e639c)' : 'rgba(255,255,255,0.08)',
+                                    background: (inputValue.trim() && !isAgentThinking)? 'var(--vscode-button-background, #0e639c)': 'rgba(255,255,255,0.08)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
                                     transition: 'background 0.2s'
                                 }}>
@@ -1723,11 +1723,11 @@ const RightSidebar: React.FC = () => {
                                     }}
                                     style={{
                                         width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
-                                        background: ttsEnabled ? '#10b981' : 'rgba(255,255,255,0.08)',
+                                        background: ttsEnabled? '#10b981': 'rgba(255,255,255,0.08)',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
                                         transition: 'background 0.2s'
                                     }}
-                                    title={ttsEnabled ? 'AIRI Voice ON' : 'AIRI Voice OFF'}
+                                    title={ttsEnabled? 'AIRI Voice ON': 'AIRI Voice OFF'}
                                 >
                                     <i className="codicon codicon-unmute" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: 'var(--vscode-editor-foreground, #fff)' }}></i>
                                 </div>
@@ -1759,11 +1759,11 @@ const RightSidebar: React.FC = () => {
                             <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '6px' }}>
                                 <span onClick={onModeClick} style={{ fontSize: '9px', opacity: 0.35, cursor: 'pointer' }}>{mode}</span>
                                 <span style={{ fontSize: '9px', opacity: 0.2 }}>·</span>
-                                <span onClick={onModelClick} style={{ fontSize: '9px', opacity: model ? 0.35 : 0.85, cursor: 'pointer', color: model ? undefined : '#f59e0b' }}>{modelLabel}</span>
+                                <span onClick={onModelClick} style={{ fontSize: '9px', opacity: model? 0.35: 0.85, cursor: 'pointer', color: model? undefined: '#f59e0b' }}>{modelLabel}</span>
                                 <span style={{ fontSize: '9px', opacity: 0.2 }}>·</span>
                                 <span
                                     onClick={() => import('../agent').then(m => m.setYoloMode(!isYoloMode).then(() => setYoloMode(!isYoloMode)))}
-                                    style={{ fontSize: '9px', cursor: 'pointer', color: isYoloMode ? '#f97316' : 'rgba(255,255,255,0.3)', fontWeight: isYoloMode ? 700 : 400 }}
+                                    style={{ fontSize: '9px', cursor: 'pointer', color: isYoloMode? '#f97316': 'rgba(255,255,255,0.3)', fontWeight: isYoloMode? 700: 400 }}
                                 >YOLO</span>
                                 <span style={{ fontSize: '9px', opacity: 0.2 }}>·</span>
                                 <span
@@ -1775,17 +1775,17 @@ const RightSidebar: React.FC = () => {
                                         }
                                     }}
                                     title="Continuous Mode: agent keeps working until all tasks done"
-                                    style={{ fontSize: '9px', cursor: 'pointer', color: isContinuousMode ? '#22d3ee' : 'rgba(255,255,255,0.3)', fontWeight: isContinuousMode ? 700 : 400 }}
+                                    style={{ fontSize: '9px', cursor: 'pointer', color: isContinuousMode? '#22d3ee': 'rgba(255,255,255,0.3)', fontWeight: isContinuousMode? 700: 400 }}
                                 >∞ AUTO</span>
                             </div>
                         </div>
                     </div>
-                ) : (
+                ): (
 
                     /* ── CHAT / MISSION HUB MODE ── */
                     <div className="right-sidebar-body">
-                        {view === 'chat' ? (
-                            <div ref={chatScrollRef} className={`right-sidebar-messages right-sidebar-scroll ${messages.length === 0 ? 'right-sidebar-empty-chat' : ''}`} style={{ justifyContent: 'flex-start', alignItems: 'stretch', paddingTop: 0 }}>
+                        {view === 'chat'? (
+                            <div ref={chatScrollRef} className={`right-sidebar-messages right-sidebar-scroll ${messages.length === 0? 'right-sidebar-empty-chat': ''}`} style={{ justifyContent: 'flex-start', alignItems: 'stretch', paddingTop: 0 }}>
 
                                 {/* Offline/reconnecting banner — shown when inference backend is unreachable */}
                                 {(() => {
@@ -1800,52 +1800,52 @@ const RightSidebar: React.FC = () => {
                                 })()}
 
                                 {/* AIRI Sentient Header — only rendered when VRM is enabled */}
-                                {showVrmAvatar ? (
+                                {showVrmAvatar? (
                                     <div style={{
                                         position: 'sticky', top: 0, zIndex: 10,
                                         background: 'linear-gradient(180deg, var(--vscode-sideBar-background) 60%, transparent)',
                                         display: 'flex', flexDirection: 'column', alignItems: 'center',
                                         transition: 'all 0.3s ease-in-out',
-                                        height: messages.length === 0 ? '72px' : '0px',
-                                        minHeight: messages.length === 0 ? '72px' : '0px',
-                                        paddingTop: messages.length === 0 ? '6px' : '0px',
+                                        height: messages.length === 0? '72px': '0px',
+                                        minHeight: messages.length === 0? '72px': '0px',
+                                        paddingTop: messages.length === 0? '6px': '0px',
                                         overflow: 'hidden', pointerEvents: 'none'
                                     }}>
                                         <div style={{
-                                            width: messages.length === 0 ? '52px' : '0px',
-                                            height: messages.length === 0 ? '52px' : '0px',
-                                            borderRadius: messages.length === 0 ? '0%' : '50%',
+                                            width: messages.length === 0? '52px': '0px',
+                                            height: messages.length === 0? '52px': '0px',
+                                            borderRadius: messages.length === 0? '0%': '50%',
                                             overflow: 'hidden',
-                                            background: messages.length === 0 ? 'transparent' : 'rgba(255,255,255,0.05)',
-                                            border: messages.length === 0 ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                                            background: messages.length === 0? 'transparent': 'rgba(255,255,255,0.05)',
+                                            border: messages.length === 0? 'none': '1px solid rgba(255,255,255,0.1)',
                                             transition: 'all 0.3s ease-in-out'
                                         }}>
                                             <Suspense fallback={<div style={{ padding: 16, opacity: 0.4, fontSize: 11 }}>Loading 3D avatar…</div>}>
-                                                <AiriPanel style={{ width: '100%', height: '100%' }} scale={messages.length === 0 ? 0.5 : 0.6} yOffset={messages.length === 0 ? "-44%" : "-44%"} transparent={true} character={avatarCharacter} />
+                                                <AiriPanel style={{ width: '100%', height: '100%' }} scale={messages.length === 0? 0.5: 0.6} yOffset={messages.length === 0? "-44%": "-44%"} transparent={true} character={avatarCharacter} />
                                             </Suspense>
                                         </div>
                                         {messages.length === 0 && (
                                             <div style={{ marginTop: '2px', textAlign: 'center', pointerEvents: 'auto' }}>
                                                 <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.05em' }}>AIRI SENTIENT CORE</div>
                                                 <div style={{ fontSize: '11px', opacity: 0.4 }}>
-                                                    {isYoloMode ? 'YOLO — Full autonomy' : 'Ready for your mission'}
+                                                    {isYoloMode? 'YOLO — Full autonomy': 'Ready for your mission'}
                                                 </div>
                                             </div>
                                         )}
                                     </div>
-                                ) : (
+                                ): (
                                     /* Clean minimal header when VRM is disabled — Cursor-style */
-                                    messages.length === 0 ? (
+                                    messages.length === 0? (
                                         <div style={{
                                             padding: '10px 16px 8px',
                                             textAlign: 'center',
                                         }}>
                                             <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.05em', opacity: 0.85 }}>Agent</div>
                                             <div style={{ fontSize: '11px', opacity: 0.4 }}>
-                                                {isYoloMode ? 'YOLO — Full autonomy' : 'What can I help you with?'}
+                                                {isYoloMode? 'YOLO — Full autonomy': 'What can I help you with?'}
                                             </div>
                                         </div>
-                                    ) : null
+                                    ): null
                                 )}
 
                                 {/* Quick Mission Workflows — shown only on fresh session */}
@@ -1895,13 +1895,13 @@ const RightSidebar: React.FC = () => {
                                         <div style={{
                                             margin: '8px 10px 6px',
                                             background: 'rgba(15,15,25,0.8)',
-                                            border: `1px solid ${isAgentThinking ? 'rgba(249,115,22,0.25)' : 'rgba(16,185,129,0.2)'}`,
+                                            border: `1px solid ${isAgentThinking? 'rgba(249,115,22,0.25)': 'rgba(16,185,129,0.2)'}`,
                                             borderRadius: '8px', padding: '7px 10px',
                                             transition: 'border-color 0.5s'
                                         }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                                                <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: isAgentThinking ? 'rgba(249,115,22,0.7)' : 'rgba(16,185,129,0.6)' }}>
-                                                    {isAgentThinking ? (isYoloMode ? 'YOLO Executing' : '● Live Actions') : '✓ Completed'}
+                                                <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: isAgentThinking? 'rgba(249,115,22,0.7)': 'rgba(16,185,129,0.6)' }}>
+                                                    {isAgentThinking? (isYoloMode? 'YOLO Executing': '● Live Actions'): ' Completed'}
                                                 </div>
                                                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                                                     {/* Open the trajectory timeline. We render it here
@@ -1916,7 +1916,7 @@ const RightSidebar: React.FC = () => {
                                                         onClick={() => setLiveToolCalls([])}
                                                         style={{ cursor: 'pointer', fontSize: '11px', opacity: 0.35, padding: '0 2px', lineHeight: 1 }}
                                                         title="Clear feed"
-                                                    >✕</div>
+                                                    ></div>
                                                 </div>
                                             </div>
                                             {deduped.length === 0 && isAgentThinking && (
@@ -1926,7 +1926,7 @@ const RightSidebar: React.FC = () => {
                                                 <div key={tc.id} style={{
                                                     display: 'flex', alignItems: 'center', gap: '6px',
                                                     fontSize: '11px', padding: '2px 0',
-                                                    color: tc.status === 'done' ? 'rgba(255,255,255,0.25)' : tc.status === 'error' ? '#ef4444' : 'rgba(255,255,255,0.8)',
+                                                    color: tc.status === 'done'? 'rgba(255,255,255,0.25)': tc.status === 'error'? '#ef4444': 'rgba(255,255,255,0.8)',
                                                 }}>
                                                     {tc.status === 'running' && <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#f97316', display: 'inline-block', animation: 'hubPulse 1s infinite', flexShrink: 0 }} />}
                                                     {tc.status === 'done' && <Icon name="check" size={12} style={{ color: '#10b981', flexShrink: 0 }} />}
@@ -1986,13 +1986,13 @@ const RightSidebar: React.FC = () => {
                                     onRestoreCheckpoint={handleRestoreCheckpoint}
                                 />
                             </div>
-                        ) : view === 'emulator' ? (
+                        ): view === 'emulator'? (
                             <div className="right-sidebar-active-surface" style={{ justifyContent: 'flex-start', alignItems: 'stretch' }}>
                                 <Suspense fallback={<div style={{ padding: 20, opacity: 0.5, fontSize: 11 }}>Loading emulator panel…</div>}>
                                     <UnifiedEmulatorPanel />
                                 </Suspense>
                             </div>
-                        ) : view === 'kortex' ? (
+                        ): view === 'kortex'? (
                             /* Kortex .aim Brain Panel */
                             <div className="right-sidebar-active-surface">
                                 <div style={{ padding: '16px 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -2006,9 +2006,9 @@ const RightSidebar: React.FC = () => {
                                     <button
                                         onClick={refreshKortex}
                                         disabled={kortexLoading}
-                                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.15))', color: 'var(--vscode-textLink-foreground, #3794ff)', padding: '4px 10px', borderRadius: '6px', fontSize: '10px', cursor: kortexLoading ? 'not-allowed' : 'pointer', fontWeight: 600 }}
+                                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.15))', color: 'var(--vscode-textLink-foreground, #3794ff)', padding: '4px 10px', borderRadius: '6px', fontSize: '10px', cursor: kortexLoading? 'not-allowed': 'pointer', fontWeight: 600 }}
                                     >
-                                        {kortexLoading ? '...' : 'Refresh'}
+                                        {kortexLoading? '...': 'Refresh'}
                                     </button>
                                 </div>
 
@@ -2030,18 +2030,18 @@ const RightSidebar: React.FC = () => {
                                 })()}
 
                                 <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    {kortexLoading ? (
+                                    {kortexLoading? (
                                         <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.4, fontSize: '12px' }}>
                                             <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '20px', display: 'block', marginBottom: '8px' }}></i>
                                             Loading neural weights...
                                         </div>
-                                    ) : kortexSlots.length === 0 ? (
+                                    ): kortexSlots.length === 0? (
                                         <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.4, fontSize: '12px' }}>
                                             <Icon name="brain" size={32} style={{ display: 'block', marginBottom: '8px' }} />
                                             No knowledge stored yet.<br />
                                             <span style={{ fontSize: '10px', opacity: 0.6 }}>Run a mission to populate the brain.</span>
                                         </div>
-                                    ) : (
+                                    ): (
                                         kortexSlots.map((slot, i) => (
                                             <div key={slot.id || i} style={{
                                                 background: 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))',
@@ -2058,7 +2058,7 @@ const RightSidebar: React.FC = () => {
                                                     </span>
                                                 </div>
                                                 <div style={{ fontSize: '11px', opacity: 0.8, lineHeight: 1.4, fontFamily: 'var(--font-mono)' }}>
-                                                    {slot.content.slice(0, 140)}{slot.content.length > 140 ? '…' : ''}
+                                                    {slot.content.slice(0, 140)}{slot.content.length > 140? '…': ''}
                                                 </div>
                                                 {slot.tags && slot.tags.length > 0 && (
                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '6px' }}>
@@ -2075,7 +2075,7 @@ const RightSidebar: React.FC = () => {
                                 {/* Kortex Services */}
                                 <KortexServicesPanel />
                             </div>
-                        ) : view === 'history' ? (
+                        ): view === 'history'? (
                             <div className="right-sidebar-scroll" style={{ padding: '8px 16px 16px', gap: '12px', justifyContent: 'flex-start', alignItems: 'stretch' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', gap: 8 }}>
                                     <div>
@@ -2094,17 +2094,17 @@ const RightSidebar: React.FC = () => {
                                         Archive current
                                     </button>
                                 </div>
-                                {chatSessions.length === 0 ? (
+                                {chatSessions.length === 0? (
                                     <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px', lineHeight: 1.5 }}>
                                         No conversations yet.<br />
                                         Send a message in Chat — it appears here automatically.
                                     </div>
-                                ) : (
+                                ): (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                         {chatSessions.map((session: any) => {
                                             const title = session.title || String(session.name || '').replace('session_', 'Chat ') || 'Conversation';
                                             const preview = session.preview || '';
-                                            const ts = session.updated_at ? new Date(session.updated_at * 1000).toLocaleString() : '';
+                                            const ts = session.updated_at? new Date(session.updated_at * 1000).toLocaleString(): '';
                                             const isCurrent = !!session.is_current;
                                             const restore = () => {
                                                 void loadChatSession(session.path).then(() => setView('chat'));
@@ -2118,12 +2118,12 @@ const RightSidebar: React.FC = () => {
                                                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); restore(); } }}
                                                     style={{
                                                         padding: '10px 12px', borderRadius: '8px', cursor: 'pointer',
-                                                        background: isCurrent ? 'rgba(0,122,204,0.12)' : 'rgba(255,255,255,0.03)',
-                                                        border: isCurrent ? '1px solid rgba(0,122,204,0.35)' : '1px solid rgba(255,255,255,0.05)',
+                                                        background: isCurrent? 'rgba(0,122,204,0.12)': 'rgba(255,255,255,0.03)',
+                                                        border: isCurrent? '1px solid rgba(0,122,204,0.35)': '1px solid rgba(255,255,255,0.05)',
                                                         transition: 'background 0.2s',
                                                     }}
-                                                    onMouseEnter={(e) => e.currentTarget.style.background = isCurrent ? 'rgba(0,122,204,0.18)' : 'rgba(255,255,255,0.06)'}
-                                                    onMouseLeave={(e) => e.currentTarget.style.background = isCurrent ? 'rgba(0,122,204,0.12)' : 'rgba(255,255,255,0.03)'}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = isCurrent? 'rgba(0,122,204,0.18)': 'rgba(255,255,255,0.06)'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = isCurrent? 'rgba(0,122,204,0.12)': 'rgba(255,255,255,0.03)'}
                                                 >
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', gap: 8, alignItems: 'center' }}>
                                                         <span style={{ fontSize: '12px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
@@ -2149,15 +2149,15 @@ const RightSidebar: React.FC = () => {
                                     Code restore points (git checkpoints) live in Source Control — not here.
                                 </div>
                             </div>
-                        ) : view === 'studio' || view === 'dashboard' || view === 'research' || view === 'specs' || view === 'rules' ? (
+                        ): view === 'studio' || view === 'dashboard' || view === 'research' || view === 'specs' || view === 'rules'? (
                             <Suspense fallback={<div style={{ padding: 20, opacity: 0.5, fontSize: 11 }}>Loading Agent Studio…</div>}>
                                 <AgentStudioPanel
                                     activeSubView={
-                                        view === 'dashboard' ? 'dashboard'
-                                            : view === 'research' ? 'research'
-                                                : view === 'specs' ? 'specs'
-                                                    : view === 'rules' ? 'rules'
-                                                        : studioSubView
+                                        view === 'dashboard'? 'dashboard'
+: view === 'research'? 'research'
+: view === 'specs'? 'specs'
+: view === 'rules'? 'rules'
+: studioSubView
                                     }
                                     onSubViewChange={(sub) => {
                                         setStudioSubView(sub);
@@ -2165,7 +2165,7 @@ const RightSidebar: React.FC = () => {
                                     }}
                                 />
                             </Suspense>
-                        ) : null}
+                        ): null}
                     </div>
                 )}
             </div>
@@ -2231,7 +2231,7 @@ const RightSidebar: React.FC = () => {
                                     onToggleVoice={toggleVoiceInput}
                                     isVoiceListening={isVoiceListening}
                                     reasoningToggle={<ReasoningToggle />}
-                                    webUiControls={webUiProviderKey ? (
+                                    webUiControls={webUiProviderKey? (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                             <select
                                                 value={activeWebuiSessionId || ''}
@@ -2266,7 +2266,7 @@ const RightSidebar: React.FC = () => {
                                                     .filter(s => s.provider === webUiProviderKey)
                                                     .map(s => (
                                                         <option key={s.session_id} value={s.session_id}>
-                                                            {s.display_name} {s.is_active ? '★' : ''}
+                                                            {s.display_name} {s.is_active? '': ''}
                                                         </option>
                                                     ))
                                                 }
@@ -2307,7 +2307,7 @@ const RightSidebar: React.FC = () => {
                                                 />
                                             )}
                                         </div>
-                                    ) : undefined}
+                                    ): undefined}
                                     onSend={() => onSend()}
                                     inputEmpty={!inputValue.trim() && attachedFiles.length === 0}
                                 />
@@ -2315,11 +2315,11 @@ const RightSidebar: React.FC = () => {
                         />
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '6px', padding: '0 2px', flexWrap: 'wrap' }}>
                             <div
-                                onClick={() => isAgentPaused ? import('../agent').then(m => m.resumeAgent()) : import('../agent').then(m => m.pauseAgent())}
-                                style={{ cursor: 'pointer', color: isAgentPaused ? '#10b981' : '#f59e0b', display: 'flex', alignItems: 'center' }}
-                                title={isAgentPaused ? 'Resume Agent' : 'Pause Agent'}
+                                onClick={() => isAgentPaused? import('../agent').then(m => m.resumeAgent()): import('../agent').then(m => m.pauseAgent())}
+                                style={{ cursor: 'pointer', color: isAgentPaused? '#10b981': '#f59e0b', display: 'flex', alignItems: 'center' }}
+                                title={isAgentPaused? 'Resume Agent': 'Pause Agent'}
                             >
-                                <i className={`codicon codicon-${isAgentPaused ? 'play' : 'debug-pause'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px' }} />
+                                <i className={`codicon codicon-${isAgentPaused? 'play': 'debug-pause'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px' }} />
                             </div>
                             <div
                                 onClick={() => import('../agent').then(m => m.stopAgent())}
@@ -2331,10 +2331,10 @@ const RightSidebar: React.FC = () => {
                             <div
                                 onClick={() => setAutoAcceptChanges(!autoAcceptChanges)}
                                 style={{
-                                    cursor: 'pointer', color: autoAcceptChanges ? '#10b981' : 'rgba(255,255,255,0.35)',
+                                    cursor: 'pointer', color: autoAcceptChanges? '#10b981': 'rgba(255,255,255,0.35)',
                                     display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', fontWeight: 600,
                                 }}
-                                title={autoAcceptChanges ? 'Auto-accept ON' : 'Auto-accept OFF — review diffs first'}
+                                title={autoAcceptChanges? 'Auto-accept ON': 'Auto-accept OFF — review diffs first'}
                             >
                                 <i className="codicon codicon-check-all" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px' }} />
                                 <span>AUTO</span>
@@ -2346,20 +2346,20 @@ const RightSidebar: React.FC = () => {
                             )}
                             <div
                                 onClick={() => setAgentCleanUi(!agentCleanUi)}
-                                style={{ cursor: 'pointer', color: agentCleanUi ? '#60a5fa' : 'rgba(255,255,255,0.35)', fontSize: '10px', fontWeight: 600 }}
-                                title={agentCleanUi ? 'Clean UI — Cursor-style tool log in chat' : 'Verbose UI — show live tool feed in chat'}
+                                style={{ cursor: 'pointer', color: agentCleanUi? '#60a5fa': 'rgba(255,255,255,0.35)', fontSize: '10px', fontWeight: 600 }}
+                                title={agentCleanUi? 'Clean UI — Cursor-style tool log in chat': 'Verbose UI — show live tool feed in chat'}
                             >
                                 CLEAN
                             </div>
                             <div
                                 onClick={() => import('../agent').then(m => m.setYoloMode(!isYoloMode).then(() => setYoloMode(!isYoloMode)))}
-                                style={{ cursor: 'pointer', color: isYoloMode ? '#f97316' : 'rgba(255,255,255,0.35)', fontSize: '10px', fontWeight: 600 }}
-                                title={isYoloMode ? 'YOLO ON' : 'YOLO OFF'}
+                                style={{ cursor: 'pointer', color: isYoloMode? '#f97316': 'rgba(255,255,255,0.35)', fontSize: '10px', fontWeight: 600 }}
+                                title={isYoloMode? 'YOLO ON': 'YOLO OFF'}
                             >
                                 YOLO
                             </div>
                             <span style={{ fontSize: '9px', opacity: 0.35, fontVariantNumeric: 'tabular-nums', marginLeft: 'auto' }} title="Estimated context tokens">
-                                ~{Math.round(messages.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0) / 4).toLocaleString()}t
+                                ~{Math.round(messages.reduce((n, m) => n + (typeof m.content === 'string'? m.content.length: 0), 0) / 4).toLocaleString()}t
                             </span>
                         </div>
                     </div>

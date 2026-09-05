@@ -59,7 +59,7 @@ export class SentientCore {
    * Initialize sentient mode - AIRI becomes proactive
    */
   public async initialize(): Promise<void> {
-    console.log('[SentientCore] 🚀 Activating sentient mode...');
+    console.log('[SentientCore] Activating sentient mode...');
 
     // Start background initiative loop
     if (this.config.backgroundTasks) {
@@ -74,7 +74,7 @@ export class SentientCore {
       this.startEmotionalCycle();
     }
 
-    console.log('[SentientCore] ✅ Sentient mode active');
+    console.log('[SentientCore] Sentient mode active');
   }
 
   /**
@@ -142,7 +142,7 @@ export class SentientCore {
     return {
       score,
       reason: reasons.join('; '),
-      action: score > 70 ? 'offer_help' : undefined,
+      action: score > 70? 'offer_help': undefined,
     };
   }
 
@@ -150,7 +150,7 @@ export class SentientCore {
    * Take initiative - proactively offer help
    */
   private async takeInitiative(initiative: { score: number; reason: string }): Promise<void> {
-    console.log('[SentientCore] 💡 Taking initiative:', initiative.reason);
+    console.log('[SentientCore] Taking initiative:', initiative.reason);
 
     const store = useStore.getState();
     
@@ -162,7 +162,7 @@ export class SentientCore {
 
     // Add to chat
     useStore.getState().addAgentMessage('assistant', 
-      `**💭 I noticed:** ${initiative.reason}\n\nWould you like me to help with this?`
+      `**I noticed:**${initiative.reason}\n\nWould you like me to help with this?`
     );
   }
 
@@ -215,7 +215,7 @@ export class SentientCore {
       } else {
         this.emotionalState.focus = Math.max(20, this.emotionalState.focus - 3);
       }
-      console.log('[SentientCore] ❤️ Emotional state:', { ...this.emotionalState });
+      console.log('[SentientCore] Emotional state:', { ...this.emotionalState });
     }, 5000);
   }
 
@@ -250,7 +250,7 @@ export class SentientCore {
     // Higher urgency = faster speech
     // Higher satisfaction = warmer tone
     
-    console.log('[SentientCore] 🎤 Speaking:', text);
+    console.log('[SentientCore] Speaking:', text);
     await speak(text, 'airi');
   }
 
@@ -271,7 +271,7 @@ export class SentientCore {
       this.taskQueue.shift();
     }
 
-    console.log('[SentientCore] 📋 Self-task added:', description);
+    console.log('[SentientCore] Self-task added:', description);
   }
 
   /**
@@ -286,7 +286,7 @@ export class SentientCore {
    */
   public configure(config: Partial<SentientConfig>): void {
     this.config = { ...this.config, ...config };
-    console.log('[SentientCore] ⚙️ Configuration updated:', this.config);
+    console.log('[SentientCore] Configuration updated:', this.config);
   }
 
   /**
@@ -296,7 +296,7 @@ export class SentientCore {
     if (this.userActivityUnsub) { this.userActivityUnsub(); this.userActivityUnsub = null; }
     if (this.emotionalCycleInterval) { clearInterval(this.emotionalCycleInterval); this.emotionalCycleInterval = null; }
     if (this.initiativeInterval) { clearInterval(this.initiativeInterval); this.initiativeInterval = null; }
-    console.log('[SentientCore] 🛑 Sentient Core deactivated');
+    console.log('[SentientCore] Sentient Core deactivated');
   }
 }
 

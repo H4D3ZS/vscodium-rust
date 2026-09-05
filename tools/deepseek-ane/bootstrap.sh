@@ -38,12 +38,12 @@ set -euo pipefail
 
 # Sanity: this script is Mac-only and arm64 only.
 if [[ "$(uname -s)" != "Darwin" ]]; then
-    echo "❌ This script is for macOS (Apple Silicon) only."
+    echo " This script is for macOS (Apple Silicon) only."
     echo "   On other platforms, use the Ollama or cloud DeepSeek provider instead."
     exit 1
 fi
 if [[ "$(uname -m)" != "arm64" ]]; then
-    echo "❌ Detected $(uname -m). DeepSeek-ANE requires Apple Silicon (arm64)."
+    echo " Detected $(uname -m). DeepSeek-ANE requires Apple Silicon (arm64)."
     echo "   On Intel Macs use Ollama or the cloud DeepSeek provider instead."
     exit 1
 fi
@@ -70,8 +70,8 @@ echo "  Context:    $DS2_CTX"
 echo "═══════════════════════════════════════════════════════════════"
 
 # ── Homebrew prerequisite check ─────────────────────────────────────────────
-if ! command -v brew >/dev/null 2>&1; then
-    echo "❌ Homebrew not found. Install it from https://brew.sh first."
+if! command -v brew >/dev/null 2>&1; then
+    echo " Homebrew not found. Install it from https://brew.sh first."
     exit 1
 fi
 
@@ -95,13 +95,13 @@ case "$DS2_RUNTIME" in
                 MODEL_URL="https://huggingface.co/bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF/resolve/main/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf"
                 ;;
             *)
-                echo "❌ Unknown DS2_MODEL='$DS2_MODEL'. Use 'chat' or 'coder'."
+                echo " Unknown DS2_MODEL='$DS2_MODEL'. Use 'chat' or 'coder'."
                 exit 1
                 ;;
         esac
 
         MODEL_PATH="$MODELS_DIR/$MODEL_FILE"
-        if [[ ! -f "$MODEL_PATH" ]]; then
+        if [[! -f "$MODEL_PATH" ]]; then
             echo "› Downloading $MODEL_FILE (~9 GB, one-time)…"
             curl -L --fail --progress-bar -o "$MODEL_PATH.partial" "$MODEL_URL"
             mv "$MODEL_PATH.partial" "$MODEL_PATH"
@@ -133,13 +133,13 @@ EOF
     mlx)
         # ── MLX-LM path (closest to ANE-aware on Apple Silicon today) ───────
         echo "› Installing mlx-lm…"
-        if ! command -v pipx >/dev/null 2>&1; then
+        if! command -v pipx >/dev/null 2>&1; then
             brew list pipx >/dev/null 2>&1 || brew install pipx
             pipx ensurepath
         fi
         # MLX needs a venv with Python 3.11+ and the mlx-lm package.
         VENV_DIR="$ROOT_DIR/.venv-mlx"
-        if [[ ! -d "$VENV_DIR" ]]; then
+        if [[! -d "$VENV_DIR" ]]; then
             python3 -m venv "$VENV_DIR"
         fi
         # shellcheck disable=SC1091
@@ -151,7 +151,7 @@ EOF
             chat)  MLX_REPO="mlx-community/DeepSeek-V2-Lite-Chat-4bit" ;;
             coder) MLX_REPO="mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit" ;;
             *)
-                echo "❌ Unknown DS2_MODEL='$DS2_MODEL'. Use 'chat' or 'coder'."
+                echo " Unknown DS2_MODEL='$DS2_MODEL'. Use 'chat' or 'coder'."
                 exit 1
                 ;;
         esac
@@ -178,13 +178,13 @@ EOF
         ;;
 
     *)
-        echo "❌ Unknown DS2_RUNTIME='$DS2_RUNTIME'. Use 'llama' or 'mlx'."
+        echo " Unknown DS2_RUNTIME='$DS2_RUNTIME'. Use 'llama' or 'mlx'."
         exit 1
         ;;
 esac
 
 echo ""
-echo "✅ Bootstrap complete."
+echo " Bootstrap complete."
 echo ""
 echo "  Start the server:"
 echo "      bash tools/deepseek-ane/start-server.sh"

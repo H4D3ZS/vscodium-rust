@@ -53,7 +53,7 @@ const IPhoneMirrorPanel: React.FC = () => {
     const pushLog = useCallback((line: string) => {
         setLogs(prev => {
             const next = [...prev, line];
-            return next.length > 500 ? next.slice(-500) : next; // bounded
+            return next.length > 500? next.slice(-500): next; // bounded
         });
     }, []);
 
@@ -100,7 +100,7 @@ const IPhoneMirrorPanel: React.FC = () => {
     useEffect(() => { logEndRef.current?.scrollIntoView({ block: 'end' }); }, [logs]);
 
     const [copied, setCopied] = useState(false);
-    /** Copy the WHOLE buffer, not the rendered tail — the useful error is often
+    /**Copy the WHOLE buffer, not the rendered tail — the useful error is often
      *  scrolled off the top. Falls back to a textarea+execCommand because the
      *  async clipboard API is unavailable on some WebView2 builds. */
     const copyLogs = useCallback(async () => {
@@ -121,7 +121,7 @@ const IPhoneMirrorPanel: React.FC = () => {
         setTimeout(() => setCopied(false), 1500);
     }, [logs]);
 
-    /** Full pairing reset. Clears the stale host record that makes every lockdown
+    /**Full pairing reset. Clears the stale host record that makes every lockdown
      *  call fail with InvalidHostID, and revokes on the device so it re-prompts
      *  for trust. Needs admin; the backend says so plainly if it isn't. */
     const repairPairing = useCallback(async () => {
@@ -136,7 +136,7 @@ const IPhoneMirrorPanel: React.FC = () => {
         finally { setBusy(false); }
     }, [selected, pushLog, refreshStatus]);
 
-    /** Android-Studio-style ▶ Run: compile → package → sign → install → launch.
+    /**Android-Studio-style ▶ Run: compile → package → sign → install → launch.
      *  Each stage is reported separately, because a failure at 'sign' and one at
      *  'install' need completely different fixes. */
     const runOnDevice = useCallback(async () => {
@@ -154,7 +154,7 @@ const IPhoneMirrorPanel: React.FC = () => {
                     udid: selected,
                 },
             });
-            for (const st of r.stages ?? []) pushLog(`[run] ${st.ok ? '✓' : '✗'} ${st.stage}: ${st.detail}`);
+            for (const st of r.stages ?? []) pushLog(`[run] ${st.ok? '': ''} ${st.stage}: ${st.detail}`);
             if (!r.ok) setError(`Run failed at: ${(r.stages ?? []).filter((s: any) => !s.ok).map((s: any) => s.stage).join(', ')}`);
         } catch (e) { setError(String(e)); }
         finally { setBusy(false); }
@@ -225,7 +225,7 @@ const IPhoneMirrorPanel: React.FC = () => {
         setBusy(true); setError('');
         try {
             const res = await invoke<any>('iphone_prepare', { udid: selected });
-            pushLog(`[prepare] pair=${res?.pair?.ok} mount=${res?.mount?.ok}${res?.repaired ? ' (re-paired)' : ''}`);
+            pushLog(`[prepare] pair=${res?.pair?.ok} mount=${res?.mount?.ok}${res?.repaired? ' (re-paired)': ''}`);
             // `pair=false` on its own is unactionable — surface go-ios's reason,
             // including the unpair/retry detail when the first attempt failed.
             const p = res?.pair ?? {};
@@ -292,7 +292,7 @@ const IPhoneMirrorPanel: React.FC = () => {
         setBusy(true); setError('');
         try {
             pushLog(`[meta] ${await invoke<string>('iphone_set_signing', { config })}`);
-            pushLog('[meta] signing saved — click 🎮 Control and WDA installs automatically.');
+            pushLog('[meta] signing saved — click Control and WDA installs automatically.');
         } catch (e) { setError(String(e)); }
         finally { setBusy(false); }
     }, [pushLog]);
@@ -352,7 +352,7 @@ const IPhoneMirrorPanel: React.FC = () => {
                     {devices.length === 0 && <option value="">No device</option>}
                     {devices.map(d => (
                         <option key={d.udid} value={d.udid}>
-                            {d.connection === 'network' ? '📶' : '🔌'} {(d.name || 'iPhone')}{d.ios_version ? ` (iOS ${d.ios_version})` : ''} — {d.udid.slice(0, 8)}…
+                            {d.connection === 'network'? '': ''} {(d.name || 'iPhone')}{d.ios_version? ` (iOS ${d.ios_version})`: ''} — {d.udid.slice(0, 8)}…
                         </option>
                     ))}
                 </select>
@@ -375,35 +375,35 @@ const IPhoneMirrorPanel: React.FC = () => {
                     Repair Pairing
                 </button>
                 {status?.tunnel
-                    ? <button style={ghost} onClick={stopTunnel} title="Tunnel is up">🟢 Tunnel</button>
-                    : <button style={ghost} onClick={startTunnel} disabled={busy} title="iOS 17+ needs this (userspace — no admin)">Start Tunnel</button>}
+? <button style={ghost} onClick={stopTunnel} title="Tunnel is up"> Tunnel</button>
+: <button style={ghost} onClick={startTunnel} disabled={busy} title="iOS 17+ needs this (userspace — no admin)">Start Tunnel</button>}
                 {status?.streaming
-                    // Accent styling means "running", matching the tunnel's 🟢.
-                    ? <button style={btn} onClick={stopMirror} disabled={busy}>■ Stop</button>
+                    // Accent styling means "running", matching the tunnel's .
+? <button style={btn} onClick={stopMirror} disabled={busy}>■ Stop</button>
                     // Idle uses the same neutral style as every other button —
                     // the accent style made Mirror look already-active before it
                     // had been clicked.
-                    : <button style={ghost} onClick={startMirror} disabled={busy || !selected || isNetwork} title={isNetwork ? 'Screen mirror needs a USB connection' : 'Start the screen mirror'}>▶ Mirror</button>}
+: <button style={ghost} onClick={startMirror} disabled={busy || !selected || isNetwork} title={isNetwork? 'Screen mirror needs a USB connection': 'Start the screen mirror'}>▶ Mirror</button>}
                 <button style={ghost} onClick={toggleLogs} disabled={!selected}>
-                    {status?.syslog ? 'Stop Logs' : 'Live Logs'}
+                    {status?.syslog? 'Stop Logs': 'Live Logs'}
                 </button>
                 {control
-                    ? <button style={btn} onClick={stopControl}>🎮 Control On</button>
-                    : <button style={ghost} onClick={startControl} disabled={busy || !selected} title="Interactive tap/swipe via WebDriverAgent">🎮 Control</button>}
-                {control && <button style={ghost} onClick={home} title="Home button">🏠</button>}
-                <button style={ghost} onClick={configureSigning} disabled={busy} title="One-time signing setup — free (Sideloadly), manual (.p12), or ASC (App Store Connect)">⚙ Signing</button>
+? <button style={btn} onClick={stopControl}> Control On</button>
+: <button style={ghost} onClick={startControl} disabled={busy || !selected} title="Interactive tap/swipe via WebDriverAgent"> Control</button>}
+                {control && <button style={ghost} onClick={home} title="Home button"></button>}
+                <button style={ghost} onClick={configureSigning} disabled={busy} title="One-time signing setup — free (Sideloadly), manual (.p12), or ASC (App Store Connect)"> Signing</button>
             </div>
 
             {error && <div style={{ fontSize: 11, color: 'var(--vscode-errorForeground)' }}>{error}</div>}
             {isNetwork && (
                 <div style={{ fontSize: 10, color: 'var(--vscode-descriptionForeground)' }}>
-                    📶 Wi-Fi device: logs, install &amp; hot-reload deploy work, but the live screen mirror needs a USB cable (it's a USB-only AV stream).
+                     Wi-Fi device: logs, install &amp; hot-reload deploy work, but the live screen mirror needs a USB cable (it's a USB-only AV stream).
                 </div>
             )}
 
             {/* Screen — MJPEG stream rendered directly in an <img> */}
             <div style={{ position: 'relative', flex: '1 1 60%', minHeight: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', borderRadius: 14, overflow: 'hidden', border: '1px solid var(--vscode-panel-border)' }}>
-                {streamSrc ? (
+                {streamSrc? (
                     <img
                         src={streamSrc}
                         alt="iPhone screen"
@@ -411,19 +411,19 @@ const IPhoneMirrorPanel: React.FC = () => {
                         onMouseDown={onScreenDown}
                         onMouseUp={onScreenUp}
                         onContextMenu={e => e.preventDefault()}
-                        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', cursor: control ? 'crosshair' : 'default', userSelect: 'none' }}
+                        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', cursor: control? 'crosshair': 'default', userSelect: 'none' }}
                         onError={() => setError('Stream failed to load — check the diagnostics log below.')}
                     />
-                ) : (
+                ): (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: '#8a8a8a' }}>
-                        <div style={{ fontSize: 46, lineHeight: 1 }}>📱</div>
+                        <div style={{ fontSize: 46, lineHeight: 1 }}></div>
                         <div style={{ fontSize: 12, fontWeight: 600 }}>
-                            {devices.length ? (busy ? 'Connecting…' : 'Press ▶ Mirror to view the device') : 'Connect an iPhone via USB'}
+                            {devices.length? (busy? 'Connecting…': 'Press ▶ Mirror to view the device'): 'Connect an iPhone via USB'}
                         </div>
                         <div style={{ fontSize: 10, opacity: 0.7 }}>
                             {devices.length
-                                ? 'iOS 17+: click Start Tunnel first, and unlock the phone'
-                                : 'Enable Developer Mode (iOS 16+) and trust this computer'}
+? 'iOS 17+: click Start Tunnel first, and unlock the phone'
+: 'Enable Developer Mode (iOS 16+) and trust this computer'}
                         </div>
                     </div>
                 )}
@@ -453,7 +453,7 @@ const IPhoneMirrorPanel: React.FC = () => {
                             title="Copy the full log to the clipboard"
                             onClick={copyLogs}
                         >
-                            {copied ? 'Copied ✓' : 'Copy'}
+                            {copied? 'Copied ': 'Copy'}
                         </button>
                         <button style={{ ...ghost, fontSize: 10, padding: '1px 8px' }} onClick={() => setLogs([])}>Clear</button>
                     </div>

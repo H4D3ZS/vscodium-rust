@@ -57,7 +57,7 @@ const IPhoneDeployPanel: React.FC<{ udid: string }> = ({ udid }) => {
         listen<DeployLog>('iphone:deploy-log', (e) => {
             setLogs(prev => {
                 const next = [...prev, e.payload];
-                return next.length > 1000 ? next.slice(-1000) : next; // bounded
+                return next.length > 1000? next.slice(-1000): next; // bounded
             });
         }).then(u => { un = u; });
         return () => { un?.(); };
@@ -98,7 +98,7 @@ const IPhoneDeployPanel: React.FC<{ udid: string }> = ({ udid }) => {
         await invoke('iphone_stop_tunnel').catch(() => {});
     }, []);
 
-    const ready = framework === 'flutter' ? pre?.ready_flutter : pre?.ready_react_native;
+    const ready = framework === 'flutter'? pre?.ready_flutter: pre?.ready_react_native;
 
     const input: React.CSSProperties = {
         fontSize: 11, padding: '3px 6px', borderRadius: 3, flex: 1, minWidth: 120,
@@ -122,7 +122,7 @@ const IPhoneDeployPanel: React.FC<{ udid: string }> = ({ udid }) => {
                 onClick={() => setOpen(o => !o)}
                 style={{ ...ghost, alignSelf: 'flex-start' }}
             >
-                {open ? '▾' : '▸'} Build &amp; Deploy (Cyber-Ifrit)
+                {open? '▾': '▸'} Build &amp; Deploy (Cyber-Ifrit)
             </button>
 
             {open && (
@@ -139,7 +139,7 @@ const IPhoneDeployPanel: React.FC<{ udid: string }> = ({ udid }) => {
                             <option value="react-native">React Native</option>
                         </select>
                         <button style={ghost} onClick={refreshPreflight}>Preflight</button>
-                        {pre && <span style={{ fontSize: 10, color: ready ? 'var(--vscode-testing-iconPassed, #3fb950)' : 'var(--vscode-errorForeground)' }}>{ready ? 'toolchain ready' : 'toolchain incomplete'}</span>}
+                        {pre && <span style={{ fontSize: 10, color: ready? 'var(--vscode-testing-iconPassed, #3fb950)': 'var(--vscode-errorForeground)' }}>{ready? 'toolchain ready': 'toolchain incomplete'}</span>}
                     </div>
 
                     <input style={input} placeholder="Project directory (absolute path)" value={projectDir} onChange={e => setProjectDir(e.target.value)} />
@@ -162,7 +162,7 @@ const IPhoneDeployPanel: React.FC<{ udid: string }> = ({ udid }) => {
 
                     <div style={row}>
                         <button style={btn} onClick={deploy} disabled={deploying}>
-                            {deploying ? 'Deploying…' : '🚀 Build & Deploy'}
+                            {deploying? 'Deploying…': ' Build & Deploy'}
                         </button>
                         <button style={ghost} onClick={stopTunnel}>Stop Tunnel</button>
                     </div>

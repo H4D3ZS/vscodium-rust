@@ -10,16 +10,16 @@ import { useStore } from '../store';
 
 export const COMPOSER2_BLOG_URL = 'https://cursor.com/blog/composer-2';
 
-/** Sharded HF GGUF cannot `ollama pull hf.co/...` — use Ollama library tags or llama-server. */
+/**Sharded HF GGUF cannot `ollama pull hf.co/...` — use Ollama library tags or llama-server. */
 export const KIMI_K26_OLLAMA_TAGS = [
     'batiai/kimi-k2.6:iq3',
     'moonshotai/kimi-k2.5:cloud',
 ] as const;
 
-/** Default GPU-server agent model for Composer 2 hybrid (3900X desk + remote Ollama). */
+/**Default GPU-server agent model for Composer 2 hybrid (3900X desk + remote Ollama). */
 export const COMPOSER2_DEFAULT_GPU_MODEL = 'batiai/minimax-m2.7:iq3';
 
-/** Models that must never run on the desk PC — remote GPU server only. */
+/**Models that must never run on the desk PC — remote GPU server only. */
 export const COMPOSER2_GPU_SERVER_ONLY_PATTERNS = [
     /minimax-m2/i,
     /kimi-k2\.6/i,
@@ -27,7 +27,7 @@ export const COMPOSER2_GPU_SERVER_ONLY_PATTERNS = [
     /glm-5/i,
 ] as const;
 
-/** Safe local chat tags for hybrid mode (3900X / RX 580). */
+/**Safe local chat tags for hybrid mode (3900X / RX 580). */
 export const COMPOSER2_LOCAL_CHAT_DEFAULTS = [
     'qwen2.5-coder:7b',
     'airi-fast:latest',
@@ -83,17 +83,17 @@ export interface Composer2Stack {
     label: string;
     desc: string;
     ollamaMode: Composer2OllamaMode;
-    /** Remote GPU server (planner + agent executor) */
+    /**Remote GPU server (planner + agent executor) */
     remoteHost?: string;
-    /** Local Ollama for Composer 2 Fast chat (Ryzen 3900X box) */
+    /**Local Ollama for Composer 2 Fast chat (Ryzen 3900X box) */
     localHost?: string;
-    /** Deep planner on GPU server */
+    /**Deep planner on GPU server */
     planner: string;
-    /** Agent tool-loop model (remote in hybrid mode) */
+    /**Agent tool-loop model (remote in hybrid mode) */
     executor: string;
-    /** Local fast chat model (Composer 2 Fast tier) */
+    /**Local fast chat model (Composer 2 Fast tier) */
     chatFast: string;
-    /** Fallback agent model when remote Kimi unavailable (local RX 580 / CPU) */
+    /**Fallback agent model when remote Kimi unavailable (local RX 580 / CPU) */
     executorLocalFallback?: string;
     enableHybrid: boolean;
 }
@@ -101,7 +101,7 @@ export interface Composer2Stack {
 export const COMPOSER2_STACKS: Composer2Stack[] = [
     {
         id: 'composer2-amd3900',
-        label: 'Composer 2 — AMD 3900X + RX 580 ★',
+        label: 'Composer 2 — AMD 3900X + RX 580 ',
         desc:
             'Cursor agent parity for your desk: Ryzen 3900X runs fast chat (qwen2.5-coder:7b). ' +
             'MiniMax M2.7 IQ3 planner + agent executor on the remote GPU server. ' +
@@ -202,7 +202,7 @@ export function isComposer2HybridMode(): boolean {
     }
 }
 
-/** Ollama URL for Composer 2 Fast chat (local box in hybrid mode). */
+/**Ollama URL for Composer 2 Fast chat (local box in hybrid mode). */
 export function getComposer2LocalOllamaUrl(): string | null {
     try {
         return localStorage.getItem(LOCAL_URL_KEY);
@@ -262,12 +262,12 @@ function getComposer2RemoteOllamaUrl(): string | null {
     }
 }
 
-/** Pick a chat model guaranteed safe for local Ollama (never MiniMax/Kimi-class). */
+/**Pick a chat model guaranteed safe for local Ollama (never MiniMax/Kimi-class). */
 export async function ensureLocalChatModel(requested: string, localUrl?: string): Promise<string> {
     const url = (localUrl || getComposer2LocalOllamaUrl() || 'http://127.0.0.1:13305').replace(/\/$/, '');
     const restoreUrl = isComposer2HybridMode()
-        ? (getComposer2RemoteOllamaUrl() || useStore.getState().customOllamaUrl || undefined)
-        : undefined;
+? (getComposer2RemoteOllamaUrl() || useStore.getState().customOllamaUrl || undefined)
+: undefined;
     if (!isGpuServerOnlyModel(requested)) {
         const hit = await resolveOllamaTagAtUrl(url, requested);
         if (!isGpuServerOnlyModel(hit)) {
@@ -306,7 +306,7 @@ export async function applyComposer2Stack(
 
     const remoteHost = remoteHostOverride?.trim() || stack.remoteHost || '';
     const localUrl = (stack.localHost || 'http://127.0.0.1:13305').replace(/\/$/, '');
-    const remoteUrl = remoteHost ? normalizeRemoteOllamaUrl(remoteHost) : '';
+    const remoteUrl = remoteHost? normalizeRemoteOllamaUrl(remoteHost): '';
 
     try {
         localStorage.setItem(STACK_KEY, stack.id);
@@ -342,7 +342,7 @@ export async function applyComposer2Stack(
 
     const exec = parseModelSpec(stack.executor);
     if (exec) {
-        const execUrl = stack.ollamaMode === 'hybrid' ? remoteUrl : (stack.ollamaMode === 'remote' ? remoteUrl : localUrl);
+        const execUrl = stack.ollamaMode === 'hybrid'? remoteUrl: (stack.ollamaMode === 'remote'? remoteUrl: localUrl);
         let tag: string;
         let usedFallback = false;
         const remoteOk = stack.ollamaMode === 'local' || !execUrl || await verifyOllamaReachable(execUrl);
@@ -353,27 +353,27 @@ export async function applyComposer2Stack(
             const fbModel = fb?.model || COMPOSER2_LOCAL_CHAT_DEFAULTS[0];
             tag = await ensureLocalChatModel(fbModel, localUrl);
             usedFallback = true;
-            notes.push(`⚠ Remote GPU unreachable — agent executor fell back to local ${tag}`);
+            notes.push(` Remote GPU unreachable — agent executor fell back to local ${tag}`);
         } else {
             tag = await ensureLocalChatModel(COMPOSER2_LOCAL_CHAT_DEFAULTS[0], localUrl);
             usedFallback = true;
-            notes.push(`⚠ Remote GPU unreachable — using local ${tag}`);
+            notes.push(` Remote GPU unreachable — using local ${tag}`);
         }
         st.setAgentModel?.(`Ollama|${tag}`);
-        notes.push(`Agent executor → ${tag}${stack.ollamaMode === 'hybrid' && !usedFallback ? ' (remote GPU)' : ''}`);
+        notes.push(`Agent executor → ${tag}${stack.ollamaMode === 'hybrid' && !usedFallback? ' (remote GPU)': ''}`);
     }
 
     const chat = parseModelSpec(stack.chatFast);
     if (chat) {
-        const chatUrl = stack.ollamaMode === 'hybrid' ? localUrl : (stack.ollamaMode === 'remote' ? remoteUrl : localUrl);
+        const chatUrl = stack.ollamaMode === 'hybrid'? localUrl: (stack.ollamaMode === 'remote'? remoteUrl: localUrl);
         const tag = stack.ollamaMode === 'hybrid'
-            ? await ensureLocalChatModel(chat.model, localUrl)
-            : await resolveOllamaTagAtUrl(chatUrl, chat.model);
+? await ensureLocalChatModel(chat.model, localUrl)
+: await resolveOllamaTagAtUrl(chatUrl, chat.model);
         try {
             localStorage.setItem(CHAT_FAST_KEY, tag);
         } catch { /* ignore */ }
         notes.push(
-            `Composer 2 Fast chat → ${tag}${stack.ollamaMode === 'hybrid' ? ' (local desk only)' : ''}`,
+            `Composer 2 Fast chat → ${tag}${stack.ollamaMode === 'hybrid'? ' (local desk only)': ''}`,
         );
     }
 
@@ -381,7 +381,7 @@ export async function applyComposer2Stack(
         const localOk = await verifyOllamaReachable(localUrl);
         await invoke('set_lemonade_url', { url: remoteUrl }).catch(() => {});
         if (!localOk) {
-            notes.push('⚠ Local Ollama not reachable — run `ollama serve` on this PC and pull qwen2.5-coder:7b');
+            notes.push(' Local Ollama not reachable — run `ollama serve` on this PC and pull qwen2.5-coder:7b');
         } else {
             notes.push(`Local desk pulls only: ${COMPOSER2_LOCAL_CHAT_DEFAULTS.slice(0, 2).join(', ')}`);
             notes.push(`Do NOT pull ${COMPOSER2_DEFAULT_GPU_MODEL} on this PC — GPU server only`);
@@ -400,7 +400,7 @@ export async function applyComposer2Stack(
     return notes;
 }
 
-/** Prefer Composer 2 Fast slot when a stack is active (local-safe in hybrid mode). */
+/**Prefer Composer 2 Fast slot when a stack is active (local-safe in hybrid mode). */
 export async function pickComposer2FastChatModel(preferred: string): Promise<string | null> {
     const slot = getComposer2ChatFastModel();
     if (!slot) return null;

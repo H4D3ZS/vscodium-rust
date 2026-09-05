@@ -93,13 +93,13 @@ const OastPanel: React.FC = () => {
                         placeholder="port" style={inp(64)} />
                     <input value={publicHost} onChange={(e) => setPublicHost(e.target.value)}
                         placeholder="public host / LAN IP / collab domain" style={inp(220)} />
-                    {status.running ? (
+                    {status.running? (
                         <button type="button" onClick={() => void stop()} style={btn('#b91c1c')}>Stop</button>
-                    ) : (
+                    ): (
                         <button type="button" onClick={() => void start()} style={btn('#0e639c')}>Start OAST</button>
                     )}
                     <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.7 }}>
-                        {status.running ? <span style={{ color: '#22c55e' }}>● live :{status.port}</span> : <span style={{ opacity: 0.5 }}>○ stopped</span>}
+                        {status.running? <span style={{ color: '#22c55e' }}>● live :{status.port}</span>: <span style={{ opacity: 0.5 }}>○ stopped</span>}
                         {' '}· {status.interaction_count} hits
                     </span>
                 </div>
@@ -122,12 +122,12 @@ const OastPanel: React.FC = () => {
                         const hits = interactions.filter((i) => i.token === p.token).length;
                         return (
                             <div key={p.token} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 10, padding: '3px 0' }}>
-                                <span style={{ color: hits > 0 ? '#22c55e' : 'inherit', fontWeight: 700, width: 40 }}>
-                                    {hits > 0 ? `✓ ${hits}` : '· 0'}
+                                <span style={{ color: hits > 0? '#22c55e': 'inherit', fontWeight: 700, width: 40 }}>
+                                    {hits > 0? ` ${hits}`: '· 0'}
                                 </span>
                                 <code style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.http_url}</code>
                                 <button type="button" onClick={() => void copy(p.http_url)} style={btn('transparent', true)}>
-                                    {copied === p.http_url ? 'Copied' : 'Copy'}
+                                    {copied === p.http_url? 'Copied': 'Copy'}
                                 </button>
                             </div>
                         );
@@ -142,8 +142,8 @@ const OastPanel: React.FC = () => {
                     </div>
                 )}
                 {interactions.map((i) => (
-                    <div key={i.id} onClick={() => setExpanded(expanded === i.id ? null : i.id)}
-                        style={{ padding: '6px 12px', borderBottom: '1px solid var(--vscode-panel-border)', cursor: 'pointer', fontSize: 11, background: expanded === i.id ? 'var(--vscode-list-hoverBackground)' : 'transparent' }}>
+                    <div key={i.id} onClick={() => setExpanded(expanded === i.id? null: i.id)}
+                        style={{ padding: '6px 12px', borderBottom: '1px solid var(--vscode-panel-border)', cursor: 'pointer', fontSize: 11, background: expanded === i.id? 'var(--vscode-list-hoverBackground)': 'transparent' }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                             <span style={{ fontWeight: 700, color: '#22c55e', textTransform: 'uppercase', width: 36 }}>{i.protocol}</span>
                             <span style={{ fontWeight: 700, width: 44 }}>{i.method}</span>
@@ -174,13 +174,13 @@ const inp = (w: number): React.CSSProperties => ({
 
 const btn = (bg: string, ghost = false): React.CSSProperties => ({
     padding: '5px 12px',
-    border: ghost ? '1px solid var(--vscode-panel-border)' : 'none',
+    border: ghost? '1px solid var(--vscode-panel-border)': 'none',
     borderRadius: 4,
     cursor: 'pointer',
     fontSize: 11,
     fontWeight: 600,
-    background: ghost ? 'transparent' : bg,
-    color: ghost ? 'inherit' : '#fff',
+    background: ghost? 'transparent': bg,
+    color: ghost? 'inherit': '#fff',
 });
 
 export default OastPanel;

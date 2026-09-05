@@ -31,19 +31,19 @@ const TaskRoadmap: React.FC = memo(() => {
                             width: '18px',
                             height: '18px',
                             borderRadius: '50%',
-                            background: i <= activeIndex ? 'var(--vscode-focusBorder, #007acc)' : 'var(--vscode-panel-border)',
-                            color: i <= activeIndex ? '#000' : 'var(--vscode-foreground)',
+                            background: i <= activeIndex? 'var(--vscode-focusBorder, #007acc)': 'var(--vscode-panel-border)',
+                            color: i <= activeIndex? '#000': 'var(--vscode-foreground)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             fontSize: '9px',
                             fontWeight: 700,
                             zIndex: 2,
-                            boxShadow: i === activeIndex ? '0 0 6px var(--vscode-focusBorder, #007acc)' : 'none'
+                            boxShadow: i === activeIndex? '0 0 6px var(--vscode-focusBorder, #007acc)': 'none'
                         }}>
-                            {i < activeIndex ? '✓' : i + 1}
+                            {i < activeIndex? '': i + 1}
                         </div>
-                        <span style={{ fontSize: '7.5px', fontWeight: 600, opacity: i <= activeIndex ? 1 : 0.4 }}>{p}</span>
+                        <span style={{ fontSize: '7.5px', fontWeight: 600, opacity: i <= activeIndex? 1: 0.4 }}>{p}</span>
                         {i < phases.length - 1 && (
                             <div style={{
                                 position: 'absolute',
@@ -51,7 +51,7 @@ const TaskRoadmap: React.FC = memo(() => {
                                 top: '9px',
                                 width: '100%',
                                 height: '2px',
-                                background: i < activeIndex ? 'var(--vscode-focusBorder, #007acc)' : 'var(--vscode-panel-border)',
+                                background: i < activeIndex? 'var(--vscode-focusBorder, #007acc)': 'var(--vscode-panel-border)',
                                 zIndex: 1
                             }} />
                         )}
@@ -91,18 +91,18 @@ const ReasoningToggle: React.FC = memo(() => {
         <div style={{ position: 'relative' }}>
             <span
                 onClick={() => { setEnabled(!isEnabled); if (!isEnabled) setOpen(true); }}
-                title={isEnabled ? 'Reasoning ON — click to toggle' : 'Enable reasoning / extended thinking'}
+                title={isEnabled? 'Reasoning ON — click to toggle': 'Enable reasoning / extended thinking'}
                 style={{
                     fontSize: '10px', fontWeight: 600, cursor: 'pointer',
                     padding: '1px 6px', borderRadius: '4px',
-                    color: isEnabled ? '#818cf8' : 'rgba(255,255,255,0.3)',
-                    background: isEnabled ? 'rgba(99,102,241,0.15)' : 'transparent',
-                    border: isEnabled ? '1px solid rgba(99,102,241,0.4)' : '1px solid rgba(255,255,255,0.08)',
+                    color: isEnabled? '#818cf8': 'rgba(255,255,255,0.3)',
+                    background: isEnabled? 'rgba(99,102,241,0.15)': 'transparent',
+                    border: isEnabled? '1px solid rgba(99,102,241,0.4)': '1px solid rgba(255,255,255,0.08)',
                     transition: 'all 0.15s',
                     userSelect: 'none',
                 }}
             >
-                {isThinkTag ? 'Think' : isAnthropicModel ? 'Thinking' : 'Reason'}
+                {isThinkTag? 'Think': isAnthropicModel? 'Thinking': 'Reason'}
             </span>
             {isEnabled && open && (
                 <div style={{
@@ -130,9 +130,9 @@ const ReasoningToggle: React.FC = memo(() => {
                                 <span key={e} onClick={() => setEffort(e)} style={{
                                     marginRight: '6px', fontSize: '10px', cursor: 'pointer', fontWeight: 600,
                                     padding: '1px 6px', borderRadius: '4px',
-                                    color: effort === e ? '#818cf8' : 'rgba(255,255,255,0.5)',
-                                    background: effort === e ? 'rgba(99,102,241,0.15)' : 'transparent',
-                                    border: effort === e ? '1px solid rgba(99,102,241,0.4)' : '1px solid transparent',
+                                    color: effort === e? '#818cf8': 'rgba(255,255,255,0.5)',
+                                    background: effort === e? 'rgba(99,102,241,0.15)': 'transparent',
+                                    border: effort === e? '1px solid rgba(99,102,241,0.4)': '1px solid transparent',
                                 }}>{e}</span>
                             ))}
                         </div>

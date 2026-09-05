@@ -44,13 +44,13 @@ impl WebChatShim {
         let listener = match tokio::net::TcpListener::bind(&addr).await {
             Ok(l) => l,
             Err(e) => {
-                eprintln!("[WEBCHAT-SHIM] ⚠️ bind {} failed: {}", addr, e);
+                eprintln!("[WEBCHAT-SHIM] bind {} failed: {}", addr, e);
                 return;
             }
         };
-        println!("[WEBCHAT-SHIM] ✅ OpenAI shim active at http://{}", addr);
+        println!("[WEBCHAT-SHIM] OpenAI shim active at http://{}", addr);
         if let Err(e) = axum::serve(listener, app).await {
-            eprintln!("[WEBCHAT-SHIM] 🛑 server error: {}", e);
+            eprintln!("[WEBCHAT-SHIM] server error: {}", e);
         }
     }
 

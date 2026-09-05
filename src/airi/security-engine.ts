@@ -45,7 +45,7 @@ export class AIRISecurityEngine {
   start(): void {
     if (this.running) return;
     this.running = true;
-    console.log('[Security] ✅ AIRI Security Engine started');
+    console.log('[Security] AIRI Security Engine started');
   }
 
   stop(): void {
@@ -328,10 +328,10 @@ You help make systems more secure.`;
     const low = findings.filter(f => f.severity === 'low').length;
 
     return `Security Scan Complete:
-🔴 Critical: ${critical}
-🟠 High: ${high}
-🟡 Medium: ${medium}
-🟢 Low: ${low}
+ Critical: ${critical}
+ High: ${high}
+ Medium: ${medium}
+ Low: ${low}
 Total: ${findings.length} findings`;
   }
 
@@ -342,11 +342,11 @@ Total: ${findings.length} findings`;
     
     report.findings.forEach((finding, i) => {
       const icon = {
-        critical: '🔴',
-        high: '🟠',
-        medium: '🟡',
-        low: '🟢',
-        info: '🔵'
+        critical: '',
+        high: '',
+        medium: '',
+        low: '',
+        info: ''
       }[finding.severity];
 
       if (finding.recommendation) {

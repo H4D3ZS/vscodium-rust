@@ -52,7 +52,7 @@ export interface TerminalInstance {
   pid?: number;
   isBusy: boolean;
   lastOutput?: string;
-  /** Warp-style command-block tracker (OSC 133 driven). PTY terminals only. */
+  /**Warp-style command-block tracker (OSC 133 driven). PTY terminals only. */
   blocks?: CommandBlockTracker;
 }
 
@@ -99,7 +99,7 @@ export class TerminalManager {
     // longer emits the event (it was pure IPC overhead).
   }
 
-  /** Begin adaptive polling: 50ms when active, backs off to 500ms when idle. */
+  /**Begin adaptive polling: 50ms when active, backs off to 500ms when idle. */
   private startPolling(id: string): void {
     if (this.pollTimers.has(id)) return;
 
@@ -153,8 +153,8 @@ export class TerminalManager {
 
   private async loadProfiles() {
     // Load default profiles based on platform
-    const platform = navigator.platform.toLowerCase().includes('win') ? 'win32' : 
-                     navigator.platform.toLowerCase().includes('mac') ? 'darwin' : 'linux';
+    const platform = navigator.platform.toLowerCase().includes('win')? 'win32': 
+                     navigator.platform.toLowerCase().includes('mac')? 'darwin': 'linux';
     
     const platformProfiles = DEFAULT_PROFILES.filter(p => !p.platform || p.platform === platform);
     
@@ -190,10 +190,10 @@ export class TerminalManager {
       // Backend command unavailable — fall back to defaults.
     }
     const platform = navigator.platform.toLowerCase().includes('win')
-      ? 'win32'
-      : navigator.platform.toLowerCase().includes('mac')
-        ? 'darwin'
-        : 'linux';
+? 'win32'
+: navigator.platform.toLowerCase().includes('mac')
+? 'darwin'
+: 'linux';
     return DEFAULT_PROFILES
       .filter(p => !p.platform || p.platform === platform)
       .map(p => p.path);
@@ -207,18 +207,18 @@ export class TerminalManager {
     profileId?: string,
     groupId?: string,
     cwd?: string,
-    /** Must match React/store `instanceId` so `attach()` can find this terminal. */
+    /**Must match React/store `instanceId` so `attach()` can find this terminal. */
     explicitId?: string,
-    /** Override the Tauri spawn command. When set, invoked as `{ id }` only (no shell arg). */
+    /**Override the Tauri spawn command. When set, invoked as `{ id }` only (no shell arg). */
     spawnCommand?: string,
-    /** Extra args merged into the spawn payload. Only used with `spawnCommand`. */
+    /**Extra args merged into the spawn payload. Only used with `spawnCommand`. */
     spawnArgs?: Record<string, unknown>
   ): Promise<string> {
     await this.profilesReady;
     const id =
       explicitId && explicitId.trim().length > 0
-        ? explicitId.trim()
-        : `term-${this.nextId++}`;
+? explicitId.trim()
+: `term-${this.nextId++}`;
     const profile = resolveTerminalProfile(profileId || this.defaultProfileId);
 
     // Create persistent element
@@ -340,7 +340,7 @@ export class TerminalManager {
     try {
       const result = await invoke<{ id?: string; status?: string; pid?: number }>(
         spawnCommand || 'spawn_terminal',
-        spawnCommand ? { id, ...(spawnArgs || {}) } : { id, shell: profile.path }
+        spawnCommand? { id, ...(spawnArgs || {}) }: { id, shell: profile.path }
       );
 
       if (result && typeof result === 'object' && 'pid' in result) {
@@ -410,7 +410,7 @@ export class TerminalManager {
     return id;
   }
 
-  /** Spawn an OpenCode TUI session. Passes provider env vars via the dedicated Tauri command. */
+  /**Spawn an OpenCode TUI session. Passes provider env vars via the dedicated Tauri command. */
   async createOpenCodeTerminal(explicitId?: string, groupId?: string): Promise<string> {
     return this.createTerminal(undefined, groupId, undefined, explicitId, 'spawn_opencode_terminal');
   }
@@ -442,10 +442,10 @@ export class TerminalManager {
       'spawn_claude_terminal',
       // Tauri maps camelCase args onto the Rust snake_case params.
       {
-        ...(model ? { model } : {}),
-        ...(skipPermissions !== undefined ? { skipPermissions } : {}),
-        ...(allowNet !== undefined ? { allowNet } : {}),
-        ...(extraArgs ? { extraArgs } : {}),
+        ...(model? { model }: {}),
+        ...(skipPermissions !== undefined? { skipPermissions }: {}),
+        ...(allowNet !== undefined? { allowNet }: {}),
+        ...(extraArgs? { extraArgs }: {}),
       }
     );
   }
@@ -566,7 +566,7 @@ export class TerminalManager {
 
   private activityIds: Set<string> = new Set();
   private activityUnsubs: Map<string, Array<() => void>> = new Map();
-  /** Tool calls keyed by call_id, so the result can render on the same block. */
+  /**Tool calls keyed by call_id, so the result can render on the same block. */
   private activityCalls: Map<string, Map<string, { name: string; argPreview: string }>> = new Map();
 
   /**
@@ -581,8 +581,8 @@ export class TerminalManager {
       }
     }
     const id = explicitId && explicitId.trim().length > 0
-      ? explicitId.trim()
-      : `airi-activity-${Date.now()}`;
+? explicitId.trim()
+: `airi-activity-${Date.now()}`;
 
     const element = document.createElement('div');
     element.className = 'terminal-instance-element terminal-activity-feed';
@@ -653,7 +653,7 @@ export class TerminalManager {
       return `\x1b[2m${hh}:${mm}:${ss}\x1b[0m`;
     };
 
-    const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+    const truncate = (s: string, n: number) => (s.length > n? s.slice(0, n - 1) + '…': s);
 
     const writeToolCall = (payload: any) => {
       const name = String(payload?.name ?? '');
@@ -661,10 +661,10 @@ export class TerminalManager {
       let argPreview = '';
       try {
         const raw = payload?.args;
-        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        argPreview = parsed ? truncate(JSON.stringify(parsed), 240) : '';
+        const parsed = typeof raw === 'string'? JSON.parse(raw): raw;
+        argPreview = parsed? truncate(JSON.stringify(parsed), 240): '';
       } catch {
-        argPreview = typeof payload?.args === 'string' ? truncate(payload.args, 240) : '';
+        argPreview = typeof payload?.args === 'string'? truncate(payload.args, 240): '';
       }
       const calls = this.activityCalls.get(id);
       if (calls && payload?.call_id) {
@@ -677,16 +677,16 @@ export class TerminalManager {
       const name = String(payload?.name ?? '');
       const result = String(payload?.result ?? '');
       const blocked = !!payload?.blocked;
-      const callId = payload?.call_id ? String(payload.call_id) : '';
+      const callId = payload?.call_id? String(payload.call_id): '';
       const calls = this.activityCalls.get(id);
-      const prior = callId ? calls?.get(callId) : undefined;
+      const prior = callId? calls?.get(callId): undefined;
       const tag = prior?.name || name || 'tool';
       let parsedArgs: Record<string, unknown> = {};
       try {
         if (prior?.argPreview) parsedArgs = JSON.parse(prior.argPreview);
       } catch { /* ignore */ }
       const summary = summarizeToolResult(tag, result, parsedArgs);
-      const marker = blocked ? '\x1b[1;35m⏸\x1b[0m' : '\x1b[1;32m✔\x1b[0m';
+      const marker = blocked? '\x1b[1;35m⏸\x1b[0m': '\x1b[1;32m\x1b[0m';
       term.writeln(`${ts()} ${marker} \x1b[1m${tag}\x1b[0m \x1b[2m→\x1b[0m ${summary}`);
       if (callId && calls) calls.delete(callId);
     };
@@ -696,7 +696,7 @@ export class TerminalManager {
     };
 
     const writeChat = (payload: any) => {
-      const chunk = typeof payload === 'string' ? payload : String(payload?.content ?? '');
+      const chunk = typeof payload === 'string'? payload: String(payload?.content ?? '');
       if (chunk) term.write(chunk);
     };
 
@@ -724,9 +724,9 @@ export class TerminalManager {
     const writeStdoutEnd = (payload: any) => {
       const code = payload?.exit_code ?? null;
       const ok = !!payload?.success;
-      const marker = ok ? '\x1b[1;32m✔\x1b[0m' : '\x1b[1;31m✖\x1b[0m';
+      const marker = ok? '\x1b[1;32m\x1b[0m': '\x1b[1;31m\x1b[0m';
       term.writeln(
-        `${ts()} ${marker} \x1b[2mexit ${code === null ? '?' : code}\x1b[0m`,
+        `${ts()} ${marker} \x1b[2mexit ${code === null? '?': code}\x1b[0m`,
       );
     };
 
@@ -892,7 +892,7 @@ export class TerminalManager {
     const newId = await this.createTerminal(instance.shell, group.id, instance.cwd);
     
     // Update layout
-    group.layout = direction === 'horizontal' ? 'split-horizontal' : 'split-vertical';
+    group.layout = direction === 'horizontal'? 'split-horizontal': 'split-vertical';
     
     return newId;
   }
@@ -948,14 +948,14 @@ export class TerminalManager {
 
     const isActivity = this.activityIds.has(instance.id);
     const menuItems: any[] = isActivity
-      ? [
+? [
           { label: 'Copy', icon: 'copy', action: () => this.copySelection(instance) },
           { label: 'Copy all', icon: 'copy', action: () => this.copyAll(instance) },
           { label: 'Select all', icon: 'selection', action: () => this.selectAll(instance) },
           { type: 'separator' },
           { label: 'Clear', icon: 'clear-all', action: () => instance.term.clear() },
         ]
-      : [
+: [
           { label: 'New Terminal', icon: 'add', action: () => this.createTerminal() },
           { label: 'Split Right', icon: 'split-horizontal', action: () => this.splitTerminal(instance.id, 'horizontal') },
           { label: 'Split Down', icon: 'split-vertical', action: () => this.splitTerminal(instance.id, 'vertical') },
@@ -1026,7 +1026,7 @@ export class TerminalManager {
     }
   }
 
-  /** Select entire scrollback and copy to clipboard (activity log export). */
+  /**Select entire scrollback and copy to clipboard (activity log export). */
   copyAll(instance: TerminalInstance) {
     instance.term.selectAll();
     const text = instance.term.getSelection();
@@ -1068,26 +1068,26 @@ export class TerminalManager {
   }
 
   getActiveGroup(): TerminalGroup | undefined {
-    return this.activeGroupId ? this.groups.get(this.activeGroupId) : undefined;
+    return this.activeGroupId? this.groups.get(this.activeGroupId): undefined;
   }
 
   getAllTerminals(): TerminalInstance[] {
     return Array.from(this.terminals.values());
   }
 
-  /** The active PTY terminal instance (for the command palette / workflows). */
+  /**The active PTY terminal instance (for the command palette / workflows). */
   getActiveInstance(): TerminalInstance | undefined {
     const g = this.getActiveGroup();
     if (!g || !g.activeInstanceId) return undefined;
     return this.getTerminal(g.activeInstanceId);
   }
 
-  /** Recent unique command history of the active terminal (newest first). */
+  /**Recent unique command history of the active terminal (newest first). */
   getActiveCommandHistory(): string[] {
     return this.getActiveInstance()?.blocks?.getCommandHistory() ?? [];
   }
 
-  /** Send raw data to the active terminal's PTY. */
+  /**Send raw data to the active terminal's PTY. */
   sendToActive(data: string): void {
     const inst = this.getActiveInstance();
     if (inst) {
@@ -1096,10 +1096,10 @@ export class TerminalManager {
     }
   }
 
-  /** Type a command at the prompt WITHOUT running it (palette default). */
+  /**Type a command at the prompt WITHOUT running it (palette default). */
   insertInActive(cmd: string): void { this.sendToActive(cmd); }
 
-  /** Type a command and run it (palette Ctrl+Enter). */
+  /**Type a command and run it (palette Ctrl+Enter). */
   runInActive(cmd: string): void { this.sendToActive(cmd + '\r'); }
 
   updateAllThemes() {
@@ -1110,7 +1110,7 @@ export class TerminalManager {
   }
 }
 
-/** @deprecated Use `application/terminal/bootstrapTerminalRuntime` instead. */
+/**@deprecated Use `application/terminal/bootstrapTerminalRuntime` instead. */
 export const registerTerminalShortcuts = (_manager: TerminalManager) => {
   void import('./application/terminal/bootstrapTerminalRuntime').then((m) => m.bootstrapTerminalRuntime());
 };
@@ -1125,7 +1125,7 @@ export const terminalManager = new TerminalManager();
 // LEGACY INIT FUNCTION (for App.tsx compatibility)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** @deprecated Use `application/terminal/initDefaultTerminal` instead. */
+/**@deprecated Use `application/terminal/initDefaultTerminal` instead. */
 export const initTerminal = async (_addTerminalGroup?: () => void | Promise<void>) => {
   const { initDefaultTerminal } = await import('./application/terminal/bootstrapTerminalRuntime');
   await initDefaultTerminal();

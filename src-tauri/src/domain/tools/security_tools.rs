@@ -1594,9 +1594,9 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
             "errors": errors,
             "warnings": warnings,
             "summary": if success {
-                format!("✅ cargo check passed ({} warnings)", warnings.len())
+                format!(" cargo check passed ({} warnings)", warnings.len())
             } else {
-                format!("❌ {} error(s), {} warning(s). Fix errors before proceeding.", errors.len(), warnings.len())
+                format!(" {} error(s), {} warning(s). Fix errors before proceeding.", errors.len(), warnings.len())
             }
         }))
     }
@@ -1735,10 +1735,10 @@ pub(crate) fn render_finding_block(f: &Value, root: &std::path::Path) -> String 
     let poc = f.get("poc").and_then(|v| v.as_str()).unwrap_or("");
 
     let mut block = format!(
-        "### {id} — {title}\n\n| Field | Value |\n|-------|-------|\n| **Severity** | {sev} |\n| **CWE** | {cwe} |\n| **Location** | `{path}:{line}` |\n",
+        "### {id} — {title}\n\n| Field | Value |\n|-------|-------|\n| **Severity**| {sev} |\n| **CWE**| {cwe} |\n| **Location**| `{path}:{line}` |\n",
     );
     if let Some(c) = conf {
-        block.push_str(&format!("| **Confidence** | {c:.2} |\n"));
+        block.push_str(&format!("| **Confidence**| {c:.2} |\n"));
     }
     if !desc.is_empty() {
         block.push_str(&format!("\n**Description**\n\n{desc}\n"));
@@ -1793,13 +1793,13 @@ pub(crate) fn render_security_report(
     }
     if !manual_review.is_empty() {
         md.push_str(&format!(
-            "⚠️ **{} item(s)** need manual review (policy-dependent, cross-component, or low confidence).\n\n",
+            " **{} item(s)**need manual review (policy-dependent, cross-component, or low confidence).\n\n",
             manual_review.len()
         ));
     }
     md.push_str("## Scope & methodology\n\n");
     for (k, v) in meta {
-        md.push_str(&format!("- **{k}:** {v}\n"));
+        md.push_str(&format!("- **{k}:**{v}\n"));
     }
     md.push_str("\nPipeline: static/heuristic signals → LLM triage → evidence verification at cited line → confidence threshold.\n\n");
     md.push_str("## Summary by severity\n\n| Severity | Count |\n|----------|------:|\n");
@@ -1843,7 +1843,7 @@ pub(crate) fn security_audit_patterns()
         ("Path Traversal", "MEDIUM", "CWE-22", r"(?i)(req\.(query|params|body)[^;]*path\.join|path\.join[^;]*req\.(query|params|body))", "Canonicalize and validate paths against an allow-listed base directory."),
         ("Dangerous Eval", "HIGH", "CWE-95", r"(?i)(\beval\s*\(|new\s+Function\s*\()", "Avoid eval; parse/allow-list input instead of executing it."),
         ("Rust unsafe block", "LOW", "CWE-119", r"\bunsafe\s*\{", "Audit unsafe blocks for memory-safety invariants; minimize their scope."),
-        ("Panic-prone unwrap/expect", "INFO", "CWE-248", r"\.(unwrap|expect)\s*\(", "Handle errors with ? / match instead of unwrap/expect on hot paths."),
+        ("Panic-prone unwrap/expect", "INFO", "CWE-248", r"\.(unwrap|expect)\s*\(", "Handle errors with? / match instead of unwrap/expect on hot paths."),
     ]
 }
 

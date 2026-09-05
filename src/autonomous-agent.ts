@@ -338,7 +338,7 @@ export class AutonomousAgent {
         // Add type annotation (simple heuristic)
         const lineIndex = error.startLineNumber - 1;
         if (lines[lineIndex] && !lines[lineIndex].includes(':')) {
-          // Add : any as fallback
+          // Add: any as fallback
           lines[lineIndex] = lines[lineIndex].replace(/(\w+)\s*=/, '$1: any =');
           await invoke('write_file', { path: task.file, content: lines.join('\n') });
           
@@ -377,8 +377,8 @@ export class AutonomousAgent {
 
       // Extract a summary from the array of search results
       const summary = Array.isArray(result)
-        ? result.map((r: any) => `* ${r.title}: ${r.snippet}`).join('\n')
-        : 'Research completed';
+? result.map((r: any) => `* ${r.title}: ${r.snippet}`).join('\n')
+: 'Research completed';
 
       // Save findings to memory
       const findings = {
@@ -582,7 +582,7 @@ describe('${fileName}', () => {
       // Generate JSDoc
       const jsdoc = `/**
  * ${funcName} function
- * ${params ? `@param {Object} params - Function parameters` : ''}
+ * ${params? `@param {Object} params - Function parameters`: ''}
  * @returns {Promise<void>}
  */
 `;
@@ -613,7 +613,7 @@ describe('${fileName}', () => {
     const successRate = (this.completedTasks / total) * 100;
 
     console.log(
-      `[AutonomousAgent] 📚 Learning... ` +
+      `[AutonomousAgent] Learning... ` +
       `Tasks: ${total} | Success: ${successRate.toFixed(1)}% | ` +
       `Competence: ${this.competenceLevel.toFixed(1)}`
     );
@@ -666,7 +666,7 @@ describe('${fileName}', () => {
   private announceTask(task: AutonomousTask): void {
     const store = useStore.getState();
     
-    const message = `💭 **I'm going to work autonomously:**\n\n${task.description}\n\nI'll handle this myself - check progress anytime!`;
+    const message = ` **I'm going to work autonomously:**\n\n${task.description}\n\nI'll handle this myself - check progress anytime!`;
 
     store.addAgentMessage('assistant', message);
 
@@ -684,7 +684,7 @@ describe('${fileName}', () => {
   private reportCompletion(task: AutonomousTask): void {
     const store = useStore.getState();
 
-    const message = `✅ **Task Complete!**\n\n${task.description}\n\nResult: ${task.result || 'Success!'}`;
+    const message = ` **Task Complete!**\n\n${task.description}\n\nResult: ${task.result || 'Success!'}`;
 
     store.addAgentMessage('assistant', message);
 

@@ -198,7 +198,7 @@ export function AgentBackendCard() {
 
     React.useEffect(() => { refresh(); }, [refresh]);
 
-    const status = agentBackend === 'claurst' ? claurstSt : null;
+    const status = agentBackend === 'claurst'? claurstSt: null;
 
     return (
         <div className="settings-card">
@@ -208,22 +208,22 @@ export function AgentBackendCard() {
                 description="Sentient = built-in Rust loop with native Hermes skills + HADES Git Bash. Claurst = optional GPL external CLI only."
                 control={
                     <select className="settings-select" value={agentBackend} onChange={e => setAgentBackend?.(e.target.value)}>
-                        <option value="sentient">Sentient (built-in) ★</option>
+                        <option value="sentient">Sentient (built-in) </option>
                         <option value="claurst">Claurst (GPL external)</option>
                     </select>
                 }
             />
             <div className="settings-row-description" style={{ marginTop: 8 }}>
-                {agentBackend === 'sentient' ? (
+                {agentBackend === 'sentient'? (
                     <span>
                         Hermes skills: {hermesSt?.skillsCount ?? '…'} integrated natively.{' '}
-                        Git Bash: {shellSt?.ready ? `${shellSt.gitBash}` : `configure PortableGit (see below)`}
+                        Git Bash: {shellSt?.ready? `${shellSt.gitBash}`: `configure PortableGit (see below)`}
                     </span>
-                ) : checking ? (
+                ): checking? (
                     <span>checking…</span>
-                ) : status?.available ? (
-                    <span>claurst ready{status.version ? ` — ${status.version}` : ''}</span>
-                ) : (
+                ): status?.available? (
+                    <span>claurst ready{status.version? ` — ${status.version}`: ''}</span>
+                ): (
                     <span>{status?.reason || 'claurst not found'}</span>
                 )}
             </div>
@@ -264,7 +264,7 @@ export function ModelsPanel() {
                 <div className="settings-card-title">Per-Feature Routing</div>
                 {FEATURES.map(feat => {
                     const sel = modelSel[feat];
-                    const combined = sel ? `${sel.providerName}|${sel.modelName}` : '';
+                    const combined = sel? `${sel.providerName}|${sel.modelName}`: '';
                     return (
                         <SettingsRow
                             key={feat}
@@ -345,9 +345,9 @@ export function ProvidersPanel() {
 
     // Map a provider id to the backend key name used by refreshAvailableModels
     // (and the enable-toggle localStorage key).
-    const backendName = (id: string) => id === 'openAI' ? 'openai' : id === 'openRouter' ? 'openrouter'
-        : id === 'xAI' ? 'xai' : id === 'gemini' ? 'google' : id === 'vLLM' ? 'vllm'
-        : id === 'lmStudio' ? 'lmstudio' : id === 'liteLLM' ? 'litellm' : id.toLowerCase();
+    const backendName = (id: string) => id === 'openAI'? 'openai': id === 'openRouter'? 'openrouter'
+: id === 'xAI'? 'xai': id === 'gemini'? 'google': id === 'vLLM'? 'vllm'
+: id === 'lmStudio'? 'lmstudio': id === 'liteLLM'? 'litellm': id.toLowerCase();
 
     // Per-provider enable/disable. Disabled providers are hidden from the model
     // picker (keeps your own models from being buried among BYOB providers).
@@ -362,7 +362,7 @@ export function ProvidersPanel() {
     const toggleEnabled = (id: string) => {
         const next = !(enabled[id] ?? true);
         setEnabled(e => ({ ...e, [id]: next }));
-        try { localStorage.setItem('provider.enabled.' + backendName(id), next ? 'true' : 'false'); } catch { /* */ }
+        try { localStorage.setItem('provider.enabled.' + backendName(id), next? 'true': 'false'); } catch { /* */ }
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = setTimeout(() => refreshModels(), 300);
     };
@@ -414,10 +414,10 @@ export function ProvidersPanel() {
             const next = { ...keys, [providerId]: value };
             setKeys(next);
             // Map provider ID back to backend key name
-            const backendKey = providerId === 'openAI' ? 'openai' :
-                               providerId === 'openRouter' ? 'openrouter' :
-                               providerId === 'xAI' ? 'xai' :
-                               providerId === 'gemini' ? 'google' :
+            const backendKey = providerId === 'openAI'? 'openai' :
+                               providerId === 'openRouter'? 'openrouter' :
+                               providerId === 'xAI'? 'xai' :
+                               providerId === 'gemini'? 'google' :
                                providerId.toLowerCase();
             invoke('save_api_key', { key: backendKey, value }).then(() => {
                 // Debounce: wait 800ms after last keystroke before refreshing
@@ -444,25 +444,25 @@ export function ProvidersPanel() {
     const localProviders = PROVIDERS.filter(p => p.local);
 
     const renderProvider = (p: typeof PROVIDERS[0]) => (
-        <div key={p.id} className="provider-card" style={{ opacity: enabled[p.id] === false ? 0.55 : 1, transition: 'opacity 0.15s' }}>
+        <div key={p.id} className="provider-card" style={{ opacity: enabled[p.id] === false? 0.55: 1, transition: 'opacity 0.15s' }}>
             <div className="provider-card-header">
                 <span className="provider-card-name">{p.label}</span>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
-                    {saved === p.id && <span style={{ fontSize: 11, color: '#3fb950' }}>✓ Saved</span>}
+                    {saved === p.id && <span style={{ fontSize: 11, color: '#3fb950' }}> Saved</span>}
                     {keys[p.id] && !p.local && <span style={{ fontSize: 10, color: '#3fb950', opacity: 0.8 }}>● active</span>}
                     {p.local && <span className="settings-badge local">LOCAL</span>}
                     <label
-                        title={enabled[p.id] === false ? 'Disabled — hidden from the model picker' : 'Enabled — shown in the model picker'}
+                        title={enabled[p.id] === false? 'Disabled — hidden from the model picker': 'Enabled — shown in the model picker'}
                         style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, opacity: 0.85, cursor: 'pointer', userSelect: 'none' }}
                     >
                         <input type="checkbox" checked={enabled[p.id] !== false} onChange={() => toggleEnabled(p.id)} style={{ cursor: 'pointer', accentColor: '#4f8ef7' }} />
-                        {enabled[p.id] === false ? 'Off' : 'On'}
+                        {enabled[p.id] === false? 'Off': 'On'}
                     </label>
                 </div>
             </div>
             {p.hint && <div style={{ fontSize: 11, opacity: 0.45, marginBottom: 8 }}>{p.hint}</div>}
             {p.fields.includes('apiKey') && (
-                <div style={{ marginBottom: (p.fields.includes('endpoint') || p.baseUrlKey) ? 8 : 0 }}>
+                <div style={{ marginBottom: (p.fields.includes('endpoint') || p.baseUrlKey)? 8: 0 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                         <span style={{ fontSize: 11, opacity: 0.45 }}>API Key</span>
                         {p.keyUrl && (
@@ -487,7 +487,7 @@ export function ProvidersPanel() {
                 </div>
             )}
             {p.baseUrlKey && (
-                <div style={{ marginBottom: p.fields.includes('endpoint') ? 8 : 0 }}>
+                <div style={{ marginBottom: p.fields.includes('endpoint')? 8: 0 }}>
                     <div style={{ fontSize: 11, opacity: 0.45, marginBottom: 4 }}>Base URL Override <span style={{ opacity: 0.5, fontStyle: 'italic' }}>(optional — for reseller proxies)</span></div>
                     <input
                         type="text"
@@ -507,10 +507,10 @@ export function ProvidersPanel() {
                         className="settings-input"
                         style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: 12 }}
                         placeholder={
-                            p.id === 'ollama' ? 'http://127.0.0.1:13305' :
-                            p.id === 'lemonade' ? 'http://127.0.0.1:13305' :
-                            p.id === 'lmStudio' ? 'http://127.0.0.1:1234' :
-                            p.id === 'vLLM' ? 'http://127.0.0.1:8000' : 'http://127.0.0.1:4000'
+                            p.id === 'ollama'? 'http://127.0.0.1:13305' :
+                            p.id === 'lemonade'? 'http://127.0.0.1:13305' :
+                            p.id === 'lmStudio'? 'http://127.0.0.1:1234' :
+                            p.id === 'vLLM'? 'http://127.0.0.1:8000': 'http://127.0.0.1:4000'
                         }
                         value={endpoints[p.id] || ''}
                         onChange={e => save(p.id, 'endpoint', e.target.value)}
@@ -574,7 +574,7 @@ export function CustomModesManager() {
                         <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 8px', background: 'rgba(255,255,255,0.03)', borderRadius: 4 }}>
                             <div style={{ minWidth: 0 }}>
                                 <div style={{ fontSize: 12, fontWeight: 600 }}>{m.label} {m.readOnly && <span style={{ fontSize: 9, opacity: 0.5 }}>(read-only)</span>}</div>
-                                <div style={{ fontSize: 10, opacity: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.model ? `${m.model} · ` : ''}{m.systemPrompt}</div>
+                                <div style={{ fontSize: 10, opacity: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.model? `${m.model} · `: ''}{m.systemPrompt}</div>
                             </div>
                             <button className="settings-button" onClick={() => removeCustomMode?.(m.id)} style={{ flexShrink: 0, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)' }}>Remove</button>
                         </div>
@@ -616,7 +616,7 @@ export function AIRICorePanel() {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
                 {[
-                    { label: 'Energy', value: `${bio_state.energy ?? 100}%`, sub: 'Biological', color: (bio_state.energy ?? 100) > 30 ? '#4ade80' : '#f87171', bar: true, barVal: bio_state.energy ?? 100 },
+                    { label: 'Energy', value: `${bio_state.energy ?? 100}%`, sub: 'Biological', color: (bio_state.energy ?? 100) > 30? '#4ade80': '#f87171', bar: true, barVal: bio_state.energy ?? 100 },
                     { label: 'Mood', value: bio_state.mood ?? 'curious', sub: 'Biological State', color: '#a78bfa' },
                     { label: 'Consciousness', value: 'Active', sub: 'Sentient Thread', color: '#c084fc' },
                 ].map(item => (
@@ -768,7 +768,7 @@ export function ApexSettingsPanel() {
                     onClick={handleSetLocalMode}
                     style={{ marginBottom: 12 }}
                 >
-                    {isLoading ? 'Configuring...' : 'Auto-Downgrade to qwen3.5:2b (Local)'}
+                    {isLoading? 'Configuring...': 'Auto-Downgrade to qwen3.5:2b (Local)'}
                 </button>
                 <p style={{ fontSize: 11, opacity: 0.6, margin: '0' }}>
                     Sets all APEX engines to qwen3.5:2b for offline M1 Mac development
@@ -812,15 +812,15 @@ export function PrivacyPanel() {
 
     const toggleTelemetry = (v: boolean) => {
         setTelemetry(v);
-        try { localStorage.setItem('hades.telemetry', v ? 'true' : 'false'); } catch { }
+        try { localStorage.setItem('hades.telemetry', v? 'true': 'false'); } catch { }
     };
     const toggleErrors = (v: boolean) => {
         setErrorReporting(v);
-        try { localStorage.setItem('hades.error_reporting', v ? 'true' : 'false'); } catch { }
+        try { localStorage.setItem('hades.error_reporting', v? 'true': 'false'); } catch { }
     };
     const toggleAi = (v: boolean) => {
         setAiDataSharing(v);
-        try { localStorage.setItem('hades.ai_data_sharing', v ? 'true' : 'false'); } catch { }
+        try { localStorage.setItem('hades.ai_data_sharing', v? 'true': 'false'); } catch { }
     };
 
     return (

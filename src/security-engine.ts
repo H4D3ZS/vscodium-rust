@@ -124,7 +124,7 @@ export class CybersecurityEngine {
 
     for (const payload of payloads) {
       try {
-        const testUrl = `${url}${url.includes('?') ? '&' : '?'}test=${encodeURIComponent(payload)}`;
+        const testUrl = `${url}${url.includes('?')? '&': '?'}test=${encodeURIComponent(payload)}`;
         
         // In real implementation, would make actual request
         // For now, simulate detection
@@ -381,7 +381,7 @@ export class CybersecurityEngine {
    * Alert on threat
    */
   private alertThreat(type: string, details: string): void {
-    const message = `🚨 Security Alert: ${type} - ${details}`;
+    const message = ` Security Alert: ${type} - ${details}`;
     
     
     // Speak alert
@@ -532,17 +532,17 @@ export class CybersecurityEngine {
     };
 
     if (bySeverity.critical.length > 0) {
-      console.log(`\n🔴 CRITICAL (${bySeverity.critical.length}):`);
+      console.log(`\n CRITICAL (${bySeverity.critical.length}):`);
       bySeverity.critical.forEach(v => console.log(`  - ${v.type} in ${v.location}`));
     }
 
     if (bySeverity.high.length > 0) {
-      console.log(`\n🟠 HIGH (${bySeverity.high.length}):`);
+      console.log(`\n HIGH (${bySeverity.high.length}):`);
       bySeverity.high.forEach(v => console.log(`  - ${v.type} in ${v.location}`));
     }
 
     if (bySeverity.medium.length > 0) {
-      console.log(`\n🟡 MEDIUM (${bySeverity.medium.length}):`);
+      console.log(`\n MEDIUM (${bySeverity.medium.length}):`);
       bySeverity.medium.forEach(v => console.log(`  - ${v.type} in ${v.location}`));
     }
 

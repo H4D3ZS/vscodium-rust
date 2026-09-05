@@ -1,18 +1,18 @@
 import { workspaceDispatchHooks } from '../../infrastructure/workspace/workspaceProject';
 import { useStore } from '../../store';
 
-/** Run Kiro-style `.hooks/*.json` + legacy store hooks after a file event. */
+/**Run Kiro-style `.hooks/*.json` + legacy store hooks after a file event. */
 export async function runWorkspaceHooks(event: 'on_save' | 'on_file_create', filePath: string): Promise<void> {
     const store = useStore.getState();
 
     try {
         const dispatched = await workspaceDispatchHooks(
-            event === 'on_save' ? 'fileEdited' : 'fileCreated',
+            event === 'on_save'? 'fileEdited': 'fileCreated',
             filePath,
         );
         for (const hit of dispatched) {
             if (hit.action === 'alert' && hit.message) {
-                store.addAgentMessage?.('assistant', `🔔 **Hook:** ${hit.message}`);
+                store.addAgentMessage?.('assistant', ` **Hook:**${hit.message}`);
             }
             if (hit.action === 'askAgent' && hit.prompt) {
                 const fullPrompt = `[Kiro hook: ${hit.hook_name} on ${filePath}]\n${hit.prompt}`;
@@ -33,7 +33,7 @@ export async function runWorkspaceHooks(event: 'on_save' | 'on_file_create', fil
     for (const hook of matchingHooks) {
         const globalRule = store.globalSteeringRule;
         const fullPrompt = `[Triggered by ${event} on ${filePath}]\n`
-            + (globalRule ? `Global Rule: ${globalRule}\n` : '')
+            + (globalRule? `Global Rule: ${globalRule}\n`: '')
             + `Task: ${hook.prompt}`;
         store.runBackgroundAgent?.(fullPrompt).catch(console.error);
     }

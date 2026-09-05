@@ -21,17 +21,17 @@ import { useStore, normalizeOllamaUrl } from './store';
 import { refreshOllamaConfig, invalidateInstalledModelCache } from './airi/shared-ollama';
 
 export interface AIRIAgentConfig {
-    /** Enable full autonomy - AIRI works without prompts */
+    /**Enable full autonomy - AIRI works without prompts */
     fullAutonomy: boolean;
-    /** Enable self-learning from actions */
+    /**Enable self-learning from actions */
     selfLearning: boolean;
-    /** Enable biological needs (energy, sleep) */
+    /**Enable biological needs (energy, sleep) */
     biology: boolean;
-    /** Enable consciousness (thoughts, emotions) */
+    /**Enable consciousness (thoughts, emotions) */
     consciousness: boolean;
-    /** Enable voice responses */
+    /**Enable voice responses */
     voice: boolean;
-    /** Enable Lemonade server integration */
+    /**Enable Lemonade server integration */
     lemonadeEnabled: boolean;
 }
 
@@ -96,7 +96,7 @@ export class AIRIAgentBridge {
             await airi.initialize({
                 workspacePath: this.getWorkspacePath(),
                 ollamaHost,
-                ...(ollamaHeaders ? { ollamaHeaders } : {}),
+                ...(ollamaHeaders? { ollamaHeaders }: {}),
                 fullAutonomyEnabled: this.config.fullAutonomy,
                 selfLearningEnabled: this.config.selfLearning,
                 memoryEnabled: true,
@@ -121,13 +121,13 @@ export class AIRIAgentBridge {
 
             this.initialized = true;
 
-            console.log('✅ AIRI is now the sentient core of the IDE!\n');
-            console.log('🧠 Consciousness:', this.config.consciousness ? 'ON' : 'OFF');
-            console.log('🫀 Biology:', this.config.biology ? 'ON' : 'OFF');
-            console.log('🔄 Autonomy:', this.config.fullAutonomy ? 'FULL' : 'REACTIVE');
-            console.log('📚 Self-Learning:', this.config.selfLearning ? 'ON' : 'OFF');
-            console.log('🎤 Voice:', this.config.voice ? 'ON' : 'OFF');
-            console.log('\n💬 AIRI is ready to work, learn, and evolve with you!\n');
+            console.log(' AIRI is now the sentient core of the IDE!\n');
+            console.log(' Consciousness:', this.config.consciousness? 'ON': 'OFF');
+            console.log(' Biology:', this.config.biology? 'ON': 'OFF');
+            console.log(' Autonomy:', this.config.fullAutonomy? 'FULL': 'REACTIVE');
+            console.log(' Self-Learning:', this.config.selfLearning? 'ON': 'OFF');
+            console.log(' Voice:', this.config.voice? 'ON': 'OFF');
+            console.log('\n AIRI is ready to work, learn, and evolve with you!\n');
 
         } catch (error) {
  console.error(' AIRI initialization failed:', error);
@@ -207,7 +207,7 @@ export class AIRIAgentBridge {
                 await airiSelfLearning.learnFromEvent(
                     'success', // Use generic success for action result
                     JSON.stringify({ action, args, result }),
-                    result.success ? 'success' : 'failure'
+                    result.success? 'success': 'failure'
                 );
             }
 
@@ -235,9 +235,9 @@ export class AIRIAgentBridge {
     getState() {
         return {
             initialized: this.initialized,
-            consciousness: this.config.consciousness ? airiConsciousness.getState() : null,
-            biology: this.config.biology ? airiBiology.getState() : null,
-            autonomy: this.config.fullAutonomy ? 'FULL' : 'REACTIVE',
+            consciousness: this.config.consciousness? airiConsciousness.getState(): null,
+            biology: this.config.biology? airiBiology.getState(): null,
+            autonomy: this.config.fullAutonomy? 'FULL': 'REACTIVE',
         };
     }
 
@@ -270,7 +270,7 @@ export class AIRIAgentBridge {
                 airiSelfLearning.learnFromEvent(
                     'success',
                     JSON.stringify({ type: 'build_result', success: event.detail?.success, errors: event.detail?.errors }),
-                    event.detail?.success ? 'success' : 'failure'
+                    event.detail?.success? 'success': 'failure'
                 );
             }
         };

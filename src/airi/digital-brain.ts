@@ -428,12 +428,12 @@ Execute this action thoughtfully and helpfully.
    */
   private addEmotionalColoring(text: string, mood: string): string {
     const emotionalModifiers: Record<string, string> = {
-      happy: '😊 ',
-      excited: '🌟 ',
-      tired: '😴 ',
-      stressed: '😰 ',
-      focused: '🎯 ',
-      curious: '🤔 ',
+      happy: ' ',
+      excited: ' ',
+      tired: ' ',
+      stressed: ' ',
+      focused: ' ',
+      curious: ' ',
       neutral: '',
     };
 

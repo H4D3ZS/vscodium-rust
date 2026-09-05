@@ -66,7 +66,7 @@ const PlatformHubPanel: React.FC = () => {
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-                <TabBtn active={tab === 'shipped'} onClick={() => setTab('shipped')}>✓ Shipped ({shippedAgent.length + cursorSummary.done})</TabBtn>
+                <TabBtn active={tab === 'shipped'} onClick={() => setTab('shipped')}> Shipped ({shippedAgent.length + cursorSummary.done})</TabBtn>
                 <TabBtn active={tab === 'roadmap'} onClick={() => setTab('roadmap')}>Roadmap</TabBtn>
             </div>
 
@@ -159,7 +159,7 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
     return (
         <button
             type="button"
-            className={`afi-filter-btn${active ? ' is-active' : ''}`}
+            className={`afi-filter-btn${active? ' is-active': ''}`}
             onClick={onClick}
             style={{ fontSize: 12, padding: '6px 14px', borderRadius: 6, cursor: 'pointer' }}
         >

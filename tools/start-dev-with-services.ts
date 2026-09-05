@@ -28,11 +28,11 @@ const children: ChildProcess[] = [];
 function spawnChild(label: string, cmd: string, args: string[], opts: SpawnOptions): ChildProcess {
   const child = spawn(cmd, args, { stdio: 'ignore', shell: true, ...opts });
   child.on('error', (err) => {
-    console.warn(`⚠️  ${label} failed to start:`, err.message);
+    console.warn(` ${label} failed to start:`, err.message);
   });
   child.on('exit', (code) => {
     if (code != null && code !== 0) {
-      console.warn(`⚠️  ${label} exited with code ${code}`);
+      console.warn(` ${label} exited with code ${code}`);
     }
   });
   children.push(child);
@@ -60,11 +60,11 @@ if (airiInstalled) {
 setTimeout(() => {
   console.log('[3/3] Starting Vite Dev Server on port 5173...');
   console.log('');
-  console.log('✅ Services starting...');
+  console.log(' Services starting...');
   console.log('');
-  console.log('  🌐 Main IDE:   http://localhost:5173');
-  if (airiInstalled) console.log('  🎭 AIRI 3D:    http://localhost:5174');
-  if (existsSync(qwenScript)) console.log('  🎤 Qwen3-TTS:  http://localhost:8081');
+  console.log(' Main IDE: http://localhost:5173');
+  if (airiInstalled) console.log(' AIRI 3D: http://localhost:5174');
+  if (existsSync(qwenScript)) console.log(' Qwen3-TTS: http://localhost:8081');
   console.log('');
 
   const viteProcess = spawn('npx', ['vite'], {

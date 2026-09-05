@@ -11,7 +11,7 @@
  * - Red team operations
  * - Social engineering testing (authorized only)
  * 
- * ⚠️ ETHICAL USE ONLY - Only test systems you own or have written permission for
+ * ETHICAL USE ONLY - Only test systems you own or have written permission for
  */
 
 import { airiCybersecurity } from './cybersecurity-engine';
@@ -238,7 +238,7 @@ export class AIRIOffensiveSecurity {
         return vulnerabilities;
     }
 
-    /** Real HTTP probe via the Rust backend (status + headers + body + timing). */
+    /**Real HTTP probe via the Rust backend (status + headers + body + timing). */
     private async httpProbe(url: string, method?: string): Promise<{ status: number; headers: Record<string, string>; body: string; elapsed_ms: number }> {
         const { invoke } = await import('@tauri-apps/api/core');
         return await invoke('http_probe', { url, method });
@@ -272,10 +272,10 @@ export class AIRIOffensiveSecurity {
                 if (sqlErr || timeBased) {
                     return {
                         id: `vuln_${Date.now()}`, type: 'sql_injection', severity: 'critical', target: testUrl,
-                        description: `Possible SQL injection (${timeBased ? 'time-based blind' : 'error-based'})`,
+                        description: `Possible SQL injection (${timeBased? 'time-based blind': 'error-based'})`,
                         evidence: timeBased
-                            ? `Response delayed ${resp.elapsed_ms}ms vs baseline ${baseline}ms with payload: ${payload}`
-                            : `SQL error string reflected in response for payload: ${payload}`,
+? `Response delayed ${resp.elapsed_ms}ms vs baseline ${baseline}ms with payload: ${payload}`
+: `SQL error string reflected in response for payload: ${payload}`,
                         remediation: 'Use parameterized queries / prepared statements; never concatenate input into SQL.',
                         cwe: 'CWE-89', cvss: 9.8, timestamp: Date.now(),
                     };
@@ -298,7 +298,7 @@ export class AIRIOffensiveSecurity {
 
         for (const payload of payloads) {
             try {
-                const testUrl = `${url}${url.includes('?') ? '&' : '?'}input=${encodeURIComponent(payload)}`;
+                const testUrl = `${url}${url.includes('?')? '&': '?'}input=${encodeURIComponent(payload)}`;
                 const resp = await this.httpProbe(testUrl);
                 const ct = (resp.headers['content-type'] || '').toLowerCase();
                 if (ct.includes('html') && resp.body.includes(payload)) {
@@ -521,5 +521,5 @@ export const airiOffensiveSecurity = new AIRIOffensiveSecurity();
 
 // Make globally accessible
 if (typeof window !== 'undefined') {
-    (window as any).__AIRI_OFFENSIVE_SECURITY__ = airiOffensiveSecurity;
+    (window as any).__AIRI_OFFENSIVE_SECURITY__= airiOffensiveSecurity;
 }

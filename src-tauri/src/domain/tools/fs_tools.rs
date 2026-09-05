@@ -1960,9 +1960,9 @@ impl AiTools {
             let indent = "  ".repeat(depth);
             
             if entry.file_type().is_dir() {
-                tree.push_str(&format!("{}📁 {}/\n", indent, name));
+                tree.push_str(&format!("{} {}/\n", indent, name));
             } else {
-                tree.push_str(&format!("{}📄 {}\n", indent, name));
+                tree.push_str(&format!("{} {}\n", indent, name));
             }
             
             if tree.len() > 10000 {

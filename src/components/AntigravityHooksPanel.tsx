@@ -80,7 +80,7 @@ const AntigravityHooksPanel: React.FC = () => {
             />
             <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                 <button className="settings-button" onClick={() => void save()} disabled={!activeRoot}>
-                    {saved ? 'Saved ✓' : 'Save hooks.json'}
+                    {saved? 'Saved ': 'Save hooks.json'}
                 </button>
                 <button className="settings-button" onClick={() => void load()} disabled={!activeRoot} style={{ opacity: 0.7 }}>
                     Reload

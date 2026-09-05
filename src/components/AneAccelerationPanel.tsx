@@ -57,14 +57,14 @@ const AneAccelerationPanel: React.FC = () => {
         return <div style={{ padding: 16, opacity: 0.6 }}>Unable to detect ANE status</div>;
     }
 
-    const statusColor = status.available ? '#9ece6a' : '#888888';
+    const statusColor = status.available? '#9ece6a': '#888888';
     const aneActive = status.inference_mode === 'ane_aux_offload';
-    const modeColor = aneActive ? '#9ece6a' : '#e0af68';
+    const modeColor = aneActive? '#9ece6a': '#e0af68';
     const modeLabel = aneActive
-        ? 'ANE Aux Offload (search on NPU)'
-        : status.available
-            ? 'Ollama / Metal GPU (ANE idle)'
-            : 'Ollama (no ANE on this hardware)';
+? 'ANE Aux Offload (search on NPU)'
+: status.available
+? 'Ollama / Metal GPU (ANE idle)'
+: 'Ollama (no ANE on this hardware)';
 
     return (
         <div style={{ maxWidth: 680 }}>
@@ -85,13 +85,13 @@ const AneAccelerationPanel: React.FC = () => {
                     <div>
                         <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>ANE Available</div>
                         <div style={{ fontSize: 13, fontWeight: 500, color: statusColor }}>
-                            {status.available ? '✓ Yes' : '✗ No'}
+                            {status.available? ' Yes': ' No'}
                         </div>
                     </div>
                     <div>
                         <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>M1 or Newer</div>
                         <div style={{ fontSize: 13, fontWeight: 500, color: statusColor }}>
-                            {status.m1_or_newer ? '✓ Yes' : '✗ No'}
+                            {status.m1_or_newer? ' Yes': ' No'}
                         </div>
                     </div>
                 </div>
@@ -117,8 +117,8 @@ const AneAccelerationPanel: React.FC = () => {
                         <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>Measured Tokens/sec</div>
                         <div style={{ fontSize: 13, fontWeight: 500 }}>
                             {status.tokens_per_sec_estimate > 0
-                                ? `${status.tokens_per_sec_estimate.toFixed(0)} tok/s`
-                                : '— (no stream measured yet)'}
+? `${status.tokens_per_sec_estimate.toFixed(0)} tok/s`
+: '— (no stream measured yet)'}
                         </div>
                     </div>
                 </div>
@@ -139,20 +139,20 @@ const AneAccelerationPanel: React.FC = () => {
                         onClick={handleInitialize}
                         style={{ width: '100%' }}
                     >
-                        {initializing ? 'Compiling ANE kernel...' : 'Enable ANE Aux Offload'}
+                        {initializing? 'Compiling ANE kernel...': 'Enable ANE Aux Offload'}
                     </button>
                 )}
 
                 {status.available && aneActive && (
                     <div style={{ fontSize: 11, color: '#9ece6a', padding: 8, background: 'rgba(158, 206, 106, 0.1)', borderRadius: 4 }}>
-                        ✓ ANE is active: semantic search &amp; vector-index scoring run on the Neural Engine,
+                         ANE is active: semantic search &amp; vector-index scoring run on the Neural Engine,
                         keeping CPU/GPU free for Ollama token generation
                     </div>
                 )}
 
                 {!status.available && (
                     <div style={{ fontSize: 11, color: '#f7768e', padding: 8, background: 'rgba(247, 118, 142, 0.1)', borderRadius: 4 }}>
-                        ✗ ANE is not available on this system. Search scoring runs on CPU.
+                         ANE is not available on this system. Search scoring runs on CPU.
                     </div>
                 )}
             </div>
