@@ -178,8 +178,13 @@ const ExtensionsView: React.FC = () => {
     const [activeAccordion, setActiveAccordion] = useState<string | null>('marketplace');
 
     useEffect(() => {
-        refreshInstalledExtensions();
-        refreshPopularExtensions();
+        // Start the extension host (Node sidecar, ~34 MB) on first open of this
+        // view instead of at app boot — most sessions never touch Extensions.
+        // initExtensions() also does refreshInstalled/refreshPopular internally.
+        void import('../extensions').then(m => m.initExtensions()).catch(() => {
+            refreshInstalledExtensions();
+            refreshPopularExtensions();
+        });
     }, []);
 
     const handleSearch = (e: React.FormEvent) => {
