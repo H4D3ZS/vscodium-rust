@@ -147,3 +147,7 @@ Community AI-Portfolio/
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# App runtime state (written by the running IDE, not source)
+.agent/
+.aim/
