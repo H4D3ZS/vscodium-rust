@@ -1728,6 +1728,17 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 fastProvider = "Lemonade";
             }
 
+            // llama.cpp / Kortex backend: the server serves one model and
+            // ignores the requested name — route to its URL, not Lemonade's.
+            const fastLlamaCpp = inferenceBackend === 'llama-cpp';
+            if (fastLlamaCpp) {
+                fastProvider = 'Lemonade';
+                const gguf = store.getState().llamaCppModelPath?.trim();
+                fastModel = gguf
+                    ? gguf.replace(/^.*[\\/]/, '').replace(/\.gguf$/i, '')
+                    : (fastModel || 'local');
+            }
+
             // ── Resolve the model against the live Ollama install ────────
             // The user previously had a remote Ollama with a different
             // model catalog. After switching to local Ollama, the
@@ -1736,7 +1747,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             // and the chat hangs with no visible error. Fix it before we
             // make the call by swapping in whatever the user actually
             // has installed.
-            if (fastProvider.toLowerCase() === 'lemonade') {
+            if (fastProvider.toLowerCase() === 'lemonade' && !fastLlamaCpp) {
                 try {
                     const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
                     const resolved = await resolveOllamaModelTag(fastModel);
@@ -1761,7 +1772,9 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             // Non-Ollama local servers carry their base in `ollama_url` too
             // (see get_endpoint("lemonade"/"huggingface")). Point them at the
             // right server so the trivial-chat round-trip doesn't hit Ollama.
-            if (fastProvider.toLowerCase() === 'lemonade') {
+            if (fastLlamaCpp) {
+                fastOllamaUrl = store.getState().llamaCppUrl || 'http://localhost:8081';
+            } else if (fastProvider.toLowerCase() === 'lemonade') {
                 fastOllamaUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
             } else if (fastProvider.toLowerCase() === 'huggingface') {
                 fastOllamaUrl = 'https://router.huggingface.co/v1';
@@ -1991,9 +2004,14 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     let routingProvider = normalizedProvider;
     let routingModel = model;
     let routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
+    // Set when a branch has already pinned routingOllamaUrl to an explicit
+    // server (e.g. the llama.cpp / Kortex proxy URL) so the provider-keyed
+    // override below doesn't stomp it back to the Lemonade port.
+    let routingUrlLocked = false;
     if (inferenceBackend === 'llama-cpp') {
         routingProvider = 'lemonade';
         routingOllamaUrl = store.getState().llamaCppUrl || 'http://localhost:8081';
+        routingUrlLocked = true;
         const gguf = store.getState().llamaCppModelPath?.trim();
         if (gguf) {
             const seg = gguf.replace(/^.*[\\/]/, '').replace(/\.gguf$/i, '');
@@ -2078,7 +2096,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // Ollama base and the backend's get_endpoint("lemonade") would POST the
     // Lemonade model to the Ollama port → 404 / silent no-op. Force the right
     // server URL by the resolved provider regardless of inferenceBackend.
-    if (routingProvider === 'lemonade') {
+    if (routingProvider === 'lemonade' && !routingUrlLocked) {
         routingOllamaUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
     } else if (routingProvider === 'huggingface') {
         routingOllamaUrl = 'https://router.huggingface.co/v1';

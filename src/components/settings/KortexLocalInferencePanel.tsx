@@ -26,6 +26,8 @@ function progressHint(lines: string[]): string {
 }
 
 const BINARY_REL = 'src-tauri/binaries/rocmfpx/llama-server.exe';
+/** The port kortex_gac_launch binds llama-server to. The KV-cache proxy fronts it. */
+const UPSTREAM_URL = 'http://127.0.0.1:8081';
 
 const inputStyle: React.CSSProperties = {
     fontSize: 12, padding: '4px 8px', flex: 1, minWidth: 0,
@@ -103,6 +105,7 @@ export function KortexLocalInferencePanel() {
     const proxyPort = useStore(s => s.kvCacheProxyPort);
     const llamaCppUrl = useStore(s => s.llamaCppUrl);
     const setLlamaCppUrl = useStore(s => (s as any).setLlamaCppUrl);
+    const setLlamaCppModelPath = useStore(s => (s as any).setLlamaCppModelPath);
     const inferenceBackend = useStore(s => s.inferenceBackend);
     const setInferenceBackend = useStore(s => (s as any).setInferenceBackend);
     const activeRoot = useStore(s => (s as any).activeRoot as string | undefined);
@@ -144,10 +147,13 @@ export function KortexLocalInferencePanel() {
                     return;
                 }
             } catch { /* not running */ }
-            // A bare server already up at the URL?
-            if (!cancelled && await serverHealthy(llamaCppUrl)) {
+            // A bare llama-server already up (ours on :8081, or a manual one)?
+            if (cancelled) return;
+            const up = (await serverHealthy(UPSTREAM_URL)) ? UPSTREAM_URL
+                : (await serverHealthy(llamaCppUrl)) ? llamaCppUrl : null;
+            if (up) {
                 setPhase('connected');
-                setMsg(`Reachable at ${llamaCppUrl}`);
+                setMsg(`Server reachable at ${up} — press Connect to route chat through it.`);
             }
         })();
         return () => { cancelled = true; };
@@ -184,8 +190,11 @@ export function KortexLocalInferencePanel() {
 
     const useBackend = useCallback((url: string) => {
         setLlamaCppUrl?.(url);
+        // The chat router derives the model name from this when the backend is
+        // llama-cpp; without it, a stale model tag gets sent to the wrong server.
+        if (modelPath) setLlamaCppModelPath?.(modelPath);
         setInferenceBackend?.('llama-cpp');
-    }, [setLlamaCppUrl, setInferenceBackend]);
+    }, [setLlamaCppUrl, setLlamaCppModelPath, setInferenceBackend, modelPath]);
 
     const start = useCallback(async () => {
         abortRef.current = false;
@@ -196,9 +205,11 @@ export function KortexLocalInferencePanel() {
             const base = await resolveBase();
             if (!base) throw new Error('Could not resolve a cache directory.');
 
-            let upstream = llamaCppUrl;
+            // Where the actual llama-server lives (the KV-cache proxy fronts it).
+            let upstream = UPSTREAM_URL;
 
-            if (await serverHealthy(llamaCppUrl)) {
+            if (await serverHealthy(UPSTREAM_URL) || await serverHealthy(llamaCppUrl)) {
+                upstream = (await serverHealthy(UPSTREAM_URL)) ? UPSTREAM_URL : llamaCppUrl;
                 setMsg('Connecting the prefix cache to the running server…');
             } else {
                 if (!modelPath) throw new Error('No model found. Open "Model & engine" and pick a .gguf.');
@@ -221,7 +232,8 @@ export function KortexLocalInferencePanel() {
                 });
                 startedByUs.current = true;
 
-                // Poll for health, surfacing log progress the whole time.
+                // Poll the *upstream* (:8081) — NOT llamaCppUrl, which may still
+                // point at the not-yet-started proxy.
                 const t0 = Date.now();
                 const DEADLINE_MS = 8 * 60_000;
                 for (;;) {
@@ -237,7 +249,7 @@ export function KortexLocalInferencePanel() {
                         const tail = (await gac.getServerLog(12)).join('\n');
                         throw new Error(`llama-server exited (code ${status.exit_code ?? '?'}).\n${tail}`);
                     }
-                    if (await serverHealthy(llamaCppUrl)) break;
+                    if (await serverHealthy(UPSTREAM_URL)) break;
                     if (Date.now() - t0 > DEADLINE_MS) {
                         throw new Error(`Model didn't finish loading in ${DEADLINE_MS / 60000} min. Last log:\n${(await gac.getServerLog(12)).join('\n')}`);
                     }
@@ -299,19 +311,29 @@ export function KortexLocalInferencePanel() {
     const label = { fontSize: 11, opacity: 0.8, marginTop: 4 } as React.CSSProperties;
     const row = { display: 'flex', gap: 6 } as React.CSSProperties;
 
+    const selectThisBackend = () => {
+        setInferenceBackend?.('llama-cpp');
+        setLlamaCppUrl?.(running ? `http://127.0.0.1:${proxyPort || 1537}` : UPSTREAM_URL);
+        if (modelPath) setLlamaCppModelPath?.(modelPath);
+    };
+
     return (
         <div style={{ borderBottom: '1px solid var(--vscode-panel-border)', paddingBottom: 12 }}>
-            {/* main row — same rhythm as the radio rows below */}
+            {/* main row — a real backend option in the same radio group as the rest */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{
-                    width: 10, height: 10, borderRadius: '50%', flex: 'none',
-                    background: running || phase === 'connected' ? dotColor : 'transparent',
-                    border: `2px solid ${dotColor}`, boxSizing: 'border-box',
-                }} />
-                <span style={{ fontSize: 12, fontWeight: 600 }}>Kortex ROCmFPX</span>
-                <span style={{ fontSize: 11, opacity: 0.55, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {statusText}
-                </span>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', flex: 1, minWidth: 0 }}>
+                    <input type="radio" name="inference-backend"
+                        checked={isActiveBackend}
+                        onChange={selectThisBackend} />
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>Kortex ROCmFPX</span>
+                    <span style={{
+                        width: 8, height: 8, borderRadius: '50%', flex: 'none',
+                        background: running || phase === 'connected' || busy || phase === 'error' ? dotColor : '#555',
+                    }} />
+                    <span style={{ fontSize: 11, opacity: 0.55, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {statusText}
+                    </span>
+                </label>
                 {running || busy
                     ? <button type="button" style={{ ...btn, padding: '3px 10px' }} onClick={stop}>{busy ? 'Cancel' : 'Stop'}</button>
                     : <button type="button" style={{ ...primaryBtn, padding: '3px 12px' }} onClick={start}>

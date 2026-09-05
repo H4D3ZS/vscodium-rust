@@ -315,6 +315,28 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_fs::init())
+        .on_window_event(|window, event| {
+            // Kill the child llama-server when the main window closes. Without
+            // this the ~18 GB llama-server outlives the IDE and keeps holding
+            // RAM/VRAM until it's killed by hand. stop_server() is synchronous
+            // (it just SIGKILLs the child), so it's safe to run here; the
+            // KV-cache proxy is an in-process task that dies with the app, so we
+            // only nudge it to flush its shutdown checkpoint, best-effort.
+            let is_main = window.label() == "main";
+            if is_main
+                && matches!(
+                    event,
+                    tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+                )
+            {
+                if let Err(e) = crate::kortex_gac::stop_server() {
+                    eprintln!("[shutdown] kortex_gac stop_server failed: {e}");
+                }
+                tauri::async_runtime::spawn(async {
+                    let _ = crate::kortex_kvcache::kortex_kvcache_stop().await;
+                });
+            }
+        })
         .setup(|app| {
             // Manage EditorState as an Arc so engine subsystems can hold a
             // Weak<EditorState> back-reference (decouples them from AppHandle).
