@@ -23,6 +23,28 @@ export default defineConfig(() => {
         ollama: resolve(import.meta.dirname, 'node_modules/ollama/dist/browser.mjs'),
       },
     },
+    // Pre-bundle everything the (heavily React.lazy'd) app pulls in, so the dev
+    // server doesn't discover a new dep per panel, re-optimize, and force a full
+    // page reload each time — which cascades into a white-screen reload loop.
+    optimizeDeps: {
+      include: [
+        'react', 'react-dom', 'react-dom/client',
+        'zustand', 'zustand/react/shallow',
+        'monaco-editor', '@monaco-editor/react',
+        '@heroui/react',
+        'lucide-react', '@tabler/icons-react',
+        'react-window',
+        'marked', 'react-markdown', 'remark-gfm',
+        'diff', 'dompurify',
+        'reactflow',
+        'three', '@pixiv/three-vrm', '@pixiv/three-vrm-springbone',
+        '@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-canvas', '@xterm/addon-webgl',
+        '@xterm/addon-search', '@xterm/addon-web-links', '@xterm/addon-unicode11',
+        '@tauri-apps/api', '@tauri-apps/api/core', '@tauri-apps/api/event',
+        '@tauri-apps/api/window', '@tauri-apps/api/path',
+        '@tauri-apps/plugin-dialog',
+      ],
+    },
     build: {
       outDir: '../dist',
       emptyOutDir: true,
