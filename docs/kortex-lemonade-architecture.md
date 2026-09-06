@@ -16,6 +16,18 @@ high-frequency structured work it's actually good at. The 4B streams from
 RAM on CPU/partial-offload if VRAM is tight; a 3 GB weight read per short
 tool turn is not a bottleneck.
 
+**Who runs on the Operator** (resolved in `gpu_offload.rs` —
+`operator_model()` / `operator_url()`, overridable via
+`KORTEX_OPERATOR_MODEL` / `KORTEX_OPERATOR_URL`):
+
+- **Sub-agents** — the `task` tool spawns a bounded child loop; that whole
+  loop runs on the Operator against Lemonade directly (not the reasoner's
+  URL, even when it's been repointed at the Kortex proxy).
+- **APEX engines** on Lite/Mid tier — the whole specialist bank collapses
+  onto the one Operator model.
+- **The reasoner** keeps the main agent loop and anything the user drives
+  from the chat box.
+
 **Lemonade** (AMD's own OpenAI-compatible llama.cpp server) is the backbone
 for the Operator: it serves the GGUF over `/v1/chat/completions`, which is
 the one wire protocol the whole stack speaks.

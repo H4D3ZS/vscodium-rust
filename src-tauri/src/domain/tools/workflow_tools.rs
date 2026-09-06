@@ -189,6 +189,11 @@ impl AiTools {
     /// text. The child gets a fresh message list (just the task string), a tight
     /// iteration cap (`KORTEX_SUBAGENT_MAX_ITERS`, default 15), no root access,
     /// and may not spawn its own sub-agents. Plan §3.2.
+    ///
+    /// The child runs on the **Operator** (the small fast model on Lemonade),
+    /// not the reasoner — sub-agent work is tool-call grunt work, which is
+    /// exactly what the Operator is for. `KORTEX_OPERATOR_MODEL` /
+    /// `KORTEX_OPERATOR_URL` override; `KORTEX_SUBAGENT_MODEL` still works.
     pub(crate) async fn handle_subagent_task(&self, args: Value) -> Result<Value> {
         let task = args
             .get("task")
@@ -217,14 +222,13 @@ impl AiTools {
             .ok_or_else(|| anyhow!("task: editor state unavailable"))?;
 
         let engine = state.ai.engine.clone();
-        let model = match std::env::var("KORTEX_SUBAGENT_MODEL")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-        {
-            Some(m) => m,
-            None => state.ai.current_model.lock().await.clone(),
-        };
         drop(state); // don't hold the EditorState handle across the child run
+
+        // Run on the Operator (small model on Lemonade), resolved independently
+        // of the main backend — so a sub-agent still hits :13305 even when the
+        // reasoner's URL was repointed at the Kortex proxy in front of :8081.
+        let model = crate::gpu_offload::operator_model();
+        let operator_url = crate::gpu_offload::operator_url();
 
         let req = crate::ai_engine::AiRequest {
             provider: "lemonade".to_string(),
@@ -241,7 +245,7 @@ impl AiTools {
             mode: Some("Subagent".to_string()),
             cyber_mode: None,
             root_access: Some(false),
-            inference_url: None,
+            inference_url: Some(operator_url),
             tools: None,
             reasoning_budget: None,
             reasoning_effort: None,

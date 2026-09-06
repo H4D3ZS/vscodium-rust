@@ -58,6 +58,43 @@ const LITE_MODEL: &str = "qwen3.5:4b";
 /// Mid tier also shares one model: 7b weights + KV is most of 16GB's budget.
 const MID_MODEL: &str = "qwen3.5:7b";
 
+// ─── The Operator ──────────────────────────────────────────────────────────
+//
+// The task split: the big model on ROCmFPX reasons; the "Operator" — a small
+// fast model on Lemonade — does the high-frequency structured work it's
+// actually reliable at (tool-call JSON, sub-agent grunt work, APEX sweeps).
+// Keeping them on separate servers means the reasoner keeps its VRAM/KV
+// budget while the Operator turns over quickly.
+
+/// The Operator model id. `KORTEX_OPERATOR_MODEL` overrides; `KORTEX_SUBAGENT_MODEL`
+/// is still read for back-compat; otherwise the Lite-tier small model.
+pub fn operator_model() -> String {
+    std::env::var("KORTEX_OPERATOR_MODEL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            std::env::var("KORTEX_SUBAGENT_MODEL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+        })
+        .unwrap_or_else(|| LITE_MODEL.to_string())
+}
+
+/// The Operator's Lemonade base URL — resolved independently of whatever the
+/// main inference URL was repointed to (the Kortex proxy fronting the 30B on
+/// :8081, say). `KORTEX_OPERATOR_URL` then `LEMONADE_URL` then the default port.
+pub fn operator_url() -> String {
+    std::env::var("KORTEX_OPERATOR_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            std::env::var("LEMONADE_URL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+        })
+        .unwrap_or_else(|| "http://localhost:13305".to_string())
+}
+
 /// Security specialist for the `threat` engine on Full tier. DeepHat-V1-7B is a
 /// Qwen2.5-Coder-7B fine-tune specialized for offensive/defensive cybersecurity
 /// and DevOps (successor to WhiteRabbitNeo, 128K ctx via YaRN). the local backend resolves
