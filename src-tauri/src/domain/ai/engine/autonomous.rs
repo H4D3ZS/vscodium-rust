@@ -87,6 +87,66 @@ fn resolve_domain_tools(task_desc: &str) -> Option<&'static [&'static str]> {
 /// Result of slash command handling.
 enum SlashResult { Handled(String), Continue }
 
+/// Detect a degenerate repetition loop in a growing generation buffer.
+///
+/// A ~2.5-bit quant of a large MoE can lock into repeating a phrase, a line,
+/// or a whole sentence in its reasoning — the "Thought for 2m…" hang with no
+/// tool call. The inter-token watchdog never fires (tokens *are* flowing) and
+/// the tool-call stuck-loop guard never sees it (no tool calls yet), so the
+/// turn burns the entire `max_tokens` budget on garbage.
+///
+/// This scans the tail for a repeating period `p` (covers single-char, word,
+/// line and paragraph loops in one check): if `tail[-p..] == tail[-2p..-p] ==
+/// tail[-3p..-2p]`, the text is cycling. Returns the byte offset in `text`
+/// where the cycling began, so the caller can keep the clean prefix and drop
+/// the degenerate tail.
+fn degenerate_loop_start(text: &str) -> Option<usize> {
+    // Only look once there's enough tail to be sure it's a loop, not a list.
+    const WINDOW: usize = 1600;
+    const MIN_PERIOD: usize = 12;
+    const MAX_PERIOD: usize = 400;
+    const MIN_REPEATS: usize = 3;
+
+    let bytes = text.as_bytes();
+    let n = bytes.len();
+    if n < MIN_PERIOD * (MIN_REPEATS + 1) {
+        return None;
+    }
+    let win_start = n.saturating_sub(WINDOW);
+    let tail = &bytes[win_start..];
+    let tn = tail.len();
+
+    let max_p = MAX_PERIOD.min(tn / (MIN_REPEATS + 1));
+    for p in MIN_PERIOD..=max_p {
+        // Compare the last `p` bytes against the preceding blocks of `p`.
+        let last = &tail[tn - p..];
+        let mut repeats = 1usize;
+        while (repeats + 1) * p <= tn
+            && &tail[tn - (repeats + 1) * p..tn - repeats * p] == last
+        {
+            repeats += 1;
+        }
+        if repeats >= MIN_REPEATS {
+            // Extend the periodic region backward byte-by-byte to the true start
+            // of the cycle (block stepping can leave a partial period attached to
+            // the clean prefix).
+            let mut start_in_tail = tn - repeats * p;
+            while start_in_tail > 0 && tail[start_in_tail - 1] == tail[start_in_tail - 1 + p] {
+                start_in_tail -= 1;
+            }
+            // Keep one clean copy of the repeated unit; drop everything after it.
+            let cut_in_tail = (start_in_tail + p).min(tn);
+            let mut cut = (win_start + cut_in_tail).min(n);
+            // Land on a UTF-8 boundary.
+            while cut > 0 && !text.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            return Some(cut);
+        }
+    }
+    None
+}
+
 impl Sentient {
     pub async fn autonomous_loop(
         self: Arc<Self>,
@@ -2035,6 +2095,26 @@ impl Sentient {
                 if is_local_inference && !is_chat_mode {
                     base["frequency_penalty"] = json!(0.3);
                     base["presence_penalty"] = json!(0.2);
+                    // OpenAI-style penalties alone don't break a hard verbatim
+                    // loop on an aggressively-quantised local model (a ~2.5-bit
+                    // 35B repeating a whole sentence in its reasoning). Add
+                    // llama.cpp's DRY sampler + a real repeat penalty; the
+                    // ROCmFPX server reads these straight off the request body
+                    // (server-task.cpp) and the Kortex proxy forwards them
+                    // unchanged. DRY targets exact repetition without the
+                    // "pushes toward '/'" damage a high repeat_penalty does on
+                    // its own, so it stays safe on prose. Servers that don't
+                    // know these fields ignore them.
+                    base["repeat_penalty"] = json!(1.15);
+                    base["repeat_last_n"] = json!(320);
+                    base["dry_multiplier"] = json!(0.8);
+                    base["dry_base"] = json!(1.75);
+                    base["dry_allowed_length"] = json!(2);
+                    base["dry_penalty_last_n"] = json!(-1); // whole context window
+                    // top_p 1.0 (no nucleus truncation) + a low temperature is a
+                    // known loop recipe on low-bit quants — clamp the tail.
+                    base["top_p"] = json!(0.95);
+                    base["min_p"] = json!(0.05);
                 }
                 // Ensure max_tokens is always set for local inference to prevent
                 // infinite generation loops.
@@ -2604,6 +2684,9 @@ impl Sentient {
             // Monotonic fingerprint of everything that grows with generated tokens.
             // Keepalives/pings don't touch any of these, so they can't reset the clock.
             let mut max_activity: usize = 0;
+            // Degenerate-loop guard: last combined buffer length we scanned, so
+            // the O(window·period) check only runs every ~600 new chars.
+            let mut last_loop_scan_len: usize = 0;
             loop {
                 let activity: usize = tokens_count
                     + full_content.len()
@@ -2619,6 +2702,41 @@ impl Sentient {
                     token_deadline = std::time::Instant::now()
                         + std::time::Duration::from_secs(WARM_TOKEN_SECS);
                 }
+
+                // Catch a verbatim repetition lock before it burns the whole
+                // max_tokens budget. Scan whichever buffer is carrying the
+                // generation; on a hit, drop the degenerate tail (keep one
+                // clean copy) and salvage the turn via the stall path.
+                let combined_len = full_content.len() + reasoning_buf.len();
+                if combined_len >= 400 && combined_len - last_loop_scan_len >= 600 {
+                    last_loop_scan_len = combined_len;
+                    let (buf_name, cut) = if reasoning_buf.len() >= full_content.len() {
+                        ("reasoning", degenerate_loop_start(&reasoning_buf))
+                    } else {
+                        ("content", degenerate_loop_start(&full_content))
+                    };
+                    if let Some(cut) = cut {
+                        let before = if buf_name == "reasoning" { reasoning_buf.len() } else { full_content.len() };
+                        if buf_name == "reasoning" {
+                            reasoning_buf.truncate(cut);
+                        } else {
+                            full_content.truncate(cut);
+                        }
+                        println!(
+                            "[{}] REPETITION LOOP: {} buffer cycling — cut {} degenerate bytes ({}→{}), salvaging turn.",
+                            request_id, buf_name, before - cut, before, cut
+                        );
+                        self.emit_event("ai-repetition-loop", json!({
+                            "buffer": buf_name,
+                            "dropped_bytes": before - cut,
+                            "model": active_model,
+                            "provider": active_provider,
+                        }));
+                        stream_stalled = true;
+                        break;
+                    }
+                }
+
                 let now = std::time::Instant::now();
                 if now >= token_deadline {
                     // No new tokens within the budget. Only flag a stall (→ salvage +
@@ -4533,6 +4651,52 @@ impl Sentient {
         Ok(SlashResult::Continue)
     }
 
+}
+
+#[cfg(test)]
+mod degenerate_loop_tests {
+    use super::degenerate_loop_start;
+
+    #[test]
+    fn clean_prose_is_not_flagged() {
+        let s = "I need to explore the repository structure and then analyze the files \
+                 for potential problems. Let me start by listing the top-level directories \
+                 and reading the manifest so I understand how the crate is laid out.";
+        assert_eq!(degenerate_loop_start(s), None);
+    }
+
+    #[test]
+    fn a_repeated_sentence_is_caught_and_cut_after_one_copy() {
+        let sentence = "The user wants me to audit the entire codebase for bugs, dead code, \
+                        and architectural issues. I need to explore the repository. ";
+        let looped = format!("Okay. {}{}{}{}{}", sentence, sentence, sentence, sentence, sentence);
+        let cut = degenerate_loop_start(&looped).expect("loop must be detected");
+        // At least three of the five copies are dropped...
+        assert!(looped.len() - cut >= 3 * sentence.len(), "cut {} kept too much", cut);
+        // ...and no more than one copy is kept.
+        assert!(looped[..cut].matches("audit the entire codebase").count() <= 1);
+    }
+
+    #[test]
+    fn single_char_spam_is_caught() {
+        let s = format!("working{}", "x".repeat(500));
+        let cut = degenerate_loop_start(&s).expect("char spam must be detected");
+        assert!(cut <= "working".len() + 12);
+    }
+
+    #[test]
+    fn a_short_numbered_list_is_not_a_loop() {
+        let s = "1. first item here\n2. second item here\n3. third item here\n4. fourth item\n";
+        assert_eq!(degenerate_loop_start(s), None);
+    }
+
+    #[test]
+    fn cut_lands_on_a_utf8_boundary() {
+        let unit = "café ✓ ";
+        let s = unit.repeat(60);
+        let cut = degenerate_loop_start(&s).expect("detected");
+        assert!(s.is_char_boundary(cut));
+    }
 }
 
 #[cfg(test)]
