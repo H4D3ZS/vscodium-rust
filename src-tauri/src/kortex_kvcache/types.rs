@@ -37,6 +37,9 @@ pub enum SaveReason {
     Evict,
     /// Save on clean server shutdown so the next start can resume sessions.
     Shutdown,
+    /// A message-boundary checkpoint that aliases another entry's slot file, so
+    /// a mid-context edit still finds a usable KV prefix. Plan §2.6.
+    Anchor,
 }
 
 impl Default for SaveReason {
@@ -299,6 +302,10 @@ pub struct KvCacheStats {
     pub evictions: u64,
     /// Sum of tokens we *didn't* prefill thanks to cache hits.
     pub tokens_skipped: u64,
+    /// Message-boundary anchor index entries written (they alias an existing
+    /// slot file, so they don't count toward `saves` or `total_bytes`). Plan §2.6.
+    #[serde(default)]
+    pub anchor_saves: u64,
 }
 
 /// What the proxy decided to do with one request — used for tracing + the η metric.

@@ -13,6 +13,7 @@
 //!      forwards to the llama-server `upstream_url`.
 //!   3. IDE clients point at the proxy URL instead of the raw upstream.
 
+pub mod anchors;
 pub mod capability;
 pub mod llamacpp;
 pub mod proxy;

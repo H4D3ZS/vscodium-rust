@@ -59,6 +59,8 @@ pub struct ProxyState {
     /// Tier 2 exact-match response cache. Off unless `KORTEX_TIER2=1`; when off
     /// every request flows straight through to the tier logic below.
     pub tier2: Arc<super::response_cache::ResponseCache>,
+    /// Message-boundary KV anchors (plan §2.6). Off unless `KORTEX_KV_ANCHORS=1`.
+    pub anchors: super::anchors::AnchorConfig,
 }
 
 impl ProxyState {
@@ -95,6 +97,7 @@ impl ProxyState {
             resolved_tier,
             harness,
             tier2: Arc::new(super::response_cache::ResponseCache::from_env()),
+            anchors: super::anchors::AnchorConfig::from_env(),
         }
     }
 
@@ -629,16 +632,104 @@ async fn spawn_save_after(state: SharedProxy, save: SaveAfterStream) {
         save_reason: SaveReason::Cold,
     };
 
-    let mut s = state.store.lock().await;
-    if let Err(e) = s.put_with_reason(entry, SaveReason::Cold) {
-        tracing::warn!("[kortex-kvcache] put failed: {}", e);
-    } else {
+    {
+        let mut s = state.store.lock().await;
+        if let Err(e) = s.put_with_reason(entry, SaveReason::Cold) {
+            tracing::warn!("[kortex-kvcache] put failed: {}", e);
+            return;
+        }
         tracing::info!(
             "[kortex-kvcache] SAVE sha={} ({} tokens, {:.1} MB)",
             &sha[..8],
             save_count,
             slotbin_size as f64 / (1024.0 * 1024.0)
         );
+    }
+
+    // Plan §2.6 — after the tail save, checkpoint the last few message
+    // boundaries as anchor entries that alias this same slot file. On a later
+    // mid-context edit, `longest_prefix` still finds a usable KV prefix up to
+    // one of these boundaries where a raw longest-token-prefix match would have
+    // diverged early. Off unless `KORTEX_KV_ANCHORS=1`.
+    if state.anchors.enabled {
+        write_boundary_anchors(&state, &tokens, save_count, &sha).await;
+    }
+}
+
+/// Tokenise the last few message boundaries of the just-saved prefix and record
+/// an [`SaveReason::Anchor`] index entry for each, all pointing at
+/// `<tail_sha>.slotbin`.
+async fn write_boundary_anchors(
+    state: &SharedProxy,
+    tokens: &[u32],
+    save_count: u32,
+    tail_sha: &str,
+) {
+    let cfg = state.anchors;
+    // Reconstruct the render text for the saved prefix so boundary offsets line
+    // up with what was tokenised. `note_live_session` already stored the full
+    // prefix_text; re-render from the live session to avoid threading it here.
+    let render = {
+        let g = state.live_session.lock().await;
+        match g.as_ref() {
+            Some(ls) => ls.prefix_text.clone(),
+            None => return,
+        }
+    };
+    let slotbin = slotbin_path(&state.opts, tail_sha)
+        .to_string_lossy()
+        .into_owned();
+
+    let mut anchors: Vec<KvCacheEntry> = Vec::new();
+    for byte_off in super::anchors::tail_boundary_offsets(&render, cfg.max_anchors) {
+        let Some(sub) = render.get(..byte_off) else {
+            continue;
+        };
+        if sub.is_empty() {
+            continue;
+        }
+        let toks = match state.client.tokenize(sub).await {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let n = toks.len() as u32;
+        // Must be a real prefix of the saved token stream, long enough to be
+        // worth a restore, and comfortably short of the tail.
+        if n < state.opts.min_tokens
+            || n + cfg.min_gap_tokens >= save_count
+            || (n as usize) > tokens.len()
+            || tokens.get(..n as usize) != Some(&toks[..])
+        {
+            continue;
+        }
+        let asha = sha256_tokens_hex(&toks);
+        anchors.push(KvCacheEntry {
+            sha: asha,
+            prefix_token_count: n,
+            ctx_size: 0,
+            created_at: KvCacheEntry::now_unix(),
+            last_used_at: KvCacheEntry::now_unix(),
+            hit_count: 0,
+            slotbin_path: slotbin.clone(),
+            slotbin_size: 0,
+            rendered_text: sub.chars().take(2048).collect(),
+            model: state.opts.model.clone(),
+            save_reason: SaveReason::Anchor,
+        });
+    }
+
+    if anchors.is_empty() {
+        return;
+    }
+    let n_anchors = anchors.len();
+    let mut s = state.store.lock().await;
+    match s.put_anchors(anchors) {
+        Ok(()) => tracing::info!(
+            "[kortex-kvcache] +{} anchor(s) for sha={}",
+            n_anchors,
+            &tail_sha[..8]
+        ),
+        Err(e) => tracing::warn!("[kortex-kvcache] put_anchors failed: {}", e),
     }
 }
 

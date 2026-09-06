@@ -58,13 +58,13 @@ model alias + probes real `/props` `n_ctx` + refuses below 24k.
 | §3.1 skills runtime | `3b62e6c0` | **done** — `domain/skills/mod.rs` (`.claude/skills` + `.agent/skills` scan, frontmatter, dedup); `use_skill`/`search_skills` are real; `skill`/`list_skills` aliases. |
 | Remote agent bridge | `40b7b4a0` | **done** — `remote_bridge.rs`: 127.0.0.1 WebSocket → `Sentient::autonomous_loop`, token auth, `KORTEX_REMOTE=1` autostart, `remote_bridge_{start,stop,status}`. |
 | §2.4 Tier 2 response cache | `b5ebd522` | **done (v1)** — `kortex_kvcache/response_cache.rs` (exact-key LRU, determinism gate, `validate` rejects failures/truncated streams); `tier2_around` wraps the chat/completions handlers, replays byte-for-byte with `x-kortex-cache: hit`, tees misses on clean stream end. Off unless `KORTEX_TIER2=1`. 11 tests. |
-| §3.2 sub-agent nesting | _this branch_ | **done (v1)** — `task` tool → `handle_subagent_task`: bounded (`KORTEX_SUBAGENT_MAX_ITERS`, default 15, via a `"Subagent"` mode branch), isolated (fresh 1-message `AiRequest`, no root), one level deep (`SubagentDepthGuard`). Runs the child `autonomous_loop` on its own thread+runtime (its future is `!Send`); returns only final text. |
+| §3.2 sub-agent nesting | `47635dff` | **done (v1)** — `task` tool → `handle_subagent_task`: bounded (`KORTEX_SUBAGENT_MAX_ITERS`, default 15, via a `"Subagent"` mode branch), isolated (fresh 1-message `AiRequest`, no root), one level deep (`SubagentDepthGuard`). Runs the child `autonomous_loop` on its own thread+runtime (its future is `!Send`); returns only final text. |
+| §2.6 semantic-anchor KV checkpoints | _this branch_ | **done (v1)** — `anchors.rs` (`tail_boundary_offsets` + `AnchorConfig`), `proxy.rs::write_boundary_anchors`, `store.rs::put_anchors` + family-aware eviction. Anchors alias the tail `.slotbin`; `longest_prefix` unchanged. Off unless `KORTEX_KV_ANCHORS=1`. Store-level tests; live mid-edit validation pending. |
 
 ### Still open
 
 - **§2.3 `/v1/messages`** — needs Anthropic↔OpenAI translation + fixtures from a
   real Claude Code capture. Supervised.
-- **§2.6 semantic-anchor KV checkpoints** — designed above, not built.
 - **§3.3 Tier 0 residency** — goes with the broader Ollama removal.
 - **§2.6 (new, from FreeToken)** — see below.
 
@@ -100,6 +100,34 @@ lookup in `handle_intercepted`), `types.rs` (`PrefixMatch` carries which anchor)
 except the final tool block) still gets a KV-slot HIT covering everything up to
 that tool block, where longest-prefix-only would have missed most of it. Add a
 fixture that reproduces the mid-edit.
+
+**Implemented (v1, `KORTEX_KV_ANCHORS=1`).**
+
+- `kortex_kvcache/anchors.rs` — `AnchorConfig::from_env()`
+  (`KORTEX_KV_ANCHORS`, `KORTEX_KV_ANCHORS_MAX` default 3,
+  `KORTEX_KV_ANCHORS_MIN_GAP` default 64) + `tail_boundary_offsets(render, max)`
+  (pure: byte offsets just past the last `max` message-boundary newlines,
+  tail-first, always a char boundary). 5 tests.
+- `proxy.rs::write_boundary_anchors` — after a successful tail save, tokenises
+  each tail boundary offset, keeps those that are a true token-prefix of the
+  saved stream, `>= min_tokens`, and `+ min_gap < save_count`, and writes them
+  via `store.put_anchors`.
+- **No retroactive short save.** An anchor entry *aliases the tail's
+  `<sha>.slotbin`* — llama-server can't snapshot a shorter state after the fact,
+  but on restore it loads the full slot and trims its KV to the common prefix
+  with the request, so an anchor keyed at boundary N restores everything up to
+  N. `longest_prefix` needs **no change** — the anchor is just another (shorter)
+  prefix it already searches.
+- `store.rs` — `put_anchors` (forces `slotbin_size = 0`, `SaveReason::Anchor`,
+  skips `saves`/`total_bytes`/eviction, bumps `stats.anchor_saves`);
+  `evict_to_budget` is now family-aware: anchors don't drive LRU order, and
+  evicting a tail entry deletes its slot file *and* drops every anchor that was
+  aliasing it (a `slotbin_refcount` guards the unlink). `types.rs` —
+  `SaveReason::Anchor`, `KvCacheStats.anchor_saves`.
+- **v1 gaps:** costs ≤ `max_anchors` extra `/tokenize` calls per save (only when
+  the flag is on); the on-path restore win is unit-tested at the store level but
+  not yet validated against a live llama-server with a real mid-edit capture
+  (the plan's "Done when" fixture).
 
 **Not adopting** from FreeToken: expert-offload / PCIe streaming / FTW weight
 format — those are serving-engine (ROCmFPX/llama.cpp) concerns, not the proxy's.
