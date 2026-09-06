@@ -108,6 +108,7 @@ export function KortexLocalInferencePanel() {
     const setLlamaCppModelPath = useStore(s => (s as any).setLlamaCppModelPath);
     const inferenceBackend = useStore(s => s.inferenceBackend);
     const setInferenceBackend = useStore(s => (s as any).setInferenceBackend);
+    const setAgentModel = useStore(s => (s as any).setAgentModel);
     const activeRoot = useStore(s => (s as any).activeRoot as string | undefined);
 
     const [modelPath, setModelPath] = useState<string>(() => {
@@ -242,7 +243,14 @@ export function KortexLocalInferencePanel() {
         // llama-cpp; without it, a stale model tag gets sent to the wrong server.
         if (modelPath) setLlamaCppModelPath?.(modelPath);
         setInferenceBackend?.('llama-cpp');
-    }, [setLlamaCppUrl, setLlamaCppModelPath, setInferenceBackend, modelPath]);
+        // Sync the chat model picker to what this server actually loaded, so the
+        // toolbar isn't still showing a stale tag (e.g. the old Escha model)
+        // that would trigger a *second* model load on Lemonade.
+        if (modelPath) {
+            const seg = (modelPath.split(/[\\/]/).pop() || '').replace(/\.gguf$/i, '');
+            if (seg) setAgentModel?.(`lemonade|${seg}`);
+        }
+    }, [setLlamaCppUrl, setLlamaCppModelPath, setInferenceBackend, setAgentModel, modelPath]);
 
     const start = useCallback(async () => {
         abortRef.current = false;
@@ -327,9 +335,23 @@ export function KortexLocalInferencePanel() {
                 proxy_port: proxyPort || 1537,
                 max_bytes: (vramMb && vramMb > 0 ? vramMb : 16384) * 1024 * 1024,
             });
-            const boundPort = await kv.startKvCache(opts).catch((e) => {
-                if (String(e).includes('already running')) return proxyPort || 1537;
-                throw e;
+            const boundPort = await kv.startKvCache(opts).catch(async (e) => {
+                if (!String(e).includes('already running')) throw e;
+                // A proxy is already up — but is it fronting THIS server? If it
+                // was started earlier pointing at Lemonade (:13305), agent
+                // traffic would hit a *second* model there, loading it into the
+                // same 16 GB VRAM as our llama-server. Restart it on the right
+                // upstream so only one model is resident.
+                try {
+                    const cur = await kv.getKvCacheStatus();
+                    const curUp = (cur?.upstream_url || '').replace(/\/$/, '');
+                    if (curUp && curUp !== upstream.replace(/\/$/, '')) {
+                        setMsg(`Prefix cache was fronting ${curUp} — repointing to ${upstream}…`);
+                        await kv.stopKvCache().catch(() => { /* */ });
+                        return await kv.startKvCache(opts);
+                    }
+                } catch { /* fall through to reuse */ }
+                return proxyPort || 1537;
             });
 
             const proxyUrl = `http://127.0.0.1:${boundPort}`;
