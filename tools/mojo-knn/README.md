@@ -38,15 +38,20 @@ already owns that) because:
 
 ## Run it
 
+The Mojo toolchain comes from **our fork** (`docs/mojo-fork.md`), not a
+global SDK install — that's how we pin the compiler version.
+
 ```bash
-# 1. Install the Mojo SDK (https://www.modular.com/max/install). Needs `mojo` on PATH.
-mojo --version
+# 1. Check out + provision the fork (once).
+scripts/setup-modular.sh
+cd modular && pixi install          # pinned Mojo compiler + deps
 
-# 2. Build the kernel binary
-cd tools/mojo-knn
-mojo build knn.mojo -o knn
+# 2. Build the kernel binary against the fork's toolchain.
+pixi run mojo build ../tools/mojo-knn/knn.mojo -o ../tools/mojo-knn/knn
 
-# 3. Benchmark against the NumPy reference
+# 3. Benchmark against the NumPy reference + the scalar Rust baseline.
+cd ../tools/mojo-knn
+rustc -O reference.rs -o reference
 python bench.py --n 50000 --dim 1024 --k 8 --queries 200
 #  -> writes bench.bin, runs ./knn, compares recall@8 and median latency
 ```
@@ -58,13 +63,14 @@ it and we keep the Rust kernel.
 
 ## Integration path (once the bench clears the bar)
 
-1. `mojo build knn.mojo --emit shared-lib -o libkortex_knn.so` (`.dylib` /
-   `.dll` per OS).
-2. A thin `libaim` feature `mojo-knn`: `extern "C"` decl of `topk_cosine`,
+1. Promote `knn.mojo` into the fork at
+   `modular/max/kernels/src/kortex/knn.mojo` (on the `kortex` branch — see
+   `docs/mojo-fork.md`), with a `BUILD.bazel` shared-lib target.
+2. Build it: `pixi run mojo build … --emit shared-lib -o
+   src-tauri/binaries/kortex/libkortex_knn.{so,dylib,dll}`.
+3. A thin `libaim` feature `mojo-knn`: `extern "C"` decl of `topk_cosine`,
    `libloading::Library::new` at catalog open, used by `page_fault`'s
-   re-rank step; `#[cfg(not(feature))]` or a null-handle check falls back
-   to the existing Rust `dot` loop.
-3. Ship the compiled lib next to the `aim-vfs` / `aim-proxy` binaries the
-   IDE already resolves via `kortex_bin::find_kortex_tool`.
+   re-rank step; a null-handle check falls back to the existing Rust `dot`
+   loop. The IDE resolves the lib via `kortex_bin::find_kortex_tool`.
 
-No submodule change until step 2 — this directory is self-contained.
+Until step 1 this directory is self-contained and the fork isn't required.

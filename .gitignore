@@ -37,6 +37,9 @@ src-tauri/binaries/browser-agent.exe
 src-tauri/binaries/lsp/typescript-language-server/node-v20.18.0-win-x64/node.exe
 # ROCmFPX llama-server build output (built locally via scripts/build-rocmfpx-windows.ps1)
 src-tauri/binaries/rocmfpx/
+# Modular / Mojo fork — a 1.2 GB working tree, checked out locally via
+# scripts/setup-modular.sh, never committed here. See docs/mojo-fork.md.
+/modular/
 # Cursor IDE extract (reference only — Anysphere proprietary, do not commit)
 /cursor/
 Cursor/
