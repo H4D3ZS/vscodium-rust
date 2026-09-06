@@ -2,7 +2,6 @@ import { useStore } from '../../store';
 import { mapBackendChatMessages } from '../../store/agentSlice';
 import { attachAgentStreamSubscriber, registerAgentKeyboardShortcuts } from '../../infrastructure/agent/AgentStreamSubscriber';
 import { attachAgentToolStream } from '../../infrastructure/agent/attachAgentToolStream';
-import { tryActivateAiriCompanion } from './tryActivateAiriCompanion';
 import { bootstrapHeavyFeaturesDefaults } from './bootstrapHeavyFeaturesDefaults';
 import { scheduleDeferredHeavyStacks } from './bootstrapDeferredStacks';
 import { invoke } from '../../tauri_bridge';
@@ -42,7 +41,7 @@ async function bootstrapAgentRuntimeOnce(): Promise<void> {
     scheduleDeferredInit(async () => {
         const { validateStartupModel } = await import('./validateStartupModel');
         await validateStartupModel();
-        void tryActivateAiriCompanion();
+        // AIRI companion removed
         const root = useStore.getState().activeRoot;
         if (root) {
             import('../../infrastructure/workspace/workspaceProject').then(m => m.syncWorkspaceCompat(root));

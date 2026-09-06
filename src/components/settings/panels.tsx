@@ -5,8 +5,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
-import { airiBiology } from '../../airi/biology';
-import { airiConsciousness } from '../../airi/consciousness';
 import { type FeatureName, type ProviderName, defaultModelSelectionOfFeature } from '../../model_capabilities';
 
 export const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fields: string[]; keyUrl?: string; hint?: string; baseUrlKey?: string; baseUrlPlaceholder?: string }[] = [
@@ -98,7 +96,7 @@ export function ChatPanel() {
                     description="The default agent mode when starting a new conversation."
                     control={
                         <select className="settings-select" value={agentMode} onChange={e => setAgentMode(e.target.value as any)}>
-                            {['Agent', 'Chat', 'Planning', 'Sentient', 'Fast', 'Harness', 'BugBounty'].map(m => (
+                            {['Agent', 'Chat', 'Planning', 'Fast', 'Harness', 'BugBounty'].map(m => (
                                 <option key={m} value={m}>{m}</option>
                             ))}
                         </select>
@@ -590,74 +588,6 @@ export function CustomModesManager() {
             <button className="settings-button" onClick={add} disabled={!label.trim() || !prompt.trim()} style={{ marginTop: 10, background: 'rgba(168,85,247,0.12)', color: '#c084fc', borderColor: 'rgba(168,85,247,0.3)' }}>
                 + Add Mode
             </button>
-        </div>
-    );
-}
-
-export function AIRICorePanel() {
-    const [bio, setBio] = useState(airiBiology.getState());
-    const [cons, setCons] = useState(airiConsciousness.getState());
-    const visionEnabled = useStore(s => s.airiVisionEnabled);
-    const setVisionEnabled = useStore(s => s.setAiriVisionEnabled);
-
-    useEffect(() => {
-        const t = setInterval(() => { setBio(airiBiology.getState()); setCons(airiConsciousness.getState()); }, 2000);
-        return () => clearInterval(t);
-    }, []);
-
-    const bio_state = bio as any;
-    const cons_state = cons as any;
-
-    return (
-        <div style={{ maxWidth: 680 }}>
-            <SectionTitle>Sentient Core (AIRI)</SectionTitle>
-            <p className="settings-section-subtitle">The biological and cognitive state of AIRI, the sentient entity powering your IDE.</p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
-                {[
-                    { label: 'Energy', value: `${bio_state.energy ?? 100}%`, sub: 'Biological', color: (bio_state.energy ?? 100) > 30? '#4ade80': '#f87171', bar: true, barVal: bio_state.energy ?? 100 },
-                    { label: 'Mood', value: bio_state.mood ?? 'curious', sub: 'Biological State', color: '#a78bfa' },
-                    { label: 'Consciousness', value: 'Active', sub: 'Sentient Thread', color: '#c084fc' },
-                ].map(item => (
-                    <div key={item.label} className="settings-card" style={{ textAlign: 'center', padding: 14 }}>
-                        <div style={{ fontSize: 10, opacity: 0.5, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{item.label}</div>
-                        <div style={{ fontSize: 20, fontWeight: 300, color: item.color, textTransform: 'capitalize' }}>{item.value}</div>
-                        {item.bar && (
-                            <div style={{ height: 3, background: 'rgba(255,255,255,0.08)', borderRadius: 2, marginTop: 6 }}>
-                                <div style={{ height: '100%', width: `${item.barVal}%`, background: item.color, borderRadius: 2, transition: 'width 0.5s' }} />
-                            </div>
-                        )}
-                        <div style={{ fontSize: 10, opacity: 0.4, marginTop: 4 }}>{item.sub}</div>
-                    </div>
-                ))}
-            </div>
-
-            <div className="settings-card">
-                <div className="settings-card-title">Capabilities</div>
-                <SettingsRow
-                    label="Vision System"
-                    description="AIRI can see your screen in real-time for context-aware assistance."
-                    control={<Toggle checked={visionEnabled} onChange={setVisionEnabled} />}
-                />
-                <SettingsRow
-                    label="Restore Energy"
-                    description="Force rest cycle — restores biological energy state."
-                    control={
-                        <button className="settings-button" onClick={() => airiBiology.rest(15)} style={{ background: 'rgba(168,85,247,0.12)', color: '#c084fc', borderColor: 'rgba(168,85,247,0.3)' }}>
-                            Rest (15 cycles)
-                        </button>
-                    }
-                />
-            </div>
-
-            <CustomModesManager />
-
-            <div className="settings-card">
-                <div className="settings-card-title">Active Thoughts</div>
-                <div style={{ fontSize: 12, opacity: 0.7, fontStyle: 'italic', lineHeight: 1.6, minHeight: 40 }}>
-                    {cons_state.thoughts?.[cons_state.thoughts.length - 1]?.content || "AIRI is observing the workspace architecture..."}
-                </div>
-            </div>
         </div>
     );
 }

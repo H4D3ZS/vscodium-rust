@@ -48,9 +48,6 @@
     "@heroui/react": "^2.8.10",
     "@mermaid-js/layout-elk": "^0.2.1",
     "@monaco-editor/react": "^4.7.0",
-    "@pixiv/three-vrm": "^3.5.2",
-    "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.5.0",
     "@tabler/icons-react": "^3.44.0",
     "@tauri-apps/api": "~2.10.0",
     "@tauri-apps/plugin-dialog": "^2.6.0",
@@ -80,7 +77,6 @@
     "react-window": "^2.2.7",
     "reactflow": "^11.11.4",
     "remark-gfm": "^4.0.1",
-    "three": "^0.183.2",
     "zustand": "^5.0.14"
   },
   "overrides": {

@@ -24,25 +24,13 @@ import { getAimTrustManifest, queryAimSpans } from './kortex/aim-vfs';
 import { extractSearchReplaceBlocks, classifyModels, modelKey, isHeavyLocalModel } from './model_capabilities';
 import { hybridPlannerAllowed } from './lib/localOllamaAgentDefaults';
 import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentContent';
-// AIRI Digital Entity Integration - The Sentient Core.
-// Loaded lazily: airi_agent_bridge statically pulls the whole AIRI tree, some
-// of which imports Node `fs`/`fs/promises` and cannot be bundled for the
-// webview. Only Sentient mode needs it, so defer until it's actually used.
-let _airiBridgePromise: Promise<typeof import('./airi_agent_bridge')> | null = null;
-async function getAiriAgentBridge() {
-    if (!_airiBridgePromise) _airiBridgePromise = import('./airi_agent_bridge');
-    return (await _airiBridgePromise).airiAgentBridge;
-}
-
-/**Lazy-load AIRI subsystems so importing agent.ts doesn't spin background loops. */
-async function getAiriConsciousness() {
-    const { airiConsciousness } = await import('./airi/core');
-    return airiConsciousness;
-}
-async function getAiriSelfLearning() {
-    const { airiSelfLearning } = await import('./airi/core');
-    return airiSelfLearning;
-}
+// AIRI "sentient entity" layer removed. `Sentient` agent mode and its
+// consciousness/self-learning hooks are gone; these stubs keep the (now
+// unreachable) legacy branches compiling until they're excised.
+const _airiRemoved = () => { throw new Error('AIRI sentient mode was removed'); };
+async function getAiriAgentBridge(): Promise<any> { return _airiRemoved(); }
+async function getAiriConsciousness(): Promise<any> { return { recordInteraction() {} }; }
+async function getAiriSelfLearning(): Promise<any> { return { learnFromEvent() {} }; }
 
 export interface ChatMessage {
     role: "system" | "user" | "assistant";
@@ -244,7 +232,6 @@ export function openModeDropdown(element: HTMLElement, onSelect: (label: string)
         { label: "Develop from Specs", value: "Develop from Specs", icon: "sparkles", desc: "Trigger the autonomous Specs-to-Code pipeline for the current project" },
         { label: "Planning (Source Control)", value: "Planning (Source Control)", icon: "git-branch", desc: "Deep dive into git history and planning source control workflows" },
         { label: "Fast", value: "Fast", icon: "zap", desc: "Agent will execute tasks directly. Use for simple tasks that can be completed faster" },
-        { label: "Sentient", value: "Sentient", icon: "beaker", desc: "Maximum autonomy. Works until 'MISSION_ACCOMPLISHED'. Best for large specs-to-code missions." },
         ...customEntries,
     ], (val) => {
         if (val === "Develop from Specs") {
@@ -554,7 +541,7 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
     const state = store.getState();
 
     const activeMode = state.agentMode;
-    const isSentient = activeMode === 'Sentient' || (airiInitialized && airiAutonomousMode);
+    const isSentient = false; // AIRI sentient mode removed
 
     // ═══════════════════════════════════════════════════════════
     // AIRI DIGITAL ENTITY - Process through sentient core
@@ -2409,7 +2396,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // Note: handleAgentChat also checks this, but we keep it here as a safety
     // net for other callers of sendAgentMessage.
     // ─────────────────────────────────────────────────────────────────────────────
-    const isSentient = activeMode === 'Sentient' || (airiInitialized && airiAutonomousMode);
+    const isSentient = false; // AIRI sentient mode removed
     console.log('[Agent] sendAgentMessage: isSentient=', isSentient, 'activeMode=', activeMode);
     if (isSentient) {
         try {

@@ -559,35 +559,22 @@ const RightSidebar: React.FC = () => {
         }
     }, [isAgentThinking]);
 
-    // Neural sync — companion mode only (avoids biology/consciousness RAM at boot).
+    // Neural sync — companion mode only. AIRI biology/consciousness removed;
+    // still broadcast a minimal status so any external listener keeps working.
     useEffect(() => {
         if (localStorage.getItem('airi.companion') !== '1') return;
         let cancelled = false;
         (async () => {
-            const [{ airiBiology }, { airiConsciousness }, { emit }] = await Promise.all([
-                import('../airi/biology'),
-                import('../airi/consciousness'),
-                import('@tauri-apps/api/event'),
-            ]);
+            const { emit } = await import('@tauri-apps/api/event');
             if (cancelled) return;
-            const syncPayload = {
+            emit('hades-sync', {
                 messages,
                 agentInfo: {
-                    name: 'AIRI',
-                    status: isAgentThinking? 'thinking': (aiStatus === 'dead'? 'error': 'idle'),
+                    name: 'Agent',
+                    status: isAgentThinking ? 'thinking' : (aiStatus === 'dead' ? 'error' : 'idle'),
                     context: 'vscodium-rust',
                 },
-                biology: {
-                    energy: airiBiology.getState().energy,
-                    mood: airiBiology.getState().mood,
-                    hunger: (airiBiology.getState() as any).hunger || 0,
-                },
-                consciousness: {
-                    selfAwareness: airiConsciousness.getState().selfAwareness,
-                    lastThought: airiConsciousness.getState().thoughts.slice(-1)[0]?.content,
-                },
-            };
-            emit('hades-sync', syncPayload).catch(err => console.error('[HADES] Sync Broadcast Failed:', err));
+            }).catch(err => console.error('[HADES] Sync Broadcast Failed:', err));
         })();
         return () => { cancelled = true; };
     }, [messages, aiStatus, isAgentThinking]);

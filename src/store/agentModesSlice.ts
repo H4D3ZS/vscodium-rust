@@ -242,9 +242,7 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
         set({ airiVisionEnabled: enabled });
         (async () => {
             try {
-                const mod = await import('../airi/vision-system');
-                if (enabled) await mod.airiVision.start();
-                else if (typeof (mod.airiVision as any).stop === 'function') (mod.airiVision as any).stop();
+                /* AIRI vision removed */
             } catch (err) { console.warn('[store] toggling AIRI vision failed:', err); }
         })();
     },
@@ -257,8 +255,7 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
         } else {
             (async () => {
                 try {
-                    const { visionAnalyzer } = await import('../airi/vision-analysis');
-                    if (typeof (visionAnalyzer as any).reconfigure === 'function') (visionAnalyzer as any).reconfigure({ model });
+                    /* AIRI vision-analysis removed */
                 } catch { }
             })();
         }
@@ -268,7 +265,7 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
         set({ airiConsciousnessEnabled: enabled });
         (async () => {
             try {
-                const { airiConsciousness } = await import('../airi/consciousness');
+                const { airiConsciousness } = Promise.reject(new Error('AIRI removed')) as any;
                 if (enabled) {
                     if (typeof (airiConsciousness as any).resumeThoughts === 'function') (airiConsciousness as any).resumeThoughts();
                     else if (typeof (airiConsciousness as any).wakeUp === 'function') (airiConsciousness as any).wakeUp();
@@ -284,7 +281,7 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
         set({ airiConsciousnessModel: model });
         (async () => {
             try {
-                const { airiConsciousness } = await import('../airi/consciousness');
+                const { airiConsciousness } = Promise.reject(new Error('AIRI removed')) as any;
                 if (typeof (airiConsciousness as any).reconfigure === 'function') (airiConsciousness as any).reconfigure({ model });
             } catch { }
         })();

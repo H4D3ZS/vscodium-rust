@@ -3,7 +3,18 @@ import { listen } from '@tauri-apps/api/event';
 import { useStore } from '../store';
 import { speak, stop, isSpeaking, initTTS, getProvider, type VoicePreset } from '../voice';
 import { airiVoiceActivation } from '../airi/voice-activation';
-import { airiVRMAvatar } from '../airi/vrm-avatar';
+
+// VRM 3D avatar removed. No-op shim keeps the panel's lifecycle calls working;
+// `initialize` rejects so the panel falls back to the lightweight orb.
+const airiVRMAvatar = {
+    initialize: (_el?: unknown, _url?: unknown) => Promise.reject(new Error('VRM avatar removed')),
+    dispose: () => {},
+    onResize: () => {},
+    setSpeaking: (_v?: unknown) => {},
+    setThinking: (_v?: unknown) => {},
+    setListening: (_v?: unknown) => {},
+    setEmotion: (_v?: unknown) => {},
+};
 
 interface AiriPanelProps {
     className?: string;
