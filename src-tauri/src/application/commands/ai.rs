@@ -578,7 +578,7 @@ async fn lemonade_model_size_gb(client: &reqwest::Client, base: &str, model: &st
 
 /// Canonical Lemonade model id.
 ///
-/// Lemonade's Ollama-compatible `/api/tags` appends `:latest` to every name,
+/// Lemonade's native-/api-compatible `/api/tags` appends `:latest` to every name,
 /// while its native `/api/v1/models` and the Anthropic endpoint use the bare id.
 /// A `…:latest` value persisted from the tags list would otherwise fail every
 /// request, so normalize before comparing or dispatching.
@@ -1933,7 +1933,7 @@ pub async fn ai_get_context(
     let max = max_files.unwrap_or(5);
 
     // Semantic-first: use the vector index when embeddings are available
-    // (requires Ollama + an indexed workspace), then fall back to grep so the
+    // (requires a local backend + an indexed workspace), then fall back to grep so the
     // tool always returns something — and reports which method it used.
     if let Ok(hits) = state.memory.vector_indexer.search_codebase(&query, max).await {
         if !hits.is_empty() {
@@ -2506,7 +2506,7 @@ mod lemonade_tuning_tests {
     const GEMMA_26B_Q2: &str = "gemma-4-26B-A4B-it-abliterated-GGUF-Q2_K";
     const GPT_OSS: &str = "GPT-OSS-Cybersecurity-20B-Merged-heretic-i1-GGUF-Q4_K_M";
 
-    /// Lemonade's Ollama-compat `/api/tags` appends `:latest`; its native
+    /// Lemonade's native-/api-compat `/api/tags` appends `:latest`; its native
     /// `/api/v1/models` and the Anthropic endpoint do not. A persisted tagged id
     /// must still resolve, or every request fails model validation.
     /// Lemonade labels EVERY downloaded llamacpp model `tool-calling`, including

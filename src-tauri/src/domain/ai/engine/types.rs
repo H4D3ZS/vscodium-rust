@@ -102,7 +102,7 @@ pub struct AiRequest {
     pub cyber_mode: Option<bool>,
     pub root_access: Option<bool>,
     /// Base URL of the local inference server (Lemonade / llama-server / the
-    /// Kortex proxy). `ollama_url` is still accepted on the wire for back-compat
+    /// Kortex proxy). `local backend_url` is still accepted on the wire for back-compat
     /// with any persisted request payloads.
     #[serde(alias = "ollama_url")]
     pub inference_url: Option<String>,
@@ -211,7 +211,7 @@ pub fn normalize_local_base_url(raw: &str) -> String {
         .to_string()
 }
 
-/// Strip `:cloud` / `-cloud` suffixes — local agent runs must not target Ollama Cloud IDs.
+/// Strip `:cloud` / `-cloud` suffixes — local agent runs must not target hosted cloud model IDs.
 pub(crate) fn sanitize_local_model_id(raw: &str) -> String {
     let mut s = raw.trim().to_string();
     if s.ends_with(":cloud") {

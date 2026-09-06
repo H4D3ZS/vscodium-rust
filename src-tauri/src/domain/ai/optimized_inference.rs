@@ -122,7 +122,7 @@ impl OptimizedInferenceEngine {
                 "2. Load qwen3.5:12b into 5GB + enable ANE",
                 "3. Cold models auto-evict to .aim (SSD memmap2)",
                 "4. MoE routing: active experts in RAM, cold → disk",
-                "5. Generation: Ollama/Metal; ANE scores vector-index queries in parallel",
+                "5. Generation: the local GPU; ANE scores vector-index queries in parallel",
             ],
         })
     }

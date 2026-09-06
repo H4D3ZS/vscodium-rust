@@ -1,12 +1,12 @@
-//! RAM-tiered Ollama offloading policy.
+//! RAM-tiered local backend offloading policy.
 //!
 //! Centralizes every decision that keeps local inference smooth on low-RAM
 //! machines (4–8GB potato / M1 Air class):
 //!
 //! - **Model tiering** — which model each APEX engine gets per RAM tier.
 //!   Lite machines share ONE small resident model across all engines so
-//!   Ollama never evicts/reloads multi-GB weights mid-sweep.
-//! - **Concurrency gating** — a global semaphore caps simultaneous Ollama
+//!   a persistent local server never evicts/reloads multi-GB weights mid-sweep.
+//! - **Concurrency gating** — a global semaphore caps simultaneous the local backend
 //!   generations (lite = strictly serial). Eight parallel generations on
 //!   8GB means swap-death even with 2b models.
 //! - **`keep_alive` policy** — lite keeps its single model warm (reload
@@ -14,7 +14,7 @@
 //! - **`num_ctx` clamping** — KV cache is the hidden RAM hog; lite caps it.
 //! - **Memory-pressure guard** — checks *available* (not total) RAM before
 //!   heavy batch work so a swapping machine degrades gracefully.
-//! - **Env doctor** — reports the Ollama server env vars that matter most
+//! - **Env doctor** — reports the local backend env vars that matter most
 //!   on small machines, with copy-paste commands per platform.
 
 use serde_json::{json, Value};
@@ -58,9 +58,9 @@ const MID_MODEL: &str = "qwen3.5:7b";
 
 /// Security specialist for the `threat` engine on Full tier. DeepHat-V1-7B is a
 /// Qwen2.5-Coder-7B fine-tune specialized for offensive/defensive cybersecurity
-/// and DevOps (successor to WhiteRabbitNeo, 128K ctx via YaRN). Ollama resolves
-/// this directly from the GGUF repo — no manual `ollama create` needed:
-///     ollama pull hf.co/mradermacher/DeepHat-V1-7B-GGUF:Q4_K_M
+/// and DevOps (successor to WhiteRabbitNeo, 128K ctx via YaRN). the local backend resolves
+/// this directly from the GGUF repo — no manual model registration needed:
+///     local backend pull hf.co/mradermacher/DeepHat-V1-7B-GGUF:Q4_K_M
 /// Recommended system prompt: "You are DeepHat, created by Kindo.ai. You are a
 /// helpful assistant that is an expert in Cybersecurity and DevOps."
 const THREAT_MODEL: &str = "hf.co/mradermacher/DeepHat-V1-7B-GGUF:Q4_K_M";
@@ -68,15 +68,15 @@ const THREAT_MODEL: &str = "hf.co/mradermacher/DeepHat-V1-7B-GGUF:Q4_K_M";
 /// BugTraceAI CORE-Ultra (27B, Qwen3.6 SFT) — the "tooling" specialist for the
 /// `exploit` engine. Unlike a reasoning model, it emits complete, runnable
 /// artifacts (Nuclei templates, CVE PoCs, crackers). Served via **Lemonade**
-/// (real llama.cpp, OpenAI-compatible on :13305), not Ollama. The id below is
+/// (real llama.cpp, OpenAI-compatible on :13305), not the local backend. The id below is
 /// what Lemonade registers the GGUF under — load/pull it there first:
 ///     lemonade-server pull hf.co/BugTraceAI/BugTraceAI-CORE-Ultra-27B-Q4
 /// Recommended: temp 0.1, top_p 0.9, repeat_penalty 1.1.
 pub const EXPLOIT_MODEL_LEMONADE: &str = "BugTraceAI-CORE-Ultra-27B-Q4";
 
-/// Engines that run on the Lemonade backend (real llama.cpp) instead of Ollama,
+/// Engines that run on the Lemonade backend (real llama.cpp) instead of the local backend,
 /// with the Lemonade model id to request. Only wired on Full tier — a 27B is a
-/// dedicated-GPU model. Returns `None` for engines that stay on Ollama.
+/// dedicated-GPU model. Returns `None` for engines that stay on the local backend.
 pub fn lemonade_model(engine: &str) -> Option<&'static str> {
     match tier() {
         ModelTier::Full => match engine {
@@ -118,9 +118,9 @@ pub fn apex_model(engine: &str) -> &'static str {
 
 // ─── keep_alive policy ───────────────────────────────────────────────────────
 
-/// Top-level `keep_alive` value for Ollama payloads. Lite keeps its single
+/// Top-level `keep_alive` value for the native /api path payloads. Lite keeps its single
 /// model warm for a long time — reloading 1.5GB of weights every 5 minutes
-/// (Ollama's default) is far worse than holding them. Full tier releases
+/// (the local backend's default) is far worse than holding them. Full tier releases
 /// faster since multiple specialist models rotate through.
 pub fn keep_alive() -> &'static str {
     match tier() {
@@ -159,7 +159,7 @@ pub fn max_parallel_engines() -> usize {
 
 static ENGINE_GATE: OnceLock<Arc<Semaphore>> = OnceLock::new();
 
-/// Global semaphore gating batch Ollama generations. Acquire a permit
+/// Global semaphore gating batch the local backend generations. Acquire a permit
 /// before any APEX/red-team generation; drop it when the response lands.
 pub fn engine_gate() -> Arc<Semaphore> {
     ENGINE_GATE
@@ -202,17 +202,17 @@ pub fn check_batch_memory() -> Result<(), String> {
 // ─── VRAM-tiered GPU-layer offload ───────────────────────────────────────────
 //
 // A dense model's weights must be resident to compute a forward pass, but they
-// don't all have to be on the GPU: llama.cpp/Ollama keep `num_gpu` layers in
+// don't all have to be on the GPU: llama.cpp/the local backend keep `num_gpu` layers in
 // VRAM and run the rest on CPU/RAM. This lets a 27B run on an 8GB card (via RAM
 // offload, slower) instead of OOMing. The policy below detects VRAM, estimates
 // how many of a model's layers fit, and sets `num_gpu` accordingly — replacing
-// Ollama's conservative auto-guess that often under-fills VRAM or OOMs.
+// the local backend's conservative auto-guess that often under-fills VRAM or OOMs.
 
 /// Best-effort VRAM detection in GB. `HADES_VRAM_GB` overrides everything (the
 /// escape hatch for AMD/Lemonade/NPU where programmatic detection is unreliable).
 /// Then NVIDIA via `nvidia-smi`; then Apple Silicon unified memory (the GPU can
 /// address ~70% of system RAM). Returns None when we genuinely can't tell — the
-/// caller then leaves `num_gpu` unset and lets Ollama decide.
+/// caller then leaves `num_gpu` unset and lets the local backend decide.
 pub fn detect_vram_gb() -> Option<f64> {
     if let Ok(v) = std::env::var("HADES_VRAM_GB") {
         if let Ok(n) = v.parse::<f64>() {
@@ -288,7 +288,7 @@ pub fn estimate_layers(param_billions: f64) -> u32 {
 
 /// Decide how many layers to place on the GPU given the model size and VRAM.
 ///
-/// Returns an Ollama `num_gpu` value: `0` = all on CPU/RAM, `total_layers` = the
+/// Returns an the local backend `num_gpu` value: `0` = all on CPU/RAM, `total_layers` = the
 /// whole model on GPU, anything between = a split. Pure + deterministic so the
 /// policy is unit-tested without any GPU present.
 ///
@@ -297,7 +297,7 @@ pub fn estimate_layers(param_billions: f64) -> u32 {
 /// before dividing the rest into layers.
 pub fn plan_gpu_layers(param_billions: f64, total_layers: u32, vram_gb: f64) -> i64 {
     if param_billions <= 0.0 || total_layers == 0 {
-        return -1; // unknown → let Ollama auto-decide (-1 == "as many as fit")
+        return -1; // unknown → let the backend auto-decide (-1 == "as many as fit")
     }
     let weight_gb = param_billions * 0.56;
     let per_layer_gb = weight_gb / total_layers as f64;
@@ -311,7 +311,7 @@ pub fn plan_gpu_layers(param_billions: f64, total_layers: u32, vram_gb: f64) -> 
 }
 
 /// The wired entry point: recommended `num_gpu` for a model on this machine, or
-/// None to leave it unset (Ollama decides). `HADES_NUM_GPU` still hard-overrides.
+/// None to leave it unset (the local backend decides). `HADES_NUM_GPU` still hard-overrides.
 pub fn recommended_num_gpu(model: &str) -> Option<i64> {
     if let Ok(v) = std::env::var("HADES_NUM_GPU") {
         if let Ok(n) = v.parse::<i64>() {
@@ -326,7 +326,7 @@ pub fn recommended_num_gpu(model: &str) -> Option<i64> {
 
 /// Lemonade / llama.cpp offload advice for a given model.
 ///
-/// Unlike Ollama (which accepts a per-request `num_gpu`), Lemonade runs an
+/// Unlike the local backend (which accepts a per-request `num_gpu`), Lemonade runs an
 /// external llama.cpp-based server whose GPU-layer split is fixed at launch
 /// (`-ngl` / `--n-gpu-layers`). The IDE connects to it, it doesn't spawn it, so
 /// we can't set the split programmatically — we compute the recommended value
@@ -456,7 +456,7 @@ pub fn offload_preflight(provider: &str, model: &str) -> OffloadPreflight {
 
     let layers = estimate_layers(param_b);
     let ngl = plan_gpu_layers(param_b, layers, vram_gb);
-    // Lemonade sets the split at launch (-ngl); Ollama gets it per request via
+    // Lemonade sets the split at launch (-ngl); the local backend gets it per request via
     // num_gpu. Tailor the actionable hint accordingly.
     let lemonade = p == "lemonade";
     let (risk, message) = if ngl >= layers as i64 {
@@ -503,7 +503,7 @@ pub fn offload_preflight(provider: &str, model: &str) -> OffloadPreflight {
 /// Lemonade offload advisor command: recommends the `-ngl` layer split for the
 /// externally-launched lemonade/llama.cpp server, given the model. The
 /// llama.cpp path is Lemonade's real backend, so this is the first-class
-/// offload story (Ollama's per-request `num_gpu` is the fallback).
+/// offload story (the local backend's per-request `num_gpu` is the fallback).
 #[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn lemonade_doctor(model: Option<String>) -> Value {
@@ -711,7 +711,7 @@ mod tests {
         std::env::remove_var("HADES_VRAM_GB");
     }
 
-    /// The Lemonade advisor replaced the Ollama env doctor: offload for
+    /// The Lemonade advisor replaced the the local backend env doctor: offload for
     /// llama.cpp is set with `-ngl` at server launch, not via env vars.
     #[test]
     fn lemonade_doctor_reports_offload_advice() {

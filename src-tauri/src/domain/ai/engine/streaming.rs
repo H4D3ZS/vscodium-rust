@@ -459,7 +459,7 @@ impl Sentient {
         let raw = if effective_provider_lc == "anthropic" {
             val["content"][0]["text"].as_str().unwrap_or("").to_string()
         } else if is_local {
-            // Ollama might be hit via /v1/chat/completions (OpenAI format) or /api/chat (Native format)
+            // the local backend might be hit via /v1/chat/completions (OpenAI format) or /api/chat (Native format)
             if let Some(content) = val.pointer("/choices/0/message/content").and_then(|v| v.as_str()) {
                 content.to_string()
             } else if let Some(content) = val.pointer("/message/content").and_then(|v| v.as_str()) {
@@ -480,7 +480,7 @@ impl Sentient {
         Ok(raw.trim().to_string())
     }
 
-    /// Stream Ollama /api/chat for fast Chat replies — tokens land in `chat_stream_buf`.
+    /// Stream the local backend /api/chat for fast Chat replies — tokens land in `chat_stream_buf`.
     pub(crate) async fn single_shot_native_stream(&self, response: reqwest::Response) -> Result<String> {
         if let Ok(mut b) = self.chat_stream_buf.lock() {
             b.clear();
@@ -530,7 +530,7 @@ impl Sentient {
                     }
                 }
                 // Standard content — OpenAI SSE deltas (Lemonade, compat proxies)
-                // or Ollama NDJSON message objects.
+                // or native NDJSON message objects.
                 let content = val.pointer("/choices/0/delta/content")
                     .and_then(|v| v.as_str())
                     .or_else(|| val.pointer("/choices/0/message/content").and_then(|v| v.as_str()))

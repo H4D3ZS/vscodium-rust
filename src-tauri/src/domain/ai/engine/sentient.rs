@@ -19,7 +19,7 @@ use crate::tool_invoker::ToolInvoker;
 use crate::rules_engine::RulesEngine;
 use crate::workflow_engine::WorkflowEngine;
 
-/// Tools always exposed to local Ollama models (which have small context
+/// Tools always exposed to local local models (which have small context
 /// windows and degrade with large tool lists). This is the single source of
 /// truth — the autonomous loop's tool filter references it.
 ///
@@ -91,7 +91,7 @@ pub struct Sentient {
     /// whenever the user picks the Lemonade inference backend or changes its
     /// port in Settings. Defaults to `http://localhost:13305`.
     pub(crate) lemonade_url: tokio::sync::Mutex<String>,
-    /// Caps concurrent Ollama HTTP calls from this process so one desktop seat
+    /// Caps concurrent local backend HTTP calls from this process so one desktop seat
     /// does not trip nginx `limit_conn` on a shared reverse proxy.
     pub(crate) local_http_sem: Arc<Semaphore>,
     pub(crate) _browser_state: Arc<crate::browser::BrowserState>,
@@ -740,7 +740,7 @@ mod tests {
     use super::LOCAL_ESSENTIAL_TOOLS;
 
     /// REGRESSION GUARD: offensive-security tools must remain available to
-    /// local Ollama models. They are a core IDE strength; dropping them from
+    /// local local models. They are a core IDE strength; dropping them from
     /// the essential set would hide them from small models and break the
     /// red-team / pentest / bug-bounty workflows.
     #[test]

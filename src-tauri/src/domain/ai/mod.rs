@@ -1,5 +1,5 @@
 //! AI domain: the Sentient engine, tool registry/invocation, model management,
-//! ANE acceleration, Ollama offloading, agent/MCTS harnesses, and vision.
+//! ANE acceleration, local-backend offloading, agent/MCTS harnesses, and vision.
 //!
 //! NOTE: ai_engine.rs (7.2K LOC) and ai_tools.rs (8.5K LOC) are slated to be
 //! split into focused submodules — see ARCHITECTURE.md

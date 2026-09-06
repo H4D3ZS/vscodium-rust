@@ -10,14 +10,14 @@ pub async fn web_fetch(url: String) -> Result<String, String> {
     res.text().await.map_err(|e| e.to_string())
 }
 
-/// Generate a real text embedding via Ollama's /api/embeddings endpoint.
+/// Generate a real text embedding via the local backend's /api/embeddings endpoint.
 /// Used by the AIRI memory system for genuine semantic similarity instead of
 /// the previous hash-based placeholder vector. Defaults to `nomic-embed-text`
 /// (a small, fast embedding model). Returns the embedding vector.
 #[tauri::command]
 pub async fn embed_text(text: String, model: Option<String>) -> Result<Vec<f32>, String> {
-    // Delegates to the shared embedding client rather than calling Ollama
-    // directly. This used to POST to :11434 with Ollama's payload shape, which
+    // Delegates to the shared embedding client rather than calling the local backend
+    // directly. This used to POST to :11434 with the local backend's payload shape, which
     // on a Lemonade-only machine failed every call — taking AIRI's semantic
     // memory down with it, silently, since callers treat an error as "no match".
     crate::embeddings::embed_text_async(&text, model.as_deref()).await

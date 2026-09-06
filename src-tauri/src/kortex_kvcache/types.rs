@@ -176,7 +176,7 @@ pub struct KvCacheOptions {
 /// The tiers map to what the backend can actually support:
 /// - `Kv`       — llama.cpp slot save/restore is available → full KDKVC prefix
 ///                KV reuse (skips prefill of the matched prefix).
-/// - `Response` — no slot API (Ollama, Lemonade Ryzen-AI/NPU) → provider-agnostic
+/// - `Response` — no slot API (Lemonade Ryzen-AI/NPU) → provider-agnostic
 ///                exact-request response cache. NOTE: Tier 2 (the response cache)
 ///                is not implemented yet; until it lands this behaves as a
 ///                transparent passthrough, so selecting it is always safe.

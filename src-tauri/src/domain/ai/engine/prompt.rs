@@ -51,13 +51,13 @@ impl Sentient {
         if Self::is_cyberifrit_managed_inference_url(base_url) {
             return match status_code {
                 401 => "Sign in to Cyber-Ifrit (Settings → Account) to use Cyber-Ifrit Cloud.",
-                402 => "Your plan does not include Cyber-Ifrit Cloud. Start the free 1-day trial, subscribe to Pro+, or use Local Ollama / your own API keys.",
+                402 => "Your plan does not include Cyber-Ifrit Cloud. Start the free 1-day trial, subscribe to Pro+, or use a local backend / your own API keys.",
                 403 => "Cyber-Ifrit Cloud access denied. Sync Settings → Account or upgrade your plan.",
                 _ => "Cyber-Ifrit Cloud auth failed — sign in and sync Settings → Account.",
             };
         }
         match status_code {
-            401 | 403 => "Server replied with auth failure. If your Ollama proxy requires a bearer token, paste it in Settings → Providers.",
+            401 | 403 => "Server replied with auth failure. If your local proxy requires a bearer token, paste it in Settings → Providers.",
             402 => "Connected, but this endpoint rejected the request (HTTP 402). Check your subscription or proxy policy.",
             _ => "Server returned a non-2xx status. See the body preview below.",
         }
@@ -205,7 +205,7 @@ impl Sentient {
                 }
 
                 // Cloud goes DIRECT — never auto-route through the local :1536 AIM proxy.
-                // The proxy is for LOCAL Ollama context injection; sending a cloud request
+                // The proxy is for LOCAL model context injection; sending a cloud request
                 // through it double-injects context the IDE already adds in-process AND
                 // hangs the request to the 60s timeout if the proxy is up but not
                 // forwarding (the cause of "Gemini just times out / takes a minute").
@@ -364,7 +364,7 @@ impl Sentient {
             "lemonade" => {
                 // Real lemonade-server serves its OpenAI-compatible API under
                 // /api/v1/ (chat: /api/v1/chat/completions); it does NOT speak
-                // Ollama's native /api/chat. Cloud/proxied deployments may only
+                // the native /api/chat path. Cloud/proxied deployments may only
                 // expose /v1/ — the request layer retries on /v1 after a 404.
                 let raw = req.inference_url.clone()
                     .filter(|u| !u.trim().is_empty())

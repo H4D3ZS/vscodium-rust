@@ -22,7 +22,7 @@ pub struct AttachmentInfo {
 pub struct AttachmentManager {
     pub gist_injector: GistInjector,
     pub processing_lock: Mutex<()>,
-    /// Base URL for the inference backend (Ollama/Lemonade). Defaults to
+    /// Base URL for the inference backend (local backends). Defaults to
     /// `http://127.0.0.1:11434`; updated via `set_inference_url`.
     pub inference_url: Mutex<String>,
 }
@@ -56,9 +56,9 @@ impl AttachmentManager {
         let is_image = extension == "png" || extension == "jpg" || extension == "jpeg" || extension == "webp";
 
         if is_image {
-             println!("[DEBUG] Visual Asset detected. Checking for Ollama vision models...");
+             println!("[DEBUG] Visual Asset detected. Checking for the native /api path vision models...");
              
-             // 1. Find a vision-capable model (local Ollama)
+             // 1. Find a vision-capable model (local)
              let base_url = self.inference_url.lock().await.clone();
              let vision_model = crate::vision_sidecar::discover_best_vision_model(
                  &base_url,
@@ -124,7 +124,7 @@ impl AttachmentManager {
         let content = std::fs::read_to_string(&path)
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
-        // 1. Compute Embedding via Ollama (Now optional)
+        // 1. Compute Embedding via the local backend (now optional)
         let embedding_res = if model.is_empty() {
              Err("No model specified for neuralization. Falling back to raw attachment.".to_string())
         } else {
@@ -175,7 +175,7 @@ impl AttachmentManager {
             .build()
             .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-        println!("[DEBUG] Requesting embedding from Ollama for model: {}", model);
+        println!("[DEBUG] Requesting embedding from the local backend for model: {}", model);
         
         let base_url = self.inference_url.lock().await.clone();
         let url = format!("{}/api/embeddings", base_url.trim_end_matches('/'));
@@ -189,20 +189,20 @@ impl AttachmentManager {
             .await
             .map_err(|e| {
                 if e.is_timeout() {
-                    println!("[ERROR] Ollama request timed out (60s)");
-                    "Ollama embedding request timed out. The model might be loading or the file is too large.".to_string()
+                    println!("[ERROR] embedding request timed out (60s)");
+                    "Embedding request timed out. The model might be loading or the file is too large.".to_string()
                 } else {
-                    println!("[ERROR] Ollama connection failed: {:?}", e);
-                    format!("Ollama connection failed: {}. Ensure Ollama is running.", e)
+                    println!("[ERROR] Local backend connection failed: {:?}", e);
+                    format!("Local backend connection failed: {}. Ensure the local backend is running.", e)
                 }
             })?;
 
         let status = res.status();
         let body = res.text().await.map_err(|e| e.to_string())?;
-        println!("[DEBUG] Ollama response status: {}, body truncate: {}", status, if body.len() > 100 { &body[..100] } else { &body });
+        println!("[DEBUG] Backend response status: {}, body truncate: {}", status, if body.len() > 100 { &body[..100] } else { &body });
 
         if !status.is_success() {
-            return Err(format!("Ollama error ({}): {}", status, body));
+            return Err(format!("Backend error ({}): {}", status, body));
         }
 
         let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
@@ -220,7 +220,7 @@ impl AttachmentManager {
              }
         }
         
-        Err(format!("Ollama embedding format not recognized. Response: {}", body))
+        Err(format!("Embedding format not recognized. Response: {}", body))
     }
 
     async fn generate_visual_summary(&self, image_path: &std::path::Path, model: &str) -> Result<String, String> {
@@ -253,7 +253,7 @@ impl AttachmentManager {
     
     pub async fn unload_model(&self, model: &str) -> Result<(), String> {
         let client = reqwest::Client::new();
-        println!("[DEBUG] Requesting Ollama to unload model: {}", model);
+        println!("[DEBUG] Requesting the backend to unload model: {}", model);
         let base_url = self.inference_url.lock().await.clone();
         let url = format!("{}/api/generate", base_url.trim_end_matches('/'));
         let payload = serde_json::json!({

@@ -1,6 +1,6 @@
 //! Subscription account commands.
 //!
-//! Local inference (Lemonade/Ollama) is free and needs no account. Signing in to
+//! Local inference (Lemonade) is free and needs no account. Signing in to
 //! a (configurable) remote auth endpoint returns a JWT that unlocks the cloud
 //! subscription models (served via the Cyber-Ifrit gateway). The JWT is persisted
 //! as the `cyberifrit` provider key in the engine's `api_keys.json` — read fresh

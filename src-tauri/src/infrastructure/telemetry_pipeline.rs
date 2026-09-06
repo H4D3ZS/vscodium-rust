@@ -2,7 +2,7 @@
 //!
 //! Spawns local static-analysis binaries, streams their output into the `.aim`
 //! disk memory-map to stay under the RAM budget, then forwards a fixed-size
-//! context window to the local Ollama inference layer.
+//! context window to the local inference layer.
 //!
 //! Concurrency ceiling = 1 (global Semaphore): deep-dive tasks never overlap,
 //! preventing memory exhaustion on 4–8 GB machines.
@@ -268,7 +268,7 @@ impl TelemetryPipeline {
         events
     }
 
-    /// Send collected events to Ollama for synthesis, capped at num_ctx 8192.
+    /// Send collected events to the local model for synthesis, capped at num_ctx 8192.
     /// Returns a structured JSON string on success.
     pub async fn synthesize(&self, events: &[TelemetryEvent]) -> Result<String, String> {
         if events.is_empty() {
@@ -293,7 +293,7 @@ impl TelemetryPipeline {
             .json(&body)
             .send()
             .await
-            .map_err(|e| format!("ollama unreachable: {e}"))?;
+            .map_err(|e| format!("local inference unreachable: {e}"))?;
 
         let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
         Ok(json["response"].as_str().unwrap_or("{}").to_string())

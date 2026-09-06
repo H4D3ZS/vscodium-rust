@@ -327,7 +327,7 @@ pub async fn vision_sidecar_process_attachments(
             vision_model: None,
             analyzed_count: 0,
             message: Some(
-                "No vision model found on Ollama (try: ollama pull qwen2.5vl:7b or moondream)".into(),
+                "No local vision model found (pull qwen2.5vl:7b or moondream into your local backend)".into(),
             ),
         });
     };

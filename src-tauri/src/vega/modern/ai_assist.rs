@@ -1,6 +1,6 @@
 //! Local LLM assist for Vega — payload expansion + false-positive triage.
 //!
-//! Uses the IDE's local Ollama endpoint (offline-first). Wraps prompts in
+//! Uses the IDE's local local backend endpoint (offline-first). Wraps prompts in
 //! "QA stability test" framing to reduce model refusals (see LocalLLMSecurityAuditor pattern).
 
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ pub struct AiAssistConfig {
 impl Default for AiAssistConfig {
     fn default() -> Self {
         Self {
-            // Default to the standard local Ollama endpoint. Vega reads this
+            // Default to the standard local local backend endpoint. Vega reads this
             // from EditorState at runtime, so the default is only used when
             // VegaAiAssist is constructed outside the normal boot flow.
             inference_url: "http://127.0.0.1:11434".into(),
@@ -43,7 +43,7 @@ pub struct VegaAiAssist {
 
 impl VegaAiAssist {
     pub fn new(config: AiAssistConfig) -> Self {
-        // Short connect timeout so a missing/offline Ollama fails fast and we
+        // Short connect timeout so a a missing/offline backend fails fast and we
         // fall back to heuristics instead of hanging the whole scan.
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(2))
@@ -114,7 +114,7 @@ impl VegaAiAssist {
             .json(&body)
             .send()
             .await
-            .map_err(|e| format!("ollama request: {e}"))?;
+            .map_err(|e| format!("local inference request failed: {e}"))?;
 
         let text = resp.text().await.map_err(|e| e.to_string())?;
         let parsed: serde_json::Value =
@@ -206,7 +206,7 @@ fn parse_verdict(raw: &str) -> Option<String> {
     }
 }
 
-/// Deterministic, model-free triage used when Ollama is offline or unhelpful.
+/// Deterministic, model-free triage used when the local model is offline or unhelpful.
 /// Conservative: only downgrades classes that are notoriously reflection-noisy,
 /// and confirms high-confidence evidence patterns.
 fn heuristic_verdict(alert_type: &str, evidence: &str) -> String {

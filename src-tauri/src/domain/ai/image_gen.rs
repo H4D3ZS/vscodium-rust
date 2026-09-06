@@ -37,7 +37,7 @@ fn image_gen_model() -> String {
 }
 
 /// Analyze an image with a local vision model (llava, moondream, etc.) over the
-/// Ollama-style `/api/chat` protocol many local servers expose.
+/// the local backend-style `/api/chat` protocol many local servers expose.
 pub async fn analyze_with_local_vision(image_path: &Path, question: &str) -> Result<String, String> {
     let bytes = std::fs::read(image_path).map_err(|e| e.to_string())?;
     let b64 = B64.encode(&bytes);

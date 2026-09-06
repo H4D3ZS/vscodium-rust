@@ -4,7 +4,7 @@
 //!
 //! On start the module binds `127.0.0.1:1536`, loads the `.aim` catalog from
 //! the workspace, and forwards every AI request through the retrieval-augmented
-//! proxy to Lemonade (`:13305`) first, Ollama (`:11434`) as fallback.
+//! proxy to Lemonade (`:13305`); a raw `:11434` server is a fallback.
 //! Retrieval degrades safely (missing catalog / conversational query / latency
 //! budget → forward unchanged).
 
@@ -47,7 +47,7 @@ fn default_catalog_path() -> Option<std::path::PathBuf> {
 }
 
 /// Start the retrieval proxy in-process. Binds 127.0.0.1:PORT, loads the
-/// catalog, and starts forwarding to Lemonade/Ollama.
+/// catalog, and starts forwarding to Lemonade.
 #[tauri::command]
 pub async fn kortex_retrieval_start(app: AppHandle) -> Result<u16, String> {
     {
@@ -89,13 +89,14 @@ pub async fn kortex_retrieval_start(app: AppHandle) -> Result<u16, String> {
     };
     let lemonade = std::env::var("KORTEX_UPSTREAM_OPENAI")
         .unwrap_or_else(|_| "http://localhost:13305".into());
-    let ollama = std::env::var("KORTEX_UPSTREAM_OLLAMA")
+    let native_api = std::env::var("KORTEX_UPSTREAM_NATIVE_API")
+        .or_else(|_| std::env::var("KORTEX_UPSTREAM_OLLAMA")) // legacy name
         .unwrap_or_else(|_| "http://127.0.0.1:11434".into());
 
     println!("[kortex-retrieval] listening on http://127.0.0.1:{port}");
     println!("[kortex-retrieval] {catalog_status}");
-    println!("[kortex-retrieval] lemonade -> {lemonade}");
-    println!("[kortex-retrieval] ollama   -> {ollama}");
+    println!("[kortex-retrieval] lemonade   -> {lemonade}");
+    println!("[kortex-retrieval] native-api -> {native_api}");
 
     *PROXY.lock().unwrap() = Some(ProxyState { port, shutdown_tx });
 

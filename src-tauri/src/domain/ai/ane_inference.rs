@@ -1,10 +1,10 @@
 /// ANE aux-offload — honest Apple Neural Engine integration.
 ///
-/// Token generation is done by Ollama on the Metal GPU and is memory-bandwidth
+/// Token generation is done by the local backend on the Metal GPU and is memory-bandwidth
 /// bound (~45 tok/s ceiling for a 2b Q4 model on M1's ~68GB/s). The ANE cannot
-/// reach into Ollama's process, so it is NOT used for token generation.
+/// reach into the local backend's process, so it is NOT used for token generation.
 /// Instead it owns auxiliary workloads — batched cosine similarity for the
-/// vector index — freeing CPU/GPU cycles for Ollama while a stream is active.
+/// vector index — freeing CPU/GPU cycles for the native /api path while a stream is active.
 
 use crate::ane::{AneEngine, f32_to_f16, f16_to_f32};
 use std::sync::Arc;
@@ -38,8 +38,8 @@ pub struct AneStatus {
     /// "ane_aux_offload" (similarity kernel live), "metal_decode" (generation
     /// path, ANE idle), or "unavailable" (not Apple Silicon).
     pub inference_mode: String,
-    /// Token-generation speedup vs Ollama alone. Always 1.0 — the ANE does not
-    /// (and cannot) accelerate Ollama's decode loop; decode is bandwidth-bound.
+    /// Token-generation speedup vs the local backend alone. Always 1.0 — the ANE does not
+    /// (and cannot) accelerate the local backend's decode loop; decode is bandwidth-bound.
     pub estimated_speedup: f32,
     /// Measured tok/s from real streams via update_status(). 0.0 = no sample yet.
     pub tokens_per_sec_estimate: f32,
@@ -81,7 +81,7 @@ impl AneInferenceOptimizer {
             } else {
                 "unavailable".to_string()
             },
-            estimated_speedup: 1.0,        // honest: ANE never speeds up Ollama decode
+            estimated_speedup: 1.0,        // honest: ANE never speeds up local decode
             tokens_per_sec_estimate: 0.0,  // populated from measured streams only
         };
 

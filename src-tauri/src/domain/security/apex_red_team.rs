@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-/// The BugTraceAI model identifier for Ollama
+/// The BugTraceAI model identifier
 const BUGTRACE_MODEL: &str = "hf.co/BugTraceAI/BugTraceAI-Apex-G4-26B-Q4:latest";
 
 /// System prompt that unlocks full Apex reasoning
@@ -158,7 +158,7 @@ impl ApexRedTeam {
         *self.model.lock().await = model.to_string();
     }
 
-    /// Set the Ollama URL
+    /// Set the inference URL
     pub async fn set_inference_url(&self, url: &str) {
         *self.inference_url.lock().await = url.to_string();
     }
@@ -319,7 +319,7 @@ impl ApexRedTeam {
         )
     }
 
-    /// Query the Apex model via Ollama
+    /// Query the Apex model via the local backend
     async fn query_apex(&self, prompt: &str) -> Result<String, String> {
         // Share the global batch-engine gate so red-team scans never run
         // concurrently with APEX engines on low-RAM tiers.
@@ -367,7 +367,7 @@ impl ApexRedTeam {
 
         result["response"].as_str()
             .map(|s| s.to_string())
-            .ok_or_else(|| "[APEX-RT] No response field in Ollama output".to_string())
+            .ok_or_else(|| "[APEX-RT] No response field in model output".to_string())
     }
 
     /// Parse the <thinking> block and structured findings from the Apex response

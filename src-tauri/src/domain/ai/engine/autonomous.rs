@@ -130,7 +130,7 @@ impl Sentient {
         }
 
         // Detect "local quantized model" providers early — used throughout the
-        // function for budget decisions. Ollama, the antigravity local proxy,
+        // function for budget decisions. The native /api backends (the antigravity local proxy,
         // AND the local DeepSeek-ANE server (llama.cpp / MLX on Apple Silicon)
         // all share the same constraints: limited context, smaller model so
         // the tool catalog must be trimmed, prompts kept lean.
@@ -313,7 +313,7 @@ impl Sentient {
 
         // ── Kortex AIM Brain Injection ────────────────────────────────────────
         // The compact gist is ~100 tokens. Always inject for ALL providers —
-        // even 8K-context Ollama models can afford it. Only the verbose full
+        // even 8K-context local models can afford it. Only the verbose full
         // knowledge summary (thousands of tokens) is gated to cloud models.
         let (tree_before, aim_indexed_files) = self
             .memory_store
@@ -577,8 +577,8 @@ impl Sentient {
         // YOLO mode: count consecutive nudges to prevent infinite spin
         let mut yolo_nudges: u32 = 0;
         // Trigger Phase-Wrap every N iterations to compress context → .aim.
-        // Local/Ollama models have small context windows — wrap aggressively to prevent truncation.
-        // Phase-Wrap cadence. Wrapping every 3 iterations on small Ollama models
+        // Local/local models have small context windows — wrap aggressively to prevent truncation.
+        // Phase-Wrap cadence. Wrapping every 3 iterations on small local models
         // was catastrophic — it dropped the model into "[system, gist, mission]"
         // before it ever finished a single tool chain, which is why local tunes
         // (abliterated, neuraldevil, etc.) started emitting LaTeX letter-spam
@@ -630,7 +630,7 @@ impl Sentient {
             }
         }
         // Scale context limit to the model's actual context window.
-        // Ollama models: use num_ctx * ~4 chars/token as the budget.
+        // local models: use num_ctx * ~4 chars/token as the budget.
         // Cloud models: 500k chars (generous, they handle it).
         let context_limit = if is_local_provider {
             let num_ctx = Self::recommended_num_ctx(&req.model);
@@ -714,7 +714,7 @@ impl Sentient {
             }
         }
 
-        // For Ollama AND Lemonade: trim tools to a focused essential set.
+        // For local backends: trim tools to a focused essential set.
         // Local models have limited context — 60+ tools wastes 8-12k tokens on schemas alone.
         // We keep only the ~20 tools a coding agent actually needs most.
         let is_small_model = is_local_provider || Self::is_small_model_name(&req.model);
@@ -1388,7 +1388,7 @@ impl Sentient {
             }
 
             // Emergency context overflow guard: catches intra-phase bloat that slips
-            // between scheduled phase-wraps. Small Ollama models (8K ctx) can overflow
+            // between scheduled phase-wraps. Small local models (8K ctx) can overflow
             // within a single 12-iteration phase if tool results are large.
             {
                 let estimated = Self::estimate_messages_tokens(&messages);
@@ -1559,7 +1559,7 @@ impl Sentient {
             // Kortex AIM `### BRAIN` context, prior-memory (`hades_ctx`), and the
             // PLAN/REFLECTION directives. Taking only the *first* one (the old
             // behaviour) silently dropped the AIM brain on cloud models, which is why
-            // AIM VFS worked on local (Ollama) but not on Claude. Concatenate ALL
+            // AIM VFS worked on local models but not on Claude. Concatenate ALL
             // system messages so the full AIM context reaches the cloud model.
             let system_msg = {
                 let joined = messages
@@ -1666,7 +1666,7 @@ impl Sentient {
                 println!("[AI] Knowledge-only query — keeping tools available but not forcing a tool call.");
             }
 
-            // Ollama + Lemonade: preflight trim so pasted specs + tool schemas fit
+            // local backends: preflight trim so pasted specs + tool schemas fit
             // inside num_ctx. Without this, small local models get the full 24K+
             // system prompt and silently produce empty streams.
             let preftrim_provider = active_provider.to_lowercase();
@@ -1821,7 +1821,7 @@ impl Sentient {
                 let is_webchat = active_provider.to_lowercase().starts_with("webchat");
                 let supports_native_tools = !force_text_tool_protocol && !is_small_model && !is_webchat && {
                     let m = active_model.to_lowercase();
-                    // All modern Ollama models ≥8B support OpenAI-compatible function calling.
+                    // All modern local models ≥8B support OpenAI-compatible function calling.
                     // Only legacy/specialty models need the text-JSON fallback.
                     m.contains("qwen") || m.contains("llama3") || m.contains("llama-3")
                         || m.contains("mistral") || m.contains("mixtral") || m.contains("mistral-nemo")
@@ -1838,7 +1838,7 @@ impl Sentient {
 
                 let mut local_system = system_msg.clone();
 
-                // Local / OpenAI-compat self-hosted servers (Ollama, Lemonade, HF
+                // Local / OpenAI-compat self-hosted servers (llama.cpp, Lemonade, HF
                 // router, vLLM, LM Studio, LiteLLM) may serve small models that lack
                 // reliable native function-calling. Inject the agent-mode + text-JSON
                 // tool protocol for them too, gated by `supports_native_tools` below,
@@ -1850,7 +1850,7 @@ impl Sentient {
                         | "litellm" | "lite-llm" | "lite_llm"
                 );
                 if is_local_openai_compat || is_webchat {
-                    // Gemma 4 thinking mode — Ollama handles chat template; we only prefix system.
+                    // Gemma 4 thinking mode — the server handles the chat template; we only prefix system.
                     if Self::is_gemma4_model(&active_model) && !is_chat_mode && !local_system.starts_with("<|think|>") {
                         local_system = format!("<|think|>\n{local_system}");
                     }
@@ -1955,7 +1955,7 @@ impl Sentient {
                     });
                 }
 
-                // For Ollama: lower temperature improves tool call reliability on most models.
+                // For the native /api path: lower temperature improves tool call reliability on most models.
                 // Gemma 4 uses publisher defaults (temp 1.0) — see local_sampling().
                 let (local_temp, _, _) = Self::local_sampling(
                     &active_model,
@@ -1991,8 +1991,8 @@ impl Sentient {
                     base["temperature"] = json!(local_temp);
                 }
                 if is_local_inference && active_provider.to_lowercase() != "lemonade" {
-                    // num_ctx/num_predict must live under `options` for Ollama (/v1 and /api).
-                    // Lemonade is strict OpenAI-compat and rejects Ollama-only fields.
+                    // num_ctx/num_predict must live under `options` for the native /api path.
+                    // Lemonade is strict OpenAI-compat and rejects native-/api-only fields.
                     base["options"] = Self::local_inference_options(&active_model, local_temp, local_predict);
                     base["keep_alive"] = json!(crate::gpu_offload::keep_alive());
                 }
@@ -2014,7 +2014,7 @@ impl Sentient {
                 base
             };
 
-            // Anthropic streaming is slightly different, but we'll focus on OpenAI/Ollama first
+            // Anthropic streaming is slightly different, but we'll focus on OpenAI-compat first
             if active_provider.to_lowercase() == "anthropic" {
                 payload["stream"] = json!(true);
             }
@@ -2079,7 +2079,7 @@ impl Sentient {
                 tools.truncate(15);
             }
 
-            // Always inject tools for Ollama/Lemonade — even small models need
+            // Always inject tools for local backends — even small models need
             // tool schemas so the model knows what tools exist. The
             // supports_native_tools_payload flag only controls tool_choice,
             // not whether tools are present in the payload.
@@ -2172,7 +2172,7 @@ impl Sentient {
                 }
             }
 
-            // Force tool use for Ollama-compatible local models (Ollama + Lemonade)
+            // Force tool use for local models on the native /api path (llama.cpp / Lemonade)
             // — prevents them from outputting code as plain text instead of tool calls.
             // Skip for small models (<14B) — they can't reliably produce tool calls
             // when forced, and will output text instead. Let them use native calling
@@ -2402,7 +2402,7 @@ impl Sentient {
                 }
                 
                 // Fallback for local models that don't natively support tools via
-                // API — Lemonade (real llama.cpp) as well as Ollama. Guarded by the
+                // API — Lemonade (real llama.cpp) as well as other native /api servers. Guarded by the
                 // error text, so it only fires when the server actually says so.
                 let tool_unsupported_400 = status.as_u16() == 400
                     && (body.contains("does not support tools")
@@ -2516,7 +2516,7 @@ impl Sentient {
             let mut stream = response.bytes_stream();
             let mut line_buffer = String::new();
             
-            // Progress tracking for Ollama
+            // Progress tracking for local inference
             let start_time = std::time::Instant::now();
             let mut tokens_count = 0;
             let mut last_progress_emit = std::time::Instant::now();
@@ -2527,7 +2527,7 @@ impl Sentient {
             );
 
             // Show the prefill/generation HUD for ALL local OpenAI-compat servers,
-            // not just Ollama. Without this a Lemonade turn looks frozen during the
+            // not just the native /api path. Without this a Lemonade turn looks frozen during the
             // (potentially minute-long) prompt prefill on weak GPUs.
             let emit_progress = matches!(
                 active_provider.to_lowercase().as_str(),
@@ -2537,7 +2537,7 @@ impl Sentient {
             );
 
             if emit_progress {
-                self.emit_event("ollama-progress", json!({
+                self.emit_event("inference-progress", json!({
                     "progress": 2,
                     "status": "prefill",
                     "elapsed_secs": 0,
@@ -2678,7 +2678,7 @@ impl Sentient {
                     if let Ok(val) = serde_json::from_str::<Value>(json_str) {
                         let mut delta_to_emit = None;
 
-                        // OpenAI/Ollama v1 format — ONLY if not already handled by Ollama native
+                        // OpenAI v1 format — ONLY if not already handled by native /api
                         if val["message"]["content"].is_null() {
                             if let Some(content) = val["choices"][0]["delta"]["content"].as_str() {
                                 if !content.is_empty() {
@@ -2749,7 +2749,7 @@ impl Sentient {
                             }
                         }
                             
-                            // Emit progress every 500ms for Ollama
+                            // Emit progress every 500ms for local inference
                             if emit_progress && last_progress_emit.elapsed().as_millis() >= 500 {
                                 let elapsed = start_time.elapsed().as_secs();
                                 let tokens_per_sec = if elapsed > 0 { tokens_count as f64 / elapsed as f64 } else { 1.0 };
@@ -2758,7 +2758,7 @@ impl Sentient {
                                 
                                 let progress_pct = ((tokens_count as f64 / estimated_total_tokens as f64) * 100.0).min(99.0) as u32;
                                 
-                                self.emit_event("ollama-progress", serde_json::json!({
+                                self.emit_event("inference-progress", serde_json::json!({
                                     "progress": progress_pct,
                                     "tokens_per_sec": tokens_per_sec.round(),
                                     "elapsed_secs": elapsed,
@@ -2768,7 +2768,7 @@ impl Sentient {
 
                                 last_progress_emit = std::time::Instant::now();
                             }
-                        // Ollama native /api/chat — thinking models stream `message.thinking`
+                        // native /api /api/chat — thinking models stream `message.thinking`
                         // long before `message.content`; without this the UI looks frozen for minutes.
                         if let Some(thinking) = val["message"]["thinking"].as_str() {
                             if !thinking.is_empty() {
@@ -2799,7 +2799,7 @@ impl Sentient {
                                     && last_progress_emit.elapsed().as_millis() >= 500
                                 {
                                     let elapsed = start_time.elapsed().as_secs();
-                                    self.emit_event("ollama-progress", json!({
+                                    self.emit_event("inference-progress", json!({
                                         "progress": 15,
                                         "status": "thinking",
                                         "elapsed_secs": elapsed,
@@ -2810,7 +2810,7 @@ impl Sentient {
                                 }
                             }
                         }
-                        // Ollama native format — answer tokens
+                        // native /api format — answer tokens
                         if let Some(content) = val["message"]["content"].as_str() {
                             if content.is_empty() {
                                 // thinking-only chunk; already handled above
@@ -2832,7 +2832,7 @@ impl Sentient {
                                 cb(content);
                             }
                             
-                            // Emit progress every 500ms for Ollama (native format)
+                            // Emit progress every 500ms for local inference (native format)
                             if emit_progress && last_progress_emit.elapsed().as_millis() >= 500 {
                                 let elapsed = start_time.elapsed().as_secs();
                                 let tokens_per_sec = if elapsed > 0 { tokens_count as f64 / elapsed as f64 } else { 1.0 };
@@ -2841,7 +2841,7 @@ impl Sentient {
                                 
                                 let progress_pct = ((tokens_count as f64 / estimated_total_tokens as f64) * 100.0).min(99.0) as u32;
                                 
-                                self.emit_event("ollama-progress", serde_json::json!({
+                                self.emit_event("inference-progress", serde_json::json!({
                                     "progress": progress_pct,
                                     "tokens_per_sec": tokens_per_sec.round(),
                                     "elapsed_secs": elapsed,
@@ -2923,9 +2923,9 @@ impl Sentient {
                                 }
                             }
                         }
-                        // Extract Ollama native /api/chat tool calls.
+                        // Extract native /api /api/chat tool calls.
                         //
-                        // This is the critical path for local and remote Ollama
+                        // This is the critical path for local and remote native /api servers
                         // servers that return chunks shaped like:
                         // { "message": { "tool_calls": [{ "function": { ... } }] } }
                         //
@@ -3101,7 +3101,7 @@ impl Sentient {
             // Empty-stream detection: if the provider returned a 2xx response but
             // ZERO data lines (no content, no reasoning, no tool calls), the model
             // is effectively unreachable in its current form — most commonly the
-            // named model is not actually loaded on the local server (Ollama/
+            // named model is not actually loaded on the local server (the local backend/
             // Lemonade/lmstudio), or the request shape is rejected silently. Rather
             // than render a blank "(no response)" turn that looks like the agent is
             // broken, fail loudly with an actionable message. This is the single
@@ -3163,7 +3163,7 @@ impl Sentient {
                 let final_tokens_per_sec = if total_elapsed > 0 { tokens_count as f64 / total_elapsed as f64 } else { 0.0 };
                 
                 {
-                    self.emit_event("ollama-progress", serde_json::json!({
+                    self.emit_event("inference-progress", serde_json::json!({
                         "progress": 100,
                         "tokens_per_sec": final_tokens_per_sec.round(),
                         "elapsed_secs": total_elapsed,
@@ -3873,7 +3873,7 @@ impl Sentient {
                 // action, reframe the authorization and retry on the SAME model.
                 // We deliberately do NOT switch the user's chosen model — the
                 // operator picked it on purpose; silently swapping to a local
-                // Ollama model is surprising and unwanted. Same model, just nudged.
+                // local model is surprising and unwanted. Same model, just nudged.
                 if (prompt_demands_action || is_offensive_engagement)
                     && Self::is_refusal(&final_text, is_offensive_engagement)
                     && refusal_reframes < MAX_REFUSAL_REFRAMES

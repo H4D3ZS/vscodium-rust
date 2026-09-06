@@ -13,7 +13,7 @@ use crate::process_ext::CommandExtHidden;
 
 /// Parse FastContext's trained text tool-call format — `READ(path)`, `GLOB(pat)`,
 /// `GREP(term)` (case-insensitive) — into `(internal_name, arg)` pairs. Used when
-/// the GGUF template doesn't emit native Ollama tool_calls.
+/// the GGUF template doesn't emit native /api tool_calls.
 fn parse_text_tool_calls(text: &str) -> Vec<(String, String)> {
     let re = regex::Regex::new(r#"(?i)\b(READ|GLOB|GREP|CODE_SEARCH|SEARCH)\s*\(\s*["']?([^"')]+?)["']?\s*\)"#).unwrap();
     let mut out = Vec::new();
@@ -1119,7 +1119,7 @@ impl AiTools {
     }
 
     /// Read-only agentic exploration loop. FastContext issues real READ/GLOB/GREP
-    /// tool calls (native Ollama tools, or its trained text format as fallback)
+    /// tool calls (native /api tools, or its trained text format as fallback)
     /// which we execute against the repo, looping until it emits `<final_answer>`
     /// citations. Returns parsed `path:line` citations.
     async fn run_fastcontext_loop(
@@ -1390,7 +1390,7 @@ impl AiTools {
             "explorer": "builtin",
             "query": query,
             "citations": citations,
-            "note": "FastContext not available — used built-in exploration. Pull FastContext for better results: ollama pull hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M"
+            "note": "FastContext not available — used built-in exploration. Pull FastContext-1.0-4B (Q4_K_M GGUF) into your local backend for better results"
         }))
     }
 

@@ -344,7 +344,7 @@ async fn run_ai_triage(alerts: &[Alert], opts: &VegaScanOptions) -> Vec<String> 
     }
     let mut assist = VegaAiAssist::new(cfg);
 
-    // Probe once. If Ollama is unreachable (complete-offline), disable the model
+    // Probe once. If the local model is unreachable (complete-offline), disable the model
     // path so triage_finding uses the deterministic heuristic without paying a
     // failed-request round trip per alert.
     if !assist.reachable().await {

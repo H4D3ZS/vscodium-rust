@@ -234,7 +234,7 @@ impl AiTools {
         engine.single_shot_completion(req).await
     }
 
-    /// Best-effort list of locally-installed model tags (Ollama-style `/api/tags`).
+    /// Best-effort list of locally-installed model tags (the local backend-style `/api/tags`).
     pub(crate) async fn list_local_model_tags(&self) -> Vec<String> {
         let base = std::env::var("KORTEX_IMAGE_HOST")
             .or_else(|_| std::env::var("OLLAMA_HOST"))
@@ -299,7 +299,7 @@ impl AiTools {
     }
 
     /// Resolve the (cheap, mid, strong) model tiers for a vuln-hunt. Explicit
-    /// args win; otherwise auto-detect from installed Ollama models + keyed cloud
+    /// args win; otherwise auto-detect from installed local models + keyed cloud
     /// providers (incl. cyberifrit). The strong/confirm tier prefers a
     /// security-specialized model, then the biggest available, so it auto-selects
     /// the user's `SecurityEngineer` / `BugTraceAI-Apex` when api.cyberifrit.xyz

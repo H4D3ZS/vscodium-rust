@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 
 use crate::apex_red_team::{ApexRedTeam, RedTeamScanRequest, ScanDepth};
 
-// Default Ollama model assignments per engine live in `gpu_offload::apex_model`
+// Default local model assignments per engine live in `gpu_offload::apex_model`
 // — RAM-tiered (lite → 2b shared, mid → 7b shared, full → 12b/7b split).
 // Supabase per-engine overrides (below) still take precedence.
 
@@ -70,7 +70,7 @@ pub struct ApexOrchestrator {
     client: Client,
     inference_url: Arc<Mutex<String>>,
     /// Lemonade (real llama.cpp, OpenAI-compatible) base URL for engines routed
-    /// off Ollama — e.g. the BugTrace CORE-Ultra tooling engine. Default :13305.
+    /// off the local backend — e.g. the BugTrace CORE-Ultra tooling engine. Default :13305.
     lemonade_url: Arc<Mutex<String>>,
     red_team: Arc<ApexRedTeam>,
     results_feed: Arc<Mutex<Vec<ApexResult>>>,
@@ -125,7 +125,7 @@ impl ApexOrchestrator {
         crate::gpu_offload::apex_model(engine).to_string()
     }
 
-    /// Update the Ollama URL for all engines
+    /// Update the inference URL for all engines
     pub async fn set_inference_url(&self, url: &str) {
         *self.inference_url.lock().await = url.to_string();
         self.red_team.set_inference_url(url).await;
@@ -663,7 +663,7 @@ impl ApexOrchestrator {
 
     // ─── Internal Helper Methods ────────────────────────────────────────────
 
-    /// Query a specific engine via Ollama
+    /// Query a specific engine via the local backend
     async fn query_engine(&self, engine: &str, prompt: &str, system: Option<&str>) -> Result<String, String> {
         // RAM-tier gate: lite machines run batch generations strictly serially
         // — eight concurrent generations is swap-death on 8GB even with 2b models.
@@ -676,7 +676,7 @@ impl ApexOrchestrator {
         // Resolve backend + model. An explicit override wins and its backend is
         // inferred from the id ("lemonade:" prefix or a BugTrace tag); otherwise
         // the engine's default Lemonade mapping (Full tier) decides, falling back
-        // to Ollama.
+        // to the local backend.
         let override_model = self.model_overrides.lock().await.get(engine).cloned();
         let (use_lemonade, model) = match override_model {
             Some(m) if m.starts_with("lemonade:") => (true, m.trim_start_matches("lemonade:").to_string()),

@@ -377,7 +377,7 @@ pub fn run() {
                 });
             }
 
-            // Triage orchestrator — init with workspace root + Ollama URL.
+            // Triage orchestrator — init with workspace root + inference URL.
             {
                 let workspace = state.editor.active_root
                     .try_lock()
@@ -796,7 +796,7 @@ pub fn run() {
             ane_commands::ane_can_accelerate,
             ane_commands::ane_update_metrics,
             ane_commands::ane_diagnostics,
-            // ═══ Model Management (Dynamic Ollama selection) ═══
+            // ═══ Model Management (Dynamic local model selection) ═══
             model_commands::list_local_models,
             model_commands::get_current_model,
             model_commands::set_current_model,

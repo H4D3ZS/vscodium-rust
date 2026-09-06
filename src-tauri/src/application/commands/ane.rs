@@ -11,7 +11,7 @@ pub async fn ane_get_status(
 }
 
 /// Initialize ANE aux-offload (batched similarity scoring for the vector index).
-/// Token generation stays on Ollama/Metal — the ANE cannot reach into Ollama.
+/// Token generation stays on the local GPU — the ANE cannot reach into the local backend.
 #[tauri::command]
 pub async fn ane_init_inference(
     state: State<'_, std::sync::Arc<crate::EditorState>>,
@@ -52,7 +52,7 @@ pub async fn ane_diagnostics(
         "estimated_speedup": status.estimated_speedup,
         "tokens_per_sec": status.tokens_per_sec_estimate,
         "can_accelerate": state.ai.ane.can_accelerate().await,
-        "token_generation": "metal_decode", // decode is bandwidth-bound; ANE can't enter Ollama's process
+        "token_generation": "metal_decode", // decode is bandwidth-bound; ANE can't enter the inference process
         "ane_workload": "vector_index_similarity",
     }))
 }

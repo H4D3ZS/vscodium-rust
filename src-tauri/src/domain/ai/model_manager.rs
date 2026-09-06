@@ -1,4 +1,4 @@
-/// Dynamic model management for local Ollama
+/// Dynamic model management for local models
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

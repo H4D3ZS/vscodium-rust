@@ -36,7 +36,7 @@ pub async fn inference_get_status(
             "moe_routing": false, // TODO: detect from model
         },
         "expected_performance": {
-            "note": "Decode is memory-bandwidth bound; tok/s set by Ollama/Metal, not the ANE",
+            "note": "Decode is memory-bandwidth bound; tok/s set by the local GPU, not the ANE",
             "qwen_2b_q4_m1": "~45 tokens/sec (near the ~68GB/s bandwidth ceiling)",
             "ane_role": "offloads vector-index similarity, freeing CPU/GPU during streams",
             "first_token_latency_ms": "2000-3000",
@@ -96,11 +96,11 @@ pub async fn inference_get_setup_recommendation() -> Result<Value, String> {
         "expected_performance": {
             "qwen3.5:2b_q4": "~45 tokens/sec (bandwidth ceiling on M1)",
             "qwen3.5:12b_q4": "~8-12 tokens/sec (bandwidth ceiling on M1 8GB)",
-            "note": "tok/s is set by Ollama/Metal memory bandwidth; ANE offloads indexing instead",
+            "note": "tok/s is set by the local GPU memory bandwidth; ANE offloads indexing instead",
             "first_token_latency": "2-3 seconds (includes SSD load)",
         },
         "optimization_path": [
-            "1. Run: ollama pull qwen3.5:2b",
+            "1. Pull a small model into your local backend (e.g. qwen3.5:2b)",
             "2. IDE Settings → Model Selection → Auto-Detect",
             "3. Settings → ANE Acceleration → Enable (offloads semantic search to the NPU)",
             "4. Semantic search stays fast while a generation stream is active",

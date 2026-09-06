@@ -1,7 +1,7 @@
 //! Multi-vector synthesis and discrepancy aggregator.
 //!
 //! Maintains a persistent in-memory findings log, assembles the context
-//! prompt for the local Ollama engine, and exposes Tauri commands for the
+//! prompt for the local model engine, and exposes Tauri commands for the
 //! TriageWorkbench UI canvas.
 //!
 //! DDD placement note: business state (`OrchestratorState`) lives here rather
@@ -162,7 +162,7 @@ impl OrchestratorState {
             ));
         }
 
-        // 4. Send to Ollama for synthesis.
+        // 4. Send to the local model for synthesis.
         let local_json = self.pipeline.synthesize(&synthesis_events).await?;
 
         // 5. Parse the JSON response into a CanvasSnapshot.
@@ -277,7 +277,7 @@ pub fn init(workspace_root: PathBuf, config_dir: PathBuf, inference_url: &str) -
 }
 
 /// Trigger a full analysis cycle. Returns the new CanvasSnapshot.
-/// Blocks until Ollama responds. The Semaphore in TelemetryPipeline ensures
+/// Blocks until the local model responds. The Semaphore in TelemetryPipeline ensures
 /// this is safe to invoke concurrently — the second caller waits.
 #[tauri::command]
 pub async fn triage_run(

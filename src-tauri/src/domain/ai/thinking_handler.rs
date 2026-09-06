@@ -8,7 +8,7 @@
 //! - `<think>...</think>` tags in content (Gemma 4, Qwen3, DeepSeek R1)
 //! - `<|channel>thought...<channel|>` channels (Gemma 4 native)
 //! - Empty content with non-empty `reasoning_content` (OpenAI-compat)
-//! - Empty content with non-empty `message.thinking` (Ollama native)
+//! - Empty content with non-empty `message.thinking` (native /api)
 
 /// Result of thinking extraction.
 pub struct ThinkingResult {
@@ -49,7 +49,7 @@ pub fn extract_thinking(content: &str, reasoning_buf: &str) -> ThinkingResult {
         return result;
     }
 
-    // 3. If content is empty but reasoning_buf has content (OpenAI-compat / Ollama native)
+    // 3. If content is empty but reasoning_buf has content (OpenAI-compat / native /api)
     if content.trim().is_empty() && !reasoning_buf.trim().is_empty() {
         return ThinkingResult {
             clean_content: String::new(),

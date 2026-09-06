@@ -1,4 +1,4 @@
-//! Provider plumbing: Ollama payloads/options/diagnostics/native API,
+//! Provider plumbing: native /api payloads/options/diagnostics/native API,
 //! model pulling/listing, intent classification, local fallback.
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
@@ -28,13 +28,13 @@ impl Sentient {
         None
     }
 
-    /// Gemma 4 family (Ollama `gemma4:*`) — reasoning, native tools, multimodal.
+    /// Gemma 4 family (the local backend `gemma4:*`) — reasoning, native tools, multimodal.
     pub(crate) fn is_gemma4_model(model: &str) -> bool {
         let m = model.to_lowercase();
         m.contains("gemma4") || m.contains("gemma-4")
     }
 
-    /// Ollama sampling tuned per model family (Gemma 4 uses publisher defaults).
+    /// the local backend sampling tuned per model family (Gemma 4 uses publisher defaults).
     /// Small models (1B-4B) get slightly higher temperature to help with
     /// tool call diversity and reduce repetition loops.
     pub(crate) fn local_sampling(model: &str, is_chat_mode: bool, req_temp: Option<f32>) -> (f32, f32, u32) {
@@ -180,7 +180,7 @@ impl Sentient {
         let param_count = Self::parse_model_param_count(&m).unwrap_or(0);
 
         // 30B+ models: large context for complex agentic chains
-        // With 40GB RAM + Ollama CPU offload, 32K is safe even on RX 580
+        // With 40GB RAM + CPU offload, 32K is safe even on RX 580
         if param_count >= 30
             || m.contains("70b") || m.contains("72b") || m.contains("65b")
             || m.contains("34b") || m.contains("33b") || m.contains("32b")
@@ -202,7 +202,7 @@ impl Sentient {
         8192
     }
 
-    /// Ollama only honors `num_ctx` / `num_predict` inside the `options` object
+    /// The native /api path only honors `num_ctx` / `num_predict` inside the `options` object
     /// (top-level fields are ignored → default 4096 ctx → exceed_context_size_error).
     pub(crate) fn local_inference_options(model: &str, temperature: f32, num_predict: u32) -> Value {
         let (_, top_p, top_k) = Self::local_sampling(model, false, Some(temperature));
@@ -214,7 +214,7 @@ impl Sentient {
         // VRAM-tiered GPU-layer offload: keep as many layers in VRAM as fit,
         // spill the rest to RAM (so e.g. a 27B runs on 8GB instead of OOMing).
         // `HADES_NUM_GPU` hard-overrides inside recommended_num_gpu; None leaves
-        // the field unset so Ollama auto-decides.
+        // the field unset so the local backend auto-decides.
         if let Some(n) = crate::gpu_offload::recommended_num_gpu(model) {
             opts["num_gpu"] = json!(n);
         }
@@ -225,7 +225,7 @@ impl Sentient {
         opts
     }
 
-    /// Last-chance guard: force `options.num_ctx` on every Ollama payload before POST.
+    /// Last-chance guard: force `options.num_ctx` on every native /api payload before POST.
     pub(crate) fn ensure_native_payload(payload: &mut Value, model: &str, temperature: f32, num_predict: u32) {
         if let Some(obj) = payload.as_object_mut() {
             obj.remove("num_ctx");
@@ -236,20 +236,20 @@ impl Sentient {
                 Self::local_inference_options(model, temperature, num_predict),
             );
             // RAM-tiered residency: lite keeps its single model warm so weights
-            // aren't reloaded between agent turns (Ollama default is only 5m).
+            // aren't reloaded between agent turns (the local backend default is only 5m).
             obj.entry("keep_alive".to_string())
                 .or_insert_with(|| json!(crate::gpu_offload::keep_alive()));
-            println!("[AI] Ollama payload num_ctx={} model={}", num_ctx, model);
+            println!("[AI] native /api payload num_ctx={} model={}", num_ctx, model);
         }
     }
 
-    /// Returns true if the model supports vision / image input via Ollama.
-    /// Ollama passes images as a top-level `images` array (base64) on each message.
+    /// Returns true if the model supports vision / image input via the native /api path.
+    /// The native /api path passes images as a top-level `images` array (base64) on each message.
     pub(crate) fn is_vision_model(model: &str) -> bool {
         crate::vision_sidecar::is_vision_capable_model(model)
     }
 
-    /// Ensure tool `arguments` string is valid JSON (Ollama rejects malformed history).
+    /// Ensure tool `arguments` string is valid JSON (the local backend rejects malformed history).
     pub(crate) fn sanitize_tool_arguments(raw: &str) -> String {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -306,7 +306,7 @@ impl Sentient {
         )
     }
 
-    /// Serialize tool calls for Ollama. OpenAI-compat (`/v1`) wants `arguments` as a JSON
+    /// Serialize tool calls for the native /api path. OpenAI-compat (`/v1`) wants `arguments` as a JSON
     /// string; native `/api/chat` accepts a parsed object (avoids template parser 400s).
     pub(crate) fn native_tool_calls_json(calls: &[ToolCall], openai_compat: bool) -> Value {
         json!(
@@ -345,9 +345,9 @@ impl Sentient {
             || model.contains("hf.co/")
     }
 
-    /// Transform `ChatMessage` list into a Ollama-compatible JSON messages array.
+    /// Transform `ChatMessage` list into a native-/api-compatible JSON messages array.
     /// For vision models: extracts `image_url` content parts → `images: [base64]` field.
-    /// For text-only or non-vision Ollama models: serialises messages normally.
+    /// For text-only or non-vision local models: serialises messages normally.
     pub(crate) fn build_local_messages(messages: &[ChatMessage], vision: bool, openai_compat: bool) -> Value {
         const TOOL_CONTENT_MAX: usize = 48_000;
         let msg_array: Vec<Value> = messages
@@ -363,11 +363,11 @@ impl Sentient {
                         text = Self::truncate_for_local(&text, TOOL_CONTENT_MAX);
                     }
                     let mut obj = json!({ "role": role, "content": text });
-                    // Pass tool_calls through if present (Ollama native tools)
+                    // Pass tool_calls through if present (native /api tools)
                     if let Some(tc) = &m.tool_calls {
                         if !tc.is_empty() {
                             obj["tool_calls"] = Self::native_tool_calls_json(tc, openai_compat);
-                            // Duplicate ```json tool blocks in content break Ollama parsers.
+                            // Duplicate ```json tool blocks in content break the local backend parsers.
                             if role_lc == "assistant" {
                                 obj["content"] = json!("");
                             }
@@ -408,7 +408,7 @@ impl Sentient {
                         }
                         obj
                     } else {
-                        // Non-vision Ollama: collapse parts to plain text, drop images
+                        // Non-vision native /api: collapse parts to plain text, drop images
                         let text: String = parts.iter().filter_map(|p| {
                             if let ContentPart::Text { text } = p { Some(text.as_str()) } else { None }
                         }).collect::<Vec<_>>().join("\n");
@@ -446,13 +446,13 @@ impl Sentient {
         Ok(false)
     }
 
-    /// Probe the configured Ollama endpoint and report exactly what went wrong
+    /// Probe the configured local backend endpoint and report exactly what went wrong
     /// so the user doesn't have to guess between "wrong URL", "no bearer",
-    /// "nginx returned HTML", "401" or "ollama empty".
-        /// `/api/foo` then `/v1/api/foo` on 404 (nginx rewrite; see `tools/vps-ollama-proxy/bootstrap.sh`).
-        /// Ollama GET from Rust so the webview is not subject to nginx CORS.
-        /// Ollama POST from Rust (same CORS bypass + `/v1` fallback as GET).
-        /// Unified Ollama HTTP request with retry, fallback URLs, and CORS bypass.
+    /// "nginx returned HTML", "401" or "empty response".
+        /// `/api/foo` then `/v1/api/foo` on 404 (nginx rewrite; see `tools/vps-proxy/bootstrap.sh`).
+        /// the local backend GET from Rust so the webview is not subject to nginx CORS.
+        /// the local backend POST from Rust (same CORS bypass + `/v1` fallback as GET).
+        /// Unified the local backend HTTP request with retry, fallback URLs, and CORS bypass.
             /// Pull a model on the Lemonade server. lemonade-server exposes
     /// `POST /api/v1/pull` with `{"model_name": ...}`; long timeout because
     /// model downloads can take many minutes.
@@ -1322,7 +1322,7 @@ impl Sentient {
     }
 
     /// Normalize model ID for Lemonade: the server uses hyphens for custom
-    /// models (e.g. `model-Q4_K_M`) but Ollama-style models use colons
+    /// models (e.g. `model-Q4_K_M`) but the local backend-style models use colons
     /// (e.g. `model:Q4_K_M`). Only normalize if the model isn't found as-is.
     fn normalize_lemonade_model_id(model: &str) -> String {
         // Don't normalize — Lemonade already uses the correct format.

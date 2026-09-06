@@ -1,15 +1,15 @@
 //! Text embeddings — shared by the vector indexer, semantic search, AIRI memory.
 //!
-//! Served by **Lemonade**, not Ollama. This machine runs Lemonade on :13305 and has
-//! no Ollama; pointing at :11434 meant every embed call failed, which silently took
+//! Served by **Lemonade**. This machine runs Lemonade on :13305 and has
+//! no raw server; pointing at :11434 meant every embed call failed, which silently took
 //! `@codebase`, `semantic_search` and `search_codebase` with it. Those features
 //! reported "done" while returning nothing, because a failed embed degrades to an
 //! empty result rather than an error the user ever sees.
 //!
 //! Lemonade exposes the OpenAI shape: `POST /api/v1/embeddings` with `{model, input}`
-//! returning `{data: [{embedding: [...]}]}`. Ollama used `/api/embeddings` with
+//! returning `{data: [{embedding: [...]}]}`. the local backend historically used `/api/embeddings` with
 //! `{model, prompt}` returning `{embedding: [...]}` — both response shapes are still
-//! parsed, so an Ollama backend keeps working if someone points `base_url` at one.
+//! parsed, so an the local backend backend keeps working if someone points `base_url` at one.
 
 use serde_json::json;
 
@@ -50,8 +50,8 @@ pub async fn embed_text_at(
         .map_err(|e| e.to_string())?;
     let trimmed: String = text.chars().take(4000).collect();
 
-    // An Ollama base URL keeps its own endpoint and payload shape, so an existing
-    // Ollama install still works if configured explicitly.
+    // An the local backend base URL keeps its own endpoint and payload shape, so an existing
+    // the local backend install still works if configured explicitly.
     let is_native_api = base_url.contains("11434");
     let (url, payload) = if is_native_api {
         (
@@ -115,7 +115,7 @@ pub fn embed_text_blocking_at(
 /// Extract the vector from either backend's response shape.
 ///
 /// Lemonade/OpenAI: `{"data": [{"embedding": [...]}]}`
-/// Ollama:          `{"embedding": [...]}`
+/// the local backend:          `{"embedding": [...]}`
 pub fn parse_embedding_array(body: &serde_json::Value) -> Result<Vec<f32>, String> {
     let arr = body
         .get("data")
@@ -169,7 +169,7 @@ mod embeddings_tests {
         assert_eq!(parse_embedding_array(&body).unwrap(), vec![0.1f32, 0.2, 0.3]);
     }
 
-    /// The old Ollama shape must still parse, so pointing at an Ollama backend
+    /// The old the local backend shape must still parse, so pointing at an the local backend backend
     /// keeps working.
     #[test]
     fn still_parses_the_native_flat_shape() {
@@ -186,12 +186,12 @@ mod embeddings_tests {
         assert!(parse_embedding_array(&json!({"error": "nope"})).is_err());
     }
 
-    /// The default must not point at Ollama. This machine has no Ollama, and the
+    /// The default must not point at the local backend. This machine has no the local backend, and the
     /// failure mode is silent — semantic search returns nothing rather than erroring.
     #[test]
     fn default_backend_is_lemonade_not_native() {
         let url = default_embed_base_url();
-        assert!(!url.contains("11434"), "default must not be Ollama, got {url}");
+        assert!(!url.contains("11434"), "default must not be a raw :11434 server, got {url}");
         assert!(url.contains("13305"), "expected the Lemonade port, got {url}");
     }
 
