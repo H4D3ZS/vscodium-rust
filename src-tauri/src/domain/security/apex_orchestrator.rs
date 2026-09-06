@@ -692,6 +692,13 @@ impl ApexOrchestrator {
             return self.query_engine_lemonade(engine, &model, prompt, system).await;
         }
 
+        // Everything else (the Lite/Mid single small model, the Full-tier
+        // per-specialist models) is a GGUF served by Lemonade over the
+        // OpenAI-compatible wire. We POST to `inference_url`, which is the
+        // Kortex KV-cache proxy when it's running (prefix reuse + harness
+        // compression on the APEX sweep) and Lemonade directly otherwise —
+        // Kortex and Lemonade hand in hand. The dead Ollama-native
+        // `/api/generate` path this replaced no longer had a server to talk to.
         let url = self.inference_url.lock().await.clone();
 
         // DeepHat-V1-7B performs best with its own persona prompt. When it's the
@@ -708,41 +715,84 @@ impl ApexOrchestrator {
              Provide precise, technical, actionable analysis.",
             persona, engine
         );
+        let sys = system.unwrap_or(&default_system);
 
+        self.openai_chat(engine, &url, &model, sys, prompt, 0.2, 0.9, 1.1).await
+    }
+
+    /// One OpenAI-compatible `/chat/completions` call with a `/api/v1/...` →
+    /// `/v1/...` path fallback (lemonade-server vs. plain gateways). Shared by
+    /// the general APEX path and the Lemonade-tagged path so there is exactly
+    /// one HTTP shape for every engine.
+    #[allow(clippy::too_many_arguments)]
+    async fn openai_chat(
+        &self,
+        engine: &str,
+        base: &str,
+        model: &str,
+        system: &str,
+        prompt: &str,
+        temperature: f32,
+        top_p: f32,
+        repeat_penalty: f32,
+    ) -> Result<String, String> {
+        let root = base.trim_end_matches('/').to_string();
         let body = json!({
             "model": model,
-            "prompt": prompt,
-            "system": system.unwrap_or(&default_system),
+            "messages": [
+                { "role": "system", "content": system },
+                { "role": "user", "content": prompt }
+            ],
+            "temperature": temperature,
+            "top_p": top_p,
+            "repeat_penalty": repeat_penalty,
+            "max_tokens": 4096,
             "stream": false,
-            "keep_alive": crate::gpu_offload::keep_alive(),
-            "options": {
-                "temperature": 0.2,
-                "num_ctx": crate::gpu_offload::clamp_num_ctx(8192),
-                "num_predict": 4096,
-            }
         });
-
-        println!("[APEX-{}] Querying {} with model {}...", engine.to_uppercase(), url, model);
-
-        let response = self.client
-            .post(format!("{}/api/generate", url))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("[APEX-{}] Request failed: {}", engine, e))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(format!("[APEX-{}] HTTP {}: {}", engine, status, text));
+        let tok = std::env::var("LEMONADE_TOKEN").unwrap_or_default();
+        let mut last_err: Option<String> = None;
+        for path in ["/api/v1/chat/completions", "/v1/chat/completions"] {
+            let endpoint = format!("{}{}", root, path);
+            println!("[APEX-{}] Querying {} with model {}...", engine.to_uppercase(), endpoint, model);
+            let mut req = self.client.post(&endpoint).json(&body);
+            if !tok.trim().is_empty() {
+                req = req.bearer_auth(tok.trim());
+            }
+            match req.send().await {
+                Ok(r) => {
+                    let status = r.status();
+                    if status.as_u16() == 404 {
+                        last_err = Some(format!("HTTP 404 at {}", endpoint));
+                        continue;
+                    }
+                    let raw = r.text().await.unwrap_or_default();
+                    if !status.is_success() {
+                        return Err(format!(
+                            "[APEX-{}] HTTP {}: {}",
+                            engine, status.as_u16(), raw.chars().take(240).collect::<String>()
+                        ));
+                    }
+                    let result: Value = serde_json::from_str(&raw).map_err(|e| {
+                        format!(
+                            "[APEX-{}] parse failed: {} (body: {})",
+                            engine, e, raw.chars().take(160).collect::<String>()
+                        )
+                    })?;
+                    let content = result["choices"][0]["message"]["content"]
+                        .as_str()
+                        // tolerate a plain-text or Ollama-style body from an odd gateway
+                        .or_else(|| result["response"].as_str())
+                        .or_else(|| result["content"].as_str())
+                        .ok_or_else(|| format!("[APEX-{}] no choices[0].message.content", engine))?;
+                    return Ok(Self::strip_tooling_tags(content));
+                }
+                Err(e) => last_err = Some(format!("request failed at {}: {}", endpoint, e)),
+            }
         }
-
-        let result: Value = response.json().await
-            .map_err(|e| format!("[APEX-{}] Parse failed: {}", engine, e))?;
-
-        result["response"].as_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| format!("[APEX-{}] No response field", engine))
+        Err(format!(
+            "[APEX-{}] inference unreachable at {}: {}",
+            engine, root, last_err.unwrap_or_else(|| "unknown".into())
+        ))
     }
 
     /// Query a Lemonade-backed engine (real llama.cpp, OpenAI-compatible chat).
@@ -753,7 +803,6 @@ impl ApexOrchestrator {
     /// downstream JSON/artifact parsing sees clean content.
     async fn query_engine_lemonade(&self, engine: &str, model: &str, prompt: &str, system: Option<&str>) -> Result<String, String> {
         let base = self.lemonade_url.lock().await.clone();
-        let root = base.trim_end_matches('/').to_string();
 
         // BugTrace CORE-Ultra ships a specific tooling system prompt. Use it as
         // the default (callers can still override).
@@ -769,52 +818,19 @@ impl ApexOrchestrator {
         };
 
         let (temperature, top_p, repeat_penalty) = crate::gpu_offload::lemonade_params(engine);
-        let body = json!({
-            "model": model,
-            "messages": [
-                { "role": "system", "content": system.unwrap_or(default_system) },
-                { "role": "user", "content": prompt }
-            ],
-            "temperature": temperature,
-            "top_p": top_p,
-            "repeat_penalty": repeat_penalty,
-            "max_tokens": 4096,
-            "stream": false
-        });
-
-        let tok = std::env::var("LEMONADE_TOKEN").unwrap_or_default();
-        let mut last_err: Option<String> = None;
-        for path in ["/api/v1/chat/completions", "/v1/chat/completions"] {
-            let endpoint = format!("{}{}", root, path);
-            println!("[APEX-{}] Querying Lemonade {} with model {}...", engine.to_uppercase(), endpoint, model);
-            let mut req = self.client.post(&endpoint).json(&body);
-            if !tok.trim().is_empty() {
-                req = req.bearer_auth(tok.trim());
-            }
-            match req.send().await {
-                Ok(r) => {
-                    let status = r.status();
-                    if status.as_u16() == 404 {
-                        // Wrong path for this gateway — try the fallback.
-                        last_err = Some(format!("HTTP 404 at {}", endpoint));
-                        continue;
-                    }
-                    let raw = r.text().await.unwrap_or_default();
-                    if !status.is_success() {
-                        return Err(format!("[APEX-{}] Lemonade HTTP {}: {}", engine, status.as_u16(), raw.chars().take(240).collect::<String>()));
-                    }
-                    let result: Value = serde_json::from_str(&raw)
-                        .map_err(|e| format!("[APEX-{}] Lemonade parse failed: {} (body: {})", engine, e, raw.chars().take(160).collect::<String>()))?;
-                    let content = result["choices"][0]["message"]["content"].as_str()
-                        .ok_or_else(|| format!("[APEX-{}] Lemonade: no choices[0].message.content", engine))?;
-                    return Ok(Self::strip_tooling_tags(content));
-                }
-                Err(e) => {
-                    last_err = Some(format!("request failed at {}: {}", endpoint, e));
-                }
-            }
-        }
-        Err(format!("[APEX-{}] Lemonade unreachable: {}", engine, last_err.unwrap_or_else(|| "unknown".into())))
+        // This engine talks to Lemonade directly (a 27B is a dedicated-GPU
+        // model — no point proxying it through the KV cache).
+        self.openai_chat(
+            engine,
+            &base,
+            model,
+            system.unwrap_or(default_system),
+            prompt,
+            temperature,
+            top_p,
+            repeat_penalty,
+        )
+        .await
     }
 
     /// Strip CORE-Ultra's XML wrapper tags (`<exploit_dev>`, `<recon_specialist>`,
