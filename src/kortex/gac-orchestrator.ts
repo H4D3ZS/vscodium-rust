@@ -138,8 +138,28 @@ export interface LaunchExtras {
     slot_save_path?: string;
     /** Verbatim extra args appended to the launch line. */
     extra_args?: string[];
+    /** Speculative decoding: 'draft' (separate small GGUF) or 'mtp' (the
+     *  model's own multi-token head). Output is identical; ~1.5-3x decode. */
+    spec_type?: 'draft' | 'mtp';
+    /** Draft GGUF path — required for spec_type 'draft'. */
+    draft_model_path?: string;
+    /** Draft-model GPU layers. Default: all (it's tiny). */
+    draft_ngl?: number;
+    /** Tokens to speculate per step (llama.cpp default 16). */
+    draft_max?: number;
     /** Seconds to wait for /health before returning. Default 60. 0 = don't wait. */
     wait_healthy_secs?: number;
+}
+
+/** Read persisted speculative-decoding settings (off by default). */
+export function specDecodeExtras(): Pick<LaunchExtras, 'spec_type' | 'draft_model_path' | 'draft_ngl' | 'draft_max'> {
+    try {
+        const t = localStorage.getItem('kortex.spec.type');
+        if (t !== 'draft' && t !== 'mtp') return {};
+        const dm = localStorage.getItem('kortex.spec.draftModel') || undefined;
+        const dmax = Number(localStorage.getItem('kortex.spec.draftMax') || '') || undefined;
+        return { spec_type: t, draft_model_path: t === 'draft' ? dm : undefined, draft_max: dmax };
+    } catch { return {}; }
 }
 
 const DEFAULT_PLAN_OPTS: Required<Pick<PlanOptions,
@@ -230,6 +250,10 @@ export async function launchServer(
         batchSize: extras.batch_size ?? null,
         flashAttn: extras.flash_attn ?? null,
         slotSavePath: extras.slot_save_path ?? null,
+        specType: extras.spec_type ?? null,
+        draftModelPath: extras.draft_model_path ?? null,
+        draftNgl: extras.draft_ngl ?? null,
+        draftMax: extras.draft_max ?? null,
         extraArgs: extras.extra_args ?? null,
         waitHealthySecs: extras.wait_healthy_secs ?? null,
     });
@@ -279,7 +303,9 @@ export interface KortexBootResult {
  */
 export async function startKortexInference(opts: KortexBootOptions): Promise<KortexBootResult> {
     const plan = await quickPlan(opts.model_path, opts, opts.refresh_profile);
-    const server = await launchServer(plan, opts.model_path, opts.launch ?? {});
+    // Persisted spec-decode toggles apply unless the caller overrode them explicitly.
+    const launch: LaunchExtras = { ...specDecodeExtras(), ...(opts.launch ?? {}) };
+    const server = await launchServer(plan, opts.model_path, launch);
     const base_url = `http://${server.host}:${server.port}`;
     return { plan, server, base_url };
 }
@@ -320,7 +346,8 @@ export async function startLocalInference(opts: {
     launch?: LaunchExtras;
 }): Promise<KortexBootResult> {
     const plan = fullGpuPlan(opts.backend ?? 'vulkan', opts.vram_total_mb ?? 16384);
-    const server = await launchServer(plan, opts.model_path, opts.launch ?? {});
+    const launch: LaunchExtras = { ...specDecodeExtras(), ...(opts.launch ?? {}) };
+    const server = await launchServer(plan, opts.model_path, launch);
     const base_url = `http://${server.host}:${server.port}`;
     return { plan, server, base_url };
 }

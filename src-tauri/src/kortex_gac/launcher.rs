@@ -91,6 +91,24 @@ pub struct LaunchOpts {
     /// slot KV state, which the Kortex KV cache proxy (kortex_kvcache) layers
     /// SHA-keyed prefix matching on top of.
     pub slot_save_path: Option<PathBuf>,
+
+    // ── Speculative decoding — the decode-throughput lever ──
+    // The big model verifies every token, so output is bit-identical to a
+    // plain run; a small draft (or the model's own MTP head) just proposes
+    // several tokens per forward pass. Typical 1.5-3x on decode tok/s.
+    /// `--spec-type`: `draft` (separate small GGUF) or `mtp` (the model's
+    /// built-in multi-token-prediction head, if it has one — Escha/Qwen3.6 do).
+    /// `None` = no speculation.
+    pub spec_type: Option<String>,
+    /// `--spec-draft-model` / `-md`: the small draft GGUF. Required for
+    /// `spec_type = "draft"`; ignored for `"mtp"`.
+    pub draft_model_path: Option<PathBuf>,
+    /// `--spec-draft-ngl` / `-ngld`: draft-model GPU layers (put it fully on
+    /// the GPU — it's tiny). Default: all.
+    pub draft_ngl: Option<u32>,
+    /// `--draft-max`: tokens to speculate per step (llama.cpp default 16).
+    pub draft_max: Option<u32>,
+
     /// Extra free-form args appended verbatim. Useful for `--mlock`, `--no-mmap`, etc.
     pub extra_args: Vec<String>,
 }
@@ -107,6 +125,10 @@ impl Default for LaunchOpts {
             batch_size: 512,
             flash_attn: false,
             slot_save_path: None,
+            spec_type: None,
+            draft_model_path: None,
+            draft_ngl: None,
+            draft_max: None,
             extra_args: Vec::new(),
         }
     }
@@ -136,6 +158,28 @@ pub fn build_argv(plan: &TierPlan, opts: &LaunchOpts) -> Vec<String> {
         argv.push("--slot-save-path".into());
         argv.push(p.to_string_lossy().into_owned());
     }
+
+    // Speculative decoding (see LaunchOpts). Only emitted when a spec_type is
+    // set; `draft` needs a draft model, `mtp` uses the model's own head.
+    if let Some(t) = opts.spec_type.as_deref().filter(|t| !t.is_empty()) {
+        let valid = matches!(t, "draft" | "mtp");
+        let usable = t != "draft" || opts.draft_model_path.is_some();
+        if valid && usable {
+            argv.push("--spec-type".into());
+            argv.push(t.to_string());
+            if let Some(dm) = opts.draft_model_path.as_ref() {
+                argv.push("--spec-draft-model".into());
+                argv.push(dm.to_string_lossy().into_owned());
+            }
+            argv.push("--spec-draft-ngl".into());
+            argv.push(opts.draft_ngl.unwrap_or(999).to_string());
+            if let Some(n) = opts.draft_max {
+                argv.push("--draft-max".into());
+                argv.push(n.to_string());
+            }
+        }
+    }
+
     // GAC tier-placement flags.
     argv.extend(render_args(plan));
     // User-supplied extras last so they win over our defaults.
@@ -343,6 +387,7 @@ mod tests {
             flash_attn: false,
             slot_save_path: None,
             extra_args: vec![],
+            ..Default::default()
         };
         let argv = build_argv(&plan, &opts);
         assert!(argv.contains(&"-m".to_string()));
@@ -351,5 +396,61 @@ mod tests {
         assert!(argv.contains(&"8081".to_string()));
         assert!(argv.contains(&"--n-gpu-layers".to_string()));
         assert!(argv.contains(&"--override-tensor".to_string()));
+        // no speculation flags unless asked
+        assert!(!argv.contains(&"--spec-type".to_string()));
+    }
+
+    fn min_plan() -> TierPlan {
+        TierPlan {
+            n_gpu_layers: 99,
+            overrides: vec![],
+            total_gpu_bytes: 0,
+            total_cpu_bytes: 0,
+            vram_budget_mb: 0,
+            theta: 0.85,
+            d_bar_critical: 0.0,
+            routing_counts: RoutingCounts::default(),
+            backend: "vulkan".into(),
+        }
+    }
+
+    #[test]
+    fn spec_type_mtp_needs_no_draft_model() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("escha.gguf"),
+            spec_type: Some("mtp".into()),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--spec-type", "mtp"]));
+        assert!(argv.contains(&"--spec-draft-ngl".to_string()));
+        assert!(!argv.contains(&"--spec-draft-model".to_string()));
+    }
+
+    #[test]
+    fn spec_type_draft_without_a_model_is_dropped() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("draft".into()),
+            draft_model_path: None,
+            ..Default::default()
+        };
+        assert!(!build_argv(&min_plan(), &opts).contains(&"--spec-type".to_string()));
+    }
+
+    #[test]
+    fn spec_type_draft_emits_model_ngl_and_max() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("draft".into()),
+            draft_model_path: Some(PathBuf::from("draft-0.5b.gguf")),
+            draft_ngl: Some(99),
+            draft_max: Some(8),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--spec-type", "draft"]));
+        assert!(argv.windows(2).any(|w| w == ["--spec-draft-model", "draft-0.5b.gguf"]));
+        assert!(argv.windows(2).any(|w| w == ["--draft-max", "8"]));
     }
 }

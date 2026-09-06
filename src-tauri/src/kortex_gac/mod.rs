@@ -145,6 +145,12 @@ pub async fn kortex_gac_launch(
     batch_size: Option<u32>,
     flash_attn: Option<bool>,
     slot_save_path: Option<String>,
+    // Speculative decoding: "draft" | "mtp". Big model verifies every token,
+    // so output is identical; typical 1.5-3x on decode tok/s.
+    spec_type: Option<String>,
+    draft_model_path: Option<String>,
+    draft_ngl: Option<u32>,
+    draft_max: Option<u32>,
     extra_args: Option<Vec<String>>,
     wait_healthy_secs: Option<u64>,
 ) -> Result<RunningInfo, String> {
@@ -160,6 +166,10 @@ pub async fn kortex_gac_launch(
         batch_size: batch_size.unwrap_or(512),
         flash_attn: flash_attn.unwrap_or(false),
         slot_save_path: slot_save_path.map(PathBuf::from),
+        spec_type: spec_type.filter(|s| !s.trim().is_empty()),
+        draft_model_path: draft_model_path.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+        draft_ngl,
+        draft_max,
         extra_args: extra_args.unwrap_or_default(),
     };
     let host_clone = opts.host.clone();
