@@ -171,7 +171,10 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
     lemonadeUrl: localStorage.getItem('provider.lemonade.url') || 'http://localhost:13305',
     // Default ON: a chat prompt harnesses Claude Code's agent loop against the
     // local model. Opt out explicitly to fall back to the built-in loop.
-    useClaudeCodeAgent: localStorage.getItem('useClaudeCodeAgent') !== '0',
+    // Default OFF: the built-in agent loop is the primary harness now (full
+    // native tool suite + kortex harness compression). Claude Code CLI is an
+    // opt-in alternative — set the toggle in Settings -> Inference Backend.
+    useClaudeCodeAgent: localStorage.getItem('useClaudeCodeAgent') === '1',
     claudeCodeSessionId: null,
     lemonadeStatus: 'idle',
     lemonadeLatencyMs: null,

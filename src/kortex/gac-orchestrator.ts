@@ -112,6 +112,10 @@ export interface RunningInfo {
     host: string;
     argv: string[];
     uptime_secs: number;
+    /** False if the llama-server process has exited since spawn. */
+    alive?: boolean;
+    /** Exit code once it has exited. */
+    exit_code?: number | null;
 }
 
 export interface LaunchExtras {
@@ -240,6 +244,11 @@ export async function getRunningServer(): Promise<RunningInfo | null> {
     return info ?? null;
 }
 
+/** Tail of the llama-server log (stdout+stderr), for showing load progress. */
+export async function getServerLog(lines = 80): Promise<string[]> {
+    try { return await invoke<string[]>('kortex_gac_log', { lines }); } catch { return []; }
+}
+
 export async function defaultProfilePath(modelPath: string): Promise<string> {
     return invoke<string>('kortex_gac_default_profile_path', { modelPath });
 }
@@ -270,6 +279,47 @@ export interface KortexBootResult {
  */
 export async function startKortexInference(opts: KortexBootOptions): Promise<KortexBootResult> {
     const plan = await quickPlan(opts.model_path, opts, opts.refresh_profile);
+    const server = await launchServer(plan, opts.model_path, opts.launch ?? {});
+    const base_url = `http://${server.host}:${server.port}`;
+    return { plan, server, base_url };
+}
+
+/**
+ * A trivial "all layers on GPU" plan. Skips the GAC geometry profiler, which
+ * reads the GGUF with candle and chokes on custom quant types (ROCmFP2/FP4 →
+ * "unknown dtype for tensor N"). Models that fit VRAM don't need tensor
+ * tiering anyway — just `-ngl 999`.
+ */
+export function fullGpuPlan(backend: Backend = 'vulkan', vramMb = 16384): TierPlan {
+    return {
+        n_gpu_layers: 999,
+        overrides: [],
+        total_gpu_bytes: 0,
+        total_cpu_bytes: 0,
+        vram_budget_mb: vramMb,
+        theta: 0,
+        d_bar_critical: 0,
+        routing_counts: {
+            spread_to_gpu: 0, spread_to_cpu: 0,
+            borderline_to_gpu: 0, borderline_to_cpu: 0,
+            tight_to_gpu: 0, tight_to_cpu: 0,
+        },
+        backend,
+    };
+}
+
+/**
+ * Launch llama-server for a model that fits VRAM, with no profiling step.
+ * Use this for ROCmFPX / custom-quant GGUFs. Returns the same shape as
+ * `startKortexInference`.
+ */
+export async function startLocalInference(opts: {
+    model_path: string;
+    backend?: Backend;
+    vram_total_mb?: number;
+    launch?: LaunchExtras;
+}): Promise<KortexBootResult> {
+    const plan = fullGpuPlan(opts.backend ?? 'vulkan', opts.vram_total_mb ?? 16384);
     const server = await launchServer(plan, opts.model_path, opts.launch ?? {});
     const base_url = `http://${server.host}:${server.port}`;
     return { plan, server, base_url };

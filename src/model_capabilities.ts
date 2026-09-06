@@ -490,13 +490,19 @@ export function getContextWindow(providerName: ProviderName, modelName: string):
 // ── Default model selections per feature ─────────────────────────────────────
 // Optimized for local Ollama setup — all models run locally, no cloud.
 
+// Local-first defaults point at Lemonade (AMD's llama.cpp runtime). The model
+// name is a placeholder the local server ignores — a single-model llama-server
+// serves whatever GGUF it was launched with regardless of the requested id —
+// so a fresh profile works as soon as any local backend is up, instead of
+// resolving a dead Ollama tag.
+const LOCAL_DEFAULT = { providerName: 'lemonade' as const, modelName: 'local' };
 export const defaultModelSelectionOfFeature: ModelSelectionOfFeature = {
-    Chat: { providerName: 'ollama', modelName: 'tinyllama:1.1b' },
-    Apply: { providerName: 'ollama', modelName: 'FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M' },
-    Autocomplete: { providerName: 'ollama', modelName: 'FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M' },
-    QuickEdit: { providerName: 'ollama', modelName: 'gemma2:2b' },
-    SCM: { providerName: 'ollama', modelName: 'tinyllama:1.1b' },
-    Web: { providerName: 'ollama', modelName: 'tinyllama:1.1b' },
+    Chat: { ...LOCAL_DEFAULT },
+    Apply: { ...LOCAL_DEFAULT },
+    Autocomplete: { ...LOCAL_DEFAULT },
+    QuickEdit: { ...LOCAL_DEFAULT },
+    SCM: { ...LOCAL_DEFAULT },
+    Web: { ...LOCAL_DEFAULT },
 };
 
 export const featureDisplayNames: Record<FeatureName, string> = {

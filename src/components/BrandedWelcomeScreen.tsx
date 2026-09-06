@@ -98,7 +98,7 @@ const BrandedWelcomeScreen: React.FC<BrandedWelcomeScreenProps> = ({ compact = f
                 <RustLogo size={48} />
                 <h2 className="welcome-compact-title">VSCODIUM-RUST IDE</h2>
                 <p className="welcome-compact-sub">{AI_ENGINEER_TAGLINE}</p>
-                <button type="button" className="welcome-compact-link" onClick={() => useStore.getState().openAiriPanel?.()}>
+                <button type="button" className="welcome-compact-link" onClick={() => useStore.getState().openChatSidebar?.()}>
                     Code with Agent · Ctrl+L
                 </button>
             </div>

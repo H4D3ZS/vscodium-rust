@@ -72,13 +72,13 @@ function registerCoreCommands() {
                 const text = model.getValueInRange(sel);
                 const path = store.activeEditorPath || 'selection';
                 store.attachFile?.({ id: `sel-${Date.now()}`, path, name: path.split(/[\\/]/).pop() || 'selection', type: 'file', gist: text });
-                store.openAiriPanel?.();
+                store.openChatSidebar?.();
             },
         },
         {
             id: 'workbench.action.openChat',
             label: 'View: Open Chat',
-            run: () => store.openAiriPanel?.(),
+            run: () => store.openChatSidebar?.(),
         },
         {
             id: 'workbench.action.openMcpStore',
@@ -114,8 +114,8 @@ function registerCoreCommands() {
             label: 'View: Toggle Chat Panel',
             run: () => {
                 const s = getStore();
-                if (s.isAiriPanelOpen && s.isRightSidebarOpen) s.closeAiriPanel?.();
-                else s.openAiriPanel?.();
+                if (s.isChatSidebarOpen && s.isRightSidebarOpen) s.closeChatSidebar?.();
+                else s.openChatSidebar?.();
             },
         },
         {
@@ -569,7 +569,7 @@ function handleGlobalKeydown(e: KeyboardEvent) {
         e.preventDefault();
         const s = getStore();
         s.createNewSession?.();
-        s.openAiriPanel?.();
+        s.openChatSidebar?.();
         return;
     }
 

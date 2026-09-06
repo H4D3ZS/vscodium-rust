@@ -55,11 +55,11 @@ describe('SettingsRepository', () => {
 
     it('remove deletes from cache and backend', async () => {
         await hydrate();
-        await set('airi.companion', '1');
-        await remove('airi.companion');
+        await set('chat.companion', '1');
+        await remove('chat.companion');
         _resetCacheForTests();
         await hydrate();
-        expect(get('airi.companion', 'absent')).toBe('absent');
+        expect(get('chat.companion', 'absent')).toBe('absent');
     });
 
     it('get falls back when key missing', async () => {

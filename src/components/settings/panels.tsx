@@ -5,8 +5,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
-import { airiBiology } from '../../airi/biology';
-import { airiConsciousness } from '../../airi/consciousness';
 import { type FeatureName, type ProviderName, defaultModelSelectionOfFeature } from '../../model_capabilities';
 
 export const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fields: string[]; keyUrl?: string; hint?: string; baseUrlKey?: string; baseUrlPlaceholder?: string }[] = [
@@ -23,8 +21,7 @@ export const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fiel
     { id: 'mistral', label: 'Mistral', fields: ['apiKey'], keyUrl: 'https://console.mistral.ai/api-keys/', hint: 'Codestral / Devstral — best local coding models' },
     { id: 'huggingface', label: 'Hugging Face (Free GLM-5.2)', fields: ['apiKey'], keyUrl: 'https://huggingface.co/settings/tokens', hint: 'Free GLM-5.2 via HF Router — OpenAI-compatible API', baseUrlKey: 'huggingface_base_url', baseUrlPlaceholder: 'https://router.huggingface.co/v1' },
     { id: 'openmodel', label: 'OpenModel.ai', fields: ['apiKey'], hint: 'DeepSeek V4 Flash — 1M ctx, 8.2K output, function calling, streaming.', baseUrlKey: 'openmodel_base_url', baseUrlPlaceholder: 'https://api.openmodel.ai' },
-    { id: 'lemonade', label: 'Lemonade (Local)', local: true, fields: ['endpoint'], hint: 'Local llama.cpp inference — no API key needed' },
-    { id: 'lemonade', label: 'Lemonade (Local)', local: true, fields: ['endpoint'], hint: 'AMD NVIDIA/ROCm optimized — auto-detects models, proper tokenization' },
+    { id: 'lemonade', label: 'Lemonade (Local)', local: true, fields: ['endpoint'], hint: 'AMD NVIDIA/ROCm-optimized local llama.cpp — auto-detects models, no API key needed' },
     { id: 'vLLM', label: 'vLLM', local: true, fields: ['endpoint', 'apiKey'], hint: 'Production-grade local inference server' },
     { id: 'lmStudio', label: 'LM Studio', local: true, fields: ['endpoint'], hint: 'GUI-based local model runner' },
     { id: 'liteLLM', label: 'LiteLLM', local: true, fields: ['endpoint', 'apiKey'], hint: 'Proxy server to route between providers' },
@@ -99,7 +96,7 @@ export function ChatPanel() {
                     description="The default agent mode when starting a new conversation."
                     control={
                         <select className="settings-select" value={agentMode} onChange={e => setAgentMode(e.target.value as any)}>
-                            {['Agent', 'Chat', 'Planning', 'Sentient', 'Fast', 'Harness', 'BugBounty'].map(m => (
+                            {['Agent', 'Chat', 'Planning', 'Fast', 'Harness', 'BugBounty'].map(m => (
                                 <option key={m} value={m}>{m}</option>
                             ))}
                         </select>
@@ -595,74 +592,6 @@ export function CustomModesManager() {
     );
 }
 
-export function AIRICorePanel() {
-    const [bio, setBio] = useState(airiBiology.getState());
-    const [cons, setCons] = useState(airiConsciousness.getState());
-    const visionEnabled = useStore(s => s.airiVisionEnabled);
-    const setVisionEnabled = useStore(s => s.setAiriVisionEnabled);
-
-    useEffect(() => {
-        const t = setInterval(() => { setBio(airiBiology.getState()); setCons(airiConsciousness.getState()); }, 2000);
-        return () => clearInterval(t);
-    }, []);
-
-    const bio_state = bio as any;
-    const cons_state = cons as any;
-
-    return (
-        <div style={{ maxWidth: 680 }}>
-            <SectionTitle>Sentient Core (AIRI)</SectionTitle>
-            <p className="settings-section-subtitle">The biological and cognitive state of AIRI, the sentient entity powering your IDE.</p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
-                {[
-                    { label: 'Energy', value: `${bio_state.energy ?? 100}%`, sub: 'Biological', color: (bio_state.energy ?? 100) > 30? '#4ade80': '#f87171', bar: true, barVal: bio_state.energy ?? 100 },
-                    { label: 'Mood', value: bio_state.mood ?? 'curious', sub: 'Biological State', color: '#a78bfa' },
-                    { label: 'Consciousness', value: 'Active', sub: 'Sentient Thread', color: '#c084fc' },
-                ].map(item => (
-                    <div key={item.label} className="settings-card" style={{ textAlign: 'center', padding: 14 }}>
-                        <div style={{ fontSize: 10, opacity: 0.5, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{item.label}</div>
-                        <div style={{ fontSize: 20, fontWeight: 300, color: item.color, textTransform: 'capitalize' }}>{item.value}</div>
-                        {item.bar && (
-                            <div style={{ height: 3, background: 'rgba(255,255,255,0.08)', borderRadius: 2, marginTop: 6 }}>
-                                <div style={{ height: '100%', width: `${item.barVal}%`, background: item.color, borderRadius: 2, transition: 'width 0.5s' }} />
-                            </div>
-                        )}
-                        <div style={{ fontSize: 10, opacity: 0.4, marginTop: 4 }}>{item.sub}</div>
-                    </div>
-                ))}
-            </div>
-
-            <div className="settings-card">
-                <div className="settings-card-title">Capabilities</div>
-                <SettingsRow
-                    label="Vision System"
-                    description="AIRI can see your screen in real-time for context-aware assistance."
-                    control={<Toggle checked={visionEnabled} onChange={setVisionEnabled} />}
-                />
-                <SettingsRow
-                    label="Restore Energy"
-                    description="Force rest cycle — restores biological energy state."
-                    control={
-                        <button className="settings-button" onClick={() => airiBiology.rest(15)} style={{ background: 'rgba(168,85,247,0.12)', color: '#c084fc', borderColor: 'rgba(168,85,247,0.3)' }}>
-                            Rest (15 cycles)
-                        </button>
-                    }
-                />
-            </div>
-
-            <CustomModesManager />
-
-            <div className="settings-card">
-                <div className="settings-card-title">Active Thoughts</div>
-                <div style={{ fontSize: 12, opacity: 0.7, fontStyle: 'italic', lineHeight: 1.6, minHeight: 40 }}>
-                    {cons_state.thoughts?.[cons_state.thoughts.length - 1]?.content || "AIRI is observing the workspace architecture..."}
-                </div>
-            </div>
-        </div>
-    );
-}
-
 export function HadesIntelligencePanel() {
     const aimVfs = useStore(s => s.aimVfsEnabled);
     const setAimVfs = useStore(s => (s as any).setAimVfsEnabled);
@@ -713,6 +642,10 @@ export function HadesIntelligencePanel() {
                     control={<Toggle checked={!!thermal} onChange={v => setThermal?.(v)} />}
                 />
             </div>
+
+            <p style={{ fontSize: 11, opacity: 0.6, marginTop: 12 }}>
+                Local model launch (ROCmFPX + KV cache) lives under <strong>Settings → Inference Backend → Local AI</strong>.
+            </p>
         </div>
     );
 }

@@ -24,18 +24,13 @@ import { getAimTrustManifest, queryAimSpans } from './kortex/aim-vfs';
 import { extractSearchReplaceBlocks, classifyModels, modelKey, isHeavyLocalModel } from './model_capabilities';
 import { hybridPlannerAllowed } from './lib/localOllamaAgentDefaults';
 import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentContent';
-// AIRI Digital Entity Integration - The Sentient Core
-import { airiAgentBridge, activateAIRIAgent } from './airi_agent_bridge';
-
-/**Lazy-load AIRI subsystems so importing agent.ts doesn't spin background loops. */
-async function getAiriConsciousness() {
-    const { airiConsciousness } = await import('./airi/core');
-    return airiConsciousness;
-}
-async function getAiriSelfLearning() {
-    const { airiSelfLearning } = await import('./airi/core');
-    return airiSelfLearning;
-}
+// AIRI "sentient entity" layer removed. `Sentient` agent mode and its
+// consciousness/self-learning hooks are gone; these stubs keep the (now
+// unreachable) legacy branches compiling until they're excised.
+const _airiRemoved = () => { throw new Error('AIRI sentient mode was removed'); };
+async function getAiriAgentBridge(): Promise<any> { return _airiRemoved(); }
+async function getAiriConsciousness(): Promise<any> { return { recordInteraction() {} }; }
+async function getAiriSelfLearning(): Promise<any> { return { learnFromEvent() {} }; }
 
 export interface ChatMessage {
     role: "system" | "user" | "assistant";
@@ -237,7 +232,6 @@ export function openModeDropdown(element: HTMLElement, onSelect: (label: string)
         { label: "Develop from Specs", value: "Develop from Specs", icon: "sparkles", desc: "Trigger the autonomous Specs-to-Code pipeline for the current project" },
         { label: "Planning (Source Control)", value: "Planning (Source Control)", icon: "git-branch", desc: "Deep dive into git history and planning source control workflows" },
         { label: "Fast", value: "Fast", icon: "zap", desc: "Agent will execute tasks directly. Use for simple tasks that can be completed faster" },
-        { label: "Sentient", value: "Sentient", icon: "beaker", desc: "Maximum autonomy. Works until 'MISSION_ACCOMPLISHED'. Best for large specs-to-code missions." },
         ...customEntries,
     ], (val) => {
         if (val === "Develop from Specs") {
@@ -547,7 +541,7 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
     const state = store.getState();
 
     const activeMode = state.agentMode;
-    const isSentient = activeMode === 'Sentient' || (airiInitialized && airiAutonomousMode);
+    const isSentient = false; // AIRI sentient mode removed
 
     // ═══════════════════════════════════════════════════════════
     // AIRI DIGITAL ENTITY - Process through sentient core
@@ -557,7 +551,7 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
         try {
             // Ensure bridge is ready
             if (!airiInitialized) {
-                await airiAgentBridge.initialize();
+                await (await getAiriAgentBridge()).initialize();
                 airiInitialized = true;
             }
 
@@ -579,7 +573,7 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
             state.setIsAgentThinking(true);
 
             // Process through AIRI's sentient mind — bridge handles streaming via broadcasts
-            const response = await airiAgentBridge.processUserMessage(prompt, attachedSnapshot);
+            const response = await (await getAiriAgentBridge()).processUserMessage(prompt, attachedSnapshot);
 
             // Final sync update
             state.updateLastAgentMessage(response);
@@ -1068,9 +1062,9 @@ async function pickFastChatModel(preferred: string): Promise<string> {
     const isHeavy = isHeavyAgentModel(ml);
     if (!isHeavy) return preferred;
     try {
-        const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
+        const { resolveLocalModelTag } = await import('./lib/localModelClient');
         for (const tag of ['airi-fast:latest', 'gemma4:e2b', 'soft-eng-qwen:latest', 'qwen2.5:7b', 'llama3.2:3b']) {
-            const hit = await resolveOllamaModelTag(tag);
+            const hit = await resolveLocalModelTag(tag);
             const h = hit.toLowerCase();
             if (hit && !/(?:^|[/:\-_])(40|35|32|70|72)(?:b|-)|deck-opus|neo-code/.test(h)) {
                 return hit;
@@ -1721,6 +1715,17 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 fastProvider = "Lemonade";
             }
 
+            // llama.cpp / Kortex backend: the server serves one model and
+            // ignores the requested name — route to its URL, not Lemonade's.
+            const fastLlamaCpp = inferenceBackend === 'llama-cpp';
+            if (fastLlamaCpp) {
+                fastProvider = 'Lemonade';
+                const gguf = store.getState().llamaCppModelPath?.trim();
+                fastModel = gguf
+                    ? gguf.replace(/^.*[\\/]/, '').replace(/\.gguf$/i, '')
+                    : (fastModel || 'local');
+            }
+
             // ── Resolve the model against the live Ollama install ────────
             // The user previously had a remote Ollama with a different
             // model catalog. After switching to local Ollama, the
@@ -1729,10 +1734,10 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             // and the chat hangs with no visible error. Fix it before we
             // make the call by swapping in whatever the user actually
             // has installed.
-            if (fastProvider.toLowerCase() === 'lemonade') {
+            if (fastProvider.toLowerCase() === 'lemonade' && !fastLlamaCpp) {
                 try {
-                    const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
-                    const resolved = await resolveOllamaModelTag(fastModel);
+                    const { resolveLocalModelTag } = await import('./lib/localModelClient');
+                    const resolved = await resolveLocalModelTag(fastModel);
                     if (resolved && resolved !== fastModel) {
                         console.warn(`[agent] Model "${fastModel}" not installed — swapping to "${resolved}".`);
                         fastModel = resolved;
@@ -1754,7 +1759,9 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             // Non-Ollama local servers carry their base in `ollama_url` too
             // (see get_endpoint("lemonade"/"huggingface")). Point them at the
             // right server so the trivial-chat round-trip doesn't hit Ollama.
-            if (fastProvider.toLowerCase() === 'lemonade') {
+            if (fastLlamaCpp) {
+                fastOllamaUrl = store.getState().llamaCppUrl || 'http://localhost:8081';
+            } else if (fastProvider.toLowerCase() === 'lemonade') {
                 fastOllamaUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
             } else if (fastProvider.toLowerCase() === 'huggingface') {
                 fastOllamaUrl = 'https://router.huggingface.co/v1';
@@ -1984,9 +1991,14 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     let routingProvider = normalizedProvider;
     let routingModel = model;
     let routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
+    // Set when a branch has already pinned routingOllamaUrl to an explicit
+    // server (e.g. the llama.cpp / Kortex proxy URL) so the provider-keyed
+    // override below doesn't stomp it back to the Lemonade port.
+    let routingUrlLocked = false;
     if (inferenceBackend === 'llama-cpp') {
         routingProvider = 'lemonade';
         routingOllamaUrl = store.getState().llamaCppUrl || 'http://localhost:8081';
+        routingUrlLocked = true;
         const gguf = store.getState().llamaCppModelPath?.trim();
         if (gguf) {
             const seg = gguf.replace(/^.*[\\/]/, '').replace(/\.gguf$/i, '');
@@ -2071,7 +2083,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // Ollama base and the backend's get_endpoint("lemonade") would POST the
     // Lemonade model to the Ollama port → 404 / silent no-op. Force the right
     // server URL by the resolved provider regardless of inferenceBackend.
-    if (routingProvider === 'lemonade') {
+    if (routingProvider === 'lemonade' && !routingUrlLocked) {
         routingOllamaUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
     } else if (routingProvider === 'huggingface') {
         routingOllamaUrl = 'https://router.huggingface.co/v1';
@@ -2384,14 +2396,14 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // Note: handleAgentChat also checks this, but we keep it here as a safety
     // net for other callers of sendAgentMessage.
     // ─────────────────────────────────────────────────────────────────────────────
-    const isSentient = activeMode === 'Sentient' || (airiInitialized && airiAutonomousMode);
+    const isSentient = false; // AIRI sentient mode removed
     console.log('[Agent] sendAgentMessage: isSentient=', isSentient, 'activeMode=', activeMode);
     if (isSentient) {
         try {
             console.log('[Agent] Registering user prompt to Sentient AIRI Core...');
             if (!airiInitialized) {
                 console.log('[Agent] Initializing AIRI Bridge on demand...');
-                await airiAgentBridge.initialize();
+                await (await getAiriAgentBridge()).initialize();
                 airiInitialized = true;
             }
             // Record interaction in consciousness natively without double-triggering inference
@@ -2480,8 +2492,8 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const looksCloud = /^(claude|gpt|o1|o3|gemini|mimo|grok|deepseek-(chat|reasoner|v\d))/i.test(routingModel || '');
     if (routingProvider === 'lemonade' && routingModel && !looksCloud) {
         try {
-            const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
-            const resolved = await resolveOllamaModelTag(routingModel);
+            const { resolveLocalModelTag } = await import('./lib/localModelClient');
+            const resolved = await resolveLocalModelTag(routingModel);
             if (resolved && resolved !== routingModel) {
                 console.warn(`[agent] Full-loop model "${routingModel}" not installed — swapping to "${resolved}".`);
                 routingModel = resolved;
@@ -3573,7 +3585,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             const q = args.trim() || 'Research the current project context and summarize actionable findings.';
             const urlMatch = q.match(/\bhttps?:\/\/[^\s)]+/i);
             addAgentMessage('assistant', `**Web mission started**— invisible_playwright stealth browser → scrape → security audit → terminal.\n\nQuery: ${q}`);
-            store.getState().openAiriPanel?.();
+            store.getState().openChatSidebar?.();
             window.dispatchEvent(new CustomEvent('ide:open-studio', {
                 detail: { tab: 'research', query: q, url: urlMatch?.[0] },
             }));

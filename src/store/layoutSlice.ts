@@ -23,7 +23,7 @@ export interface LayoutSlice {
     externalBrowserActive: boolean;
     isAiriOpen: boolean;
     isComposerOpen: boolean;
-    isAiriPanelOpen: boolean;
+    isChatSidebarOpen: boolean;
     isEmulatorPanelOpen: boolean;
     emulatorPanelPosition: 'android' | 'iphone' | 'device' | 'toolchain' | 'gradle';
     emulatorLayout: 'left' | 'right' | 'hidden';
@@ -46,10 +46,10 @@ export interface LayoutSlice {
     setExternalBrowserActive: (active: boolean) => void;
     toggleAiri: (open?: boolean) => void;
     toggleComposer: (open?: boolean) => void;
-    toggleAiriPanel: () => void;
+    toggleChatSidebar: () => void;
     toggleEmulatorPanel: () => void;
-    openAiriPanel: () => void;
-    closeAiriPanel: () => void;
+    openChatSidebar: () => void;
+    closeChatSidebar: () => void;
     openEmulatorPanel: () => void;
     closeEmulatorPanel: () => void;
     setEmulatorPanelPosition: (pos: 'android' | 'iphone' | 'device' | 'toolchain' | 'gradle') => void;
@@ -87,7 +87,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     externalBrowserActive: false,
     isAiriOpen: true,
     isComposerOpen: false,
-    isAiriPanelOpen: true,
+    isChatSidebarOpen: true,
     isEmulatorPanelOpen: false,
     emulatorPanelPosition: 'android',
     emulatorLayout: (localStorage.getItem('emulatorLayout') as 'left' | 'right' | 'hidden') || 'hidden',
@@ -109,8 +109,8 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     toggleRightSidebar: () => set((s) => {
         const open = !s.isRightSidebarOpen;
         return open
-            ? { isRightSidebarOpen: true, isAiriPanelOpen: true, isEmulatorPanelOpen: false }
-            : { isRightSidebarOpen: false, isAiriPanelOpen: false, isEmulatorPanelOpen: false };
+            ? { isRightSidebarOpen: true, isChatSidebarOpen: true, isEmulatorPanelOpen: false }
+            : { isRightSidebarOpen: false, isChatSidebarOpen: false, isEmulatorPanelOpen: false };
     }),
     setTheme: (theme) => {
         set({ theme });
@@ -139,11 +139,11 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     setExternalBrowserActive: (externalBrowserActive) => set({ externalBrowserActive }),
     toggleAiri: (open?) => set((s) => ({ isAiriOpen: open !== undefined ? open : !s.isAiriOpen })),
     toggleComposer: (open?) => set((s) => ({ isComposerOpen: open !== undefined ? open : !s.isComposerOpen })),
-    toggleAiriPanel: () => set((s) => ({ isRightSidebarOpen: true, isAiriPanelOpen: !s.isAiriPanelOpen, isEmulatorPanelOpen: false })),
-    toggleEmulatorPanel: () => set((s) => ({ isRightSidebarOpen: true, isEmulatorPanelOpen: !s.isEmulatorPanelOpen, isAiriPanelOpen: false })),
-    openAiriPanel: () => set({ isRightSidebarOpen: true, isAiriPanelOpen: true, isEmulatorPanelOpen: false }),
-    closeAiriPanel: () => set({ isAiriPanelOpen: false, isRightSidebarOpen: false }),
-    openEmulatorPanel: () => set({ isRightSidebarOpen: true, isEmulatorPanelOpen: true, isAiriPanelOpen: false }),
+    toggleChatSidebar: () => set((s) => ({ isRightSidebarOpen: true, isChatSidebarOpen: !s.isChatSidebarOpen, isEmulatorPanelOpen: false })),
+    toggleEmulatorPanel: () => set((s) => ({ isRightSidebarOpen: true, isEmulatorPanelOpen: !s.isEmulatorPanelOpen, isChatSidebarOpen: false })),
+    openChatSidebar: () => set({ isRightSidebarOpen: true, isChatSidebarOpen: true, isEmulatorPanelOpen: false }),
+    closeChatSidebar: () => set({ isChatSidebarOpen: false, isRightSidebarOpen: false }),
+    openEmulatorPanel: () => set({ isRightSidebarOpen: true, isEmulatorPanelOpen: true, isChatSidebarOpen: false }),
     closeEmulatorPanel: () => set({ isEmulatorPanelOpen: false }),
     setEmulatorPanelPosition: (pos) => set({ emulatorPanelPosition: pos }),
     setEmulatorLayout: (layout) => {

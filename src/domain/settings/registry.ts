@@ -57,7 +57,7 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
     { id: 'model-selection', label: 'Model Selection', section: 'ai-models', icon: 'chip', panel: 'model-selection', keywords: ['auto-detect', 'engines', 'apply to all'] },
     { id: 'lemonade', label: 'Lemonade', section: 'ai-models', icon: 'server-environment', panel: 'lemonade', keywords: ['local', 'nvidia', 'rocm', 'amd', 'gpu', 'glm'] },
     { id: 'fcc', label: 'Free Claude Code', section: 'ai-models', icon: 'server-process', panel: 'fcc', keywords: ['claude', 'codex', 'proxy', 'openrouter', 'nvidia nim', 'provider routing'] },
-    { id: 'inference', label: 'Inference Backend', section: 'ai-models', icon: 'server-process', panel: 'inference-backend', keywords: ['vllm', 'lm studio', 'litellm', 'endpoint'] },
+    { id: 'inference', label: 'Inference Backend', section: 'ai-models', icon: 'server-process', panel: 'inference-backend', keywords: ['vllm', 'lm studio', 'litellm', 'endpoint', 'kortex', 'rocmfpx', 'rocm', 'amd', 'local ai', 'llama.cpp', 'lemonade'] },
 
     // ── Agent ───────────────────────────────────────────────────────────
     { id: 'chat', label: 'Chat & Agent', section: 'agent', icon: 'comment-discussion', panel: 'chat', keywords: ['yolo', 'modes', 'backend', 'planner', 'reasoning'] },
@@ -79,7 +79,6 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
 
     // ── Advanced ────────────────────────────────────────────────────────
     { id: 'apex', label: 'APEX Intelligence', section: 'advanced', icon: 'circuit-board', panel: 'apex', keywords: ['engines', 'architect', 'threat', 'red team', 'specialist'] },
-    { id: 'airi-core', label: 'Sentient Core', section: 'advanced', icon: 'beaker', panel: 'airi-core', keywords: ['airi', 'consciousness', 'biology', 'autonomous'] },
     { id: 'ane', label: 'ANE Acceleration', section: 'advanced', icon: 'rocket', panel: 'ane', keywords: ['neural engine', 'apple silicon', 'npu', 'similarity', 'hardware'] },
     { id: 'kortex', label: 'Kortex / AIM', section: 'advanced', icon: 'database', panel: 'kortex', keywords: ['aim', 'memory map', 'proxy', 'weight'] },
     { id: 'memory', label: 'Memory (.aim)', section: 'advanced', icon: 'archive', panel: 'agent-view:memory', keywords: ['context', 'offload', 'quantizer'] },
@@ -98,7 +97,7 @@ export const LEGACY_CATEGORY_MAP: Record<string, string> = {
     chat: 'chat', permissions: 'permissions', models: 'models', workspace: 'workspace',
     lsp: 'lsp', 'skill-store': 'skill-store', modules: 'modules', platform: 'platform',
     pytorch: 'pytorch', steering: 'steering', hooks: 'hooks',
-    'ag-hooks': 'ag-hooks', workflow: 'workflow', mcps: 'mcps', airi: 'airi-core',
+    'ag-hooks': 'ag-hooks', workflow: 'workflow', mcps: 'mcps',
     apex: 'apex', ane: 'ane', 'model-selection': 'model-selection', hades: 'kortex',
     memory: 'memory', voice: 'voice', avatar: 'avatar', privacy: 'privacy',
     account: 'account', enterprise: 'enterprise', editor: 'editor', theme: 'theme',

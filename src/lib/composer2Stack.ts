@@ -243,8 +243,8 @@ async function resolveOllamaTagAtUrl(
     const base = url.replace(/\/$/, '');
     await invoke('set_lemonade_url', { url: base }).catch(() => {});
     try {
-        const { resolveOllamaModelTag } = await import('../airi/shared-ollama');
-        return await resolveOllamaModelTag(requested);
+        const { resolveLocalModelTag } = await import('./localModelClient');
+        return await resolveLocalModelTag(requested);
     } catch {
         return requested;
     } finally {

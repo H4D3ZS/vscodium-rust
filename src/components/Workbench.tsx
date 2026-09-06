@@ -26,7 +26,6 @@ const DiffViewer = lazy(() => import('./DiffViewer'));
 const PlanningPanel = lazy(() => import('./PlanningPanel').then(m => ({ default: m.PlanningPanel })));
 const GhostRuntimePanel = lazy(() => import('./GhostRuntimePanel').then(m => ({ default: m.GhostRuntimePanel })));
 const ThoughtProcess = lazy(() => import('./ThoughtProcess').then(m => ({ default: m.ThoughtProcess })));
-const AiriOverlay = lazy(() => import('./AiriOverlay').then(m => ({ default: m.AiriOverlay })));
 const UnifiedEmulatorPanel = lazy(() => import('./UnifiedEmulatorPanel'));
 const EmulatorPreview = lazy(() => import('./EmulatorPreview').then(m => ({ default: m.EmulatorPreview })));
 const ComposerOverlay = lazy(() => import('./ComposerOverlay'));
@@ -43,7 +42,7 @@ const Workbench: React.FC = () => {
     const bottomPanelHeight = useStore(state => state.bottomPanelHeight);
 
     // Panel state (from store)
-    const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
+    const isChatSidebarOpen = useStore(state => state.isChatSidebarOpen);
     const isEmulatorPanelOpen = useStore(state => state.isEmulatorPanelOpen);
     const emulatorLayout = useStore(state => state.emulatorLayout);
 
@@ -346,11 +345,8 @@ const Workbench: React.FC = () => {
             </div>
 
             <Suspense fallback={<PanelFallback />}><DocumentOutline /></Suspense>
-            {localStorage.getItem('airi.companion') === '1' && (
-                <>
-                    <Suspense fallback={<PanelFallback />}><AiriOverlay /></Suspense>
-                    <Suspense fallback={<PanelFallback />}><ThoughtProcess /></Suspense>
-                </>
+            {localStorage.getItem('chat.companion') === '1' && (
+                <Suspense fallback={<PanelFallback />}><ThoughtProcess /></Suspense>
             )}
             <Suspense fallback={<PanelFallback />}><SpecsToCodeWizard /></Suspense>
             {useStore(state => state.activeModulePanel) != null && (

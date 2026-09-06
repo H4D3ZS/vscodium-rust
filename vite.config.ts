@@ -37,7 +37,6 @@ export default defineConfig(() => {
         'marked', 'react-markdown', 'remark-gfm',
         'diff', 'dompurify',
         'reactflow',
-        'three', '@pixiv/three-vrm', '@pixiv/three-vrm-springbone',
         '@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-canvas', '@xterm/addon-webgl',
         '@xterm/addon-search', '@xterm/addon-web-links', '@xterm/addon-unicode11',
         '@tauri-apps/api', '@tauri-apps/api/core', '@tauri-apps/api/event',
@@ -56,8 +55,6 @@ export default defineConfig(() => {
       rollupOptions: {
         output: {
           manualChunks: {
-            'three': ['three'],
-            'vrm': ['@pixiv/three-vrm', '@pixiv/three-vrm-springbone'],
             'monaco': ['monaco-editor', '@monaco-editor/react'],
             'xterm': [
               '@xterm/xterm',

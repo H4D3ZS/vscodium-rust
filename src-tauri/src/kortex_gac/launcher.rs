@@ -6,6 +6,8 @@
 //! Tauri command later.
 
 use anyhow::{anyhow, Context, Result};
+use std::collections::VecDeque;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -13,6 +15,57 @@ use std::time::{Duration, Instant};
 
 use super::planner::render_args;
 use super::types::TierPlan;
+
+/// Last N log lines from the running llama-server (stdout + stderr merged).
+/// Drained by reader threads so the child never blocks on a full pipe — the
+/// bug that made model loading hang forever with no visible progress.
+static SERVER_LOG: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
+const SERVER_LOG_CAP: usize = 500;
+
+fn server_log_path() -> PathBuf {
+    std::env::temp_dir().join("kortex-llama-server.log")
+}
+
+fn server_log_reset() {
+    if let Ok(mut buf) = SERVER_LOG.lock() {
+        buf.clear();
+    }
+    let _ = std::fs::write(server_log_path(), b"");
+}
+
+fn server_log_push(line: &str) {
+    if let Ok(mut buf) = SERVER_LOG.lock() {
+        if buf.len() >= SERVER_LOG_CAP {
+            buf.pop_front();
+        }
+        buf.push_back(line.to_string());
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(server_log_path())
+    {
+        let _ = writeln!(f, "{}", line);
+    }
+}
+
+/// The last `n` log lines from the running/most-recent llama-server.
+pub fn server_log_tail(n: usize) -> Vec<String> {
+    SERVER_LOG
+        .lock()
+        .map(|b| b.iter().rev().take(n).rev().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// Spawn a thread that copies a child stream line-by-line into the ring buffer.
+fn spawn_log_pump<R: std::io::Read + Send + 'static>(stream: R, tag: &'static str) {
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stream);
+        for line in reader.lines().map_while(|l| l.ok()) {
+            server_log_push(&format!("[{tag}] {line}"));
+        }
+    });
+}
 
 /// Options passed to the launcher in addition to the TierPlan.
 #[derive(Debug, Clone)]
@@ -116,6 +169,22 @@ pub fn launch(plan: &TierPlan, opts: &LaunchOpts) -> Result<u16> {
         }
     }
 
+    // llama-server requires `--slot-save-path` to be an existing directory and
+    // rejects a relative one oddly on Windows — create it and pass it absolute.
+    let opts = if let Some(dir) = opts.slot_save_path.as_ref() {
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("could not create slot dir {}", dir.display()))?;
+        let abs = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.clone());
+        // strip Windows \\?\ verbatim prefix which some tools choke on
+        let abs = PathBuf::from(abs.to_string_lossy().trim_start_matches(r"\\?\"));
+        let mut o = opts.clone();
+        o.slot_save_path = Some(abs);
+        o
+    } else {
+        opts.clone()
+    };
+    let opts = &opts;
+
     let argv = build_argv(plan, opts);
     tracing::info!(
         "[kortex-gac] launching {}: {}",
@@ -135,9 +204,22 @@ pub fn launch(plan: &TierPlan, opts: &LaunchOpts) -> Result<u16> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let child = cmd
+    server_log_reset();
+    server_log_push(&format!("[gac] launching: {}", argv.join(" ")));
+
+    let mut child = cmd
         .spawn()
         .with_context(|| format!("failed to spawn {}", opts.server_binary.display()))?;
+
+    // Drain both pipes on their own threads. Without this the child blocks on a
+    // full stdout/stderr pipe partway through loading the model and never
+    // becomes healthy.
+    if let Some(out) = child.stdout.take() {
+        spawn_log_pump(out, "out");
+    }
+    if let Some(err) = child.stderr.take() {
+        spawn_log_pump(err, "err");
+    }
 
     let handle = ServerHandle {
         child,
@@ -178,14 +260,22 @@ pub fn stop_server() -> Result<()> {
     Ok(())
 }
 
-/// Return basic info about the running server, or None.
+/// Return basic info about the running server, or None. Also reports whether
+/// the child is still alive (it may have crashed during model load).
 pub fn current_server_info() -> Option<RunningInfo> {
-    let guard = SERVER.lock().unwrap();
-    guard.as_ref().map(|h| RunningInfo {
+    let mut guard = SERVER.lock().unwrap();
+    let h = guard.as_mut()?;
+    let exit_code = match h.child.try_wait() {
+        Ok(Some(status)) => Some(status.code().unwrap_or(-1)),
+        _ => None,
+    };
+    Some(RunningInfo {
         port: h.port,
         host: h.host.clone(),
         argv: h.argv.clone(),
         uptime_secs: h.started_at.elapsed().as_secs(),
+        alive: exit_code.is_none(),
+        exit_code,
     })
 }
 
@@ -195,6 +285,10 @@ pub struct RunningInfo {
     pub host: String,
     pub argv: Vec<String>,
     pub uptime_secs: u64,
+    /// False if the process has exited since it was spawned.
+    pub alive: bool,
+    /// Exit code when it has exited, else None.
+    pub exit_code: Option<i32>,
 }
 
 /// Try to find `llama-server` on PATH, honoring an optional explicit override.

@@ -198,7 +198,7 @@ function executeMenuAction(item: string) {
             }
             break;
         case 'New Agents Window':
-            store.openAiriPanel?.();
+            store.openChatSidebar?.();
             void store.createNewSession?.();
             break;
         case 'Open Folder...':
@@ -347,10 +347,10 @@ function executeMenuAction(item: string) {
             break;
         case 'Toggle Chat Panel':
         case 'Toggle AIRI Panel':
-            store.isAiriPanelOpen && store.isRightSidebarOpen ? store.closeAiriPanel() : store.openAiriPanel();
+            store.isChatSidebarOpen && store.isRightSidebarOpen ? store.closeChatSidebar() : store.openChatSidebar();
             break;
         case 'Open Chat':
-            store.openAiriPanel();
+            store.openChatSidebar();
             break;
         case 'Mobile Emulators':
             exec?.('workbench.action.openEmulators');
@@ -460,7 +460,7 @@ const TitleBar: React.FC = () => {
     const [gearOpen, setGearOpen] = useState(false);
     const gearRef = useRef<HTMLDivElement>(null);
 
-    const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
+    const isChatSidebarOpen = useStore(state => state.isChatSidebarOpen);
     const isAgentThinking = useStore(state => state.isAgentThinking);
     const activeRoot = useStore(state => state.activeRoot);
     // Native VSCode layout toggles (primary sidebar / panel / secondary sidebar).
@@ -518,10 +518,10 @@ const TitleBar: React.FC = () => {
 
     const handleAiriClick = useCallback(() => {
         const s = useStore.getState();
-        if (s.isAiriPanelOpen) {
-            s.closeAiriPanel?.();
+        if (s.isChatSidebarOpen) {
+            s.closeChatSidebar?.();
         } else {
-            s.openAiriPanel?.();
+            s.openChatSidebar?.();
         }
     }, []);
 
@@ -731,8 +731,8 @@ const TitleBar: React.FC = () => {
                             display: 'flex',
                             alignItems: 'center',
                             padding: '4px',
-                            opacity: isAiriPanelOpen ? 1 : 0.3,
-                            color: isAiriPanelOpen ? 'var(--vscode-titleBar-activeForeground, #ccc)' : 'inherit',
+                            opacity: isChatSidebarOpen ? 1 : 0.3,
+                            color: isChatSidebarOpen ? 'var(--vscode-titleBar-activeForeground, #ccc)' : 'inherit',
                             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                         }}
                     >
@@ -741,8 +741,8 @@ const TitleBar: React.FC = () => {
 
                     {/* AIRI toggle button */}
                     <div
-                        className={`title-toggle-btn ${isAiriPanelOpen ? 'active' : ''}`}
-                        title={isAiriPanelOpen ? 'Close Chat Panel' : 'Open Chat Panel'}
+                        className={`title-toggle-btn ${isChatSidebarOpen ? 'active' : ''}`}
+                        title={isChatSidebarOpen ? 'Close Chat Panel' : 'Open Chat Panel'}
                         style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -752,8 +752,8 @@ const TitleBar: React.FC = () => {
                             fontSize: '11px',
                             fontWeight: 600,
                             cursor: 'pointer',
-                            background: isAiriPanelOpen ? 'var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.08))' : 'transparent',
-                            color: isAiriPanelOpen ? 'var(--vscode-titleBar-activeForeground, #ccc)' : 'rgba(255,255,255,0.5)',
+                            background: isChatSidebarOpen ? 'var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.08))' : 'transparent',
+                            color: isChatSidebarOpen ? 'var(--vscode-titleBar-activeForeground, #ccc)' : 'rgba(255,255,255,0.5)',
                             border: '1px solid transparent',
                             WebkitAppRegion: 'no-drag',
                         } as React.CSSProperties}
@@ -766,7 +766,7 @@ const TitleBar: React.FC = () => {
                         )}
                         <span style={{ letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>Chat</span>
 
-                        {isAiriPanelOpen && (
+                        {isChatSidebarOpen && (
                             <i
                                 className="codicon codicon-add hoverable"
                                 title="New Chat (Ctrl+T)"

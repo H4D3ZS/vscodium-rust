@@ -2109,6 +2109,23 @@ impl Sentient {
                         }
                     }).collect();
                     payload["tools"] = json!(normalized);
+
+                    // Kortex harness (opt-in, KORTEX_HARNESS=1): for local models,
+                    // fold the long tail of tool schemas into a compact Hermes
+                    // signature block + `expand` tool so a big catalog fits a
+                    // small n_ctx. No-op unless the env flag is set.
+                    if is_ollama {
+                        let hcfg = crate::kortex_harness::HarnessConfig::from_env();
+                        if hcfg.enabled {
+                            let rpt = crate::kortex_harness::compress_openai_request(&mut payload, &hcfg);
+                            if rpt.applied {
+                                println!(
+                                    "[AI] kortex-harness: {} tools -> {} inline + {} compacted (~{} tok saved)",
+                                    rpt.tools_in, rpt.tools_inline_out, rpt.tools_compacted, rpt.saved()
+                                );
+                            }
+                        }
+                    }
                     // Don't set tool_choice for OpenModel — its Anthropic-compatible API
                     // doesn't accept string values like "auto" or "required".
                     if active_provider.to_lowercase() != "openmodel" {
@@ -3483,11 +3500,21 @@ impl Sentient {
                         std::fs::read_to_string(&full).unwrap_or_default()
                     });
 
+                    // PreToolUse hooks (.claude/settings.json, Claude-Code format):
+                    // a hook may block a call before it runs.
+                    let hook_root = self.ai_tools.get_root_path();
+                    let pre_hook = super::tool_hooks::run_pre_tool_hooks(
+                        &hook_root, &tool_name, &tool_args_json,
+                    ).await;
+
                     // Execute the tool — with optional permission gate for dangerous ops.
                     // permission_senders lets the frontend dialog approve/deny before the
                     // tool runs (B9 per-tool permission prompts); the emit now routes
                     // through the EditorState sink inside the tool invoker.
-                    let mut tool_result: Result<serde_json::Value, String> = if let Some(cached) = prefetched.remove(&tool_idx) {
+                    let mut tool_result: Result<serde_json::Value, String> = if let super::tool_hooks::PreHookOutcome::Block(reason) = &pre_hook {
+                        println!("[hooks] PreToolUse blocked {}: {}", tool_name, reason);
+                        Ok(json!({ "status": "blocked", "message": reason }))
+                    } else if let Some(cached) = prefetched.remove(&tool_idx) {
                         cached
                     } else if let Some(blocked) = self
                         .intercept_zero_grep_orientation(&tool_name, &tool_args_json, iteration)
@@ -3505,6 +3532,13 @@ impl Sentient {
                             .await
                             .map_err(|e| e.to_string())
                     };
+
+                    // PostToolUse hooks — fire-and-forget, never blocks the turn.
+                    if !matches!(pre_hook, super::tool_hooks::PreHookOutcome::Block(_)) {
+                        super::tool_hooks::run_post_tool_hooks(
+                            &hook_root, &tool_name, &tool_args_json, tool_result.as_ref().ok(),
+                        ).await;
+                    }
 
                     // Append pre-check warning to result so AI sees it and can self-correct
                     if let (Some(warning), Ok(ref mut val)) = (pre_check_warning, &mut tool_result) {

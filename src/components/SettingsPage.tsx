@@ -36,7 +36,7 @@ import ModuleInstallerPanel from './settings/ModuleInstallerPanel';
 import AneAccelerationPanel from './AneAccelerationPanel';
 import ModelSelectorPanel from './ModelSelectorPanel';
 import {
-    ChatPanel, ModelsPanel, ProvidersPanel, AIRICorePanel, HadesIntelligencePanel,
+    ChatPanel, ModelsPanel, ProvidersPanel, HadesIntelligencePanel,
     ApexSettingsPanel, PrivacyPanel, WorkflowPanel, EditorPanel, ThemePanel,
     type VsCodeSettings,
 } from './settings/panels';
@@ -86,7 +86,6 @@ function renderPanel(
         case 'privacy': return <PrivacyPanel />;
         case 'keybindings': return <KeybindingsPanel />;
         case 'apex': return <ApexSettingsPanel />;
-        case 'airi-core': return <AIRICorePanel />;
         case 'ane': return <AneAccelerationPanel />;
         case 'kortex': return <HadesIntelligencePanel />;
         case 'steering': return <SteeringPanel />;

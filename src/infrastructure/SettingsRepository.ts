@@ -16,7 +16,7 @@ const LEGACY_LOCALSTORAGE_KEYS = [
     'void.globalSettings',
     'reasoning.budget',
     'settings.item',
-    'airi.companion',
+    'chat.companion',
     'airi.autonomous24x7',
 ] as const;
 

@@ -48,8 +48,8 @@ export async function validateStartupModel(): Promise<void> {
             && !CLOUD_PROVIDERS.has(providerPrefix)
             && !isHighwayApiModel(modelTag)
         ) {
-            const { resolveOllamaModelTag } = await import('../../airi/shared-ollama');
-            const resolved = await resolveOllamaModelTag(modelTag);
+            const { resolveLocalModelTag } = await import('../../lib/localModelClient');
+            const resolved = await resolveLocalModelTag(modelTag);
             if (resolved && resolved !== modelTag) {
                 console.warn(`[validateStartupModel] "${modelTag}" → "${resolved}"`);
                 st.setAgentModel?.(resolved);
