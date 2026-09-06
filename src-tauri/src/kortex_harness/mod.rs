@@ -16,9 +16,11 @@
 //! byte-for-byte unchanged.
 
 pub mod contract;
+pub mod stash;
 pub mod tool_digest;
 
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use tool_digest::{approx_tokens, digest_tools, ToolDigest};
 
 /// Tools always kept as real, natively-callable entries (never compacted away).
@@ -26,6 +28,8 @@ use tool_digest::{approx_tokens, digest_tools, ToolDigest};
 const DEFAULT_CORE_TOOLS: &[&str] = &[
     "read_file", "read", "write_file", "write", "edit_file", "edit",
     "bash", "run_terminal_cmd", "grep", "glob", "list_dir", "codebase_search",
+    // `expand` must never be compacted — it's how everything else comes back.
+    "expand",
 ];
 
 #[derive(Debug, Clone)]
@@ -105,6 +109,12 @@ pub fn compress_openai_request(body: &mut Value, cfg: &HarnessConfig) -> Harness
         return report;
     }
 
+    let model = obj
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+
     let tools = match obj.get("tools").and_then(Value::as_array) {
         Some(t) if t.len() > 4 => t.clone(),
         _ => return report, // nothing worth compressing
@@ -114,7 +124,11 @@ pub fn compress_openai_request(body: &mut Value, cfg: &HarnessConfig) -> Harness
 
     let digests: Vec<ToolDigest> = digest_tools(&tools);
 
-    let is_core = |name: &str| cfg.core_tools.iter().any(|c| c == name);
+    // A tool is kept inline (full schema) if it's in the core set OR the model
+    // has `expand`ed it before this session (stash sticky flag).
+    let is_core = |name: &str| {
+        cfg.core_tools.iter().any(|c| c == name) || stash::is_sticky(&model, name)
+    };
     let mut inline: Vec<Value> = Vec::new();
     let mut compacted: Vec<&ToolDigest> = Vec::new();
     let mut extra_kept = 0usize;
@@ -143,15 +157,33 @@ pub fn compress_openai_request(body: &mut Value, cfg: &HarnessConfig) -> Harness
         block.push('\n');
     }
 
-    // `expand` is how a compacted tool gets its full schema back.
-    inline.push(contract::expand_tool_def());
+    // `expand` is how a compacted tool gets its full schema back. Only add the
+    // synthetic def if the caller's tool catalog didn't already include one.
+    let has_expand = inline.iter().any(|t| {
+        let n = t
+            .get("function")
+            .and_then(|f| f.get("name"))
+            .or_else(|| t.get("name"))
+            .and_then(Value::as_str);
+        n == Some("expand")
+    });
+    if !has_expand {
+        inline.push(contract::expand_tool_def());
+    }
 
-    // Stash the full schemas so a later `expand` call (handled by the proxy or
-    // the agent) can rehydrate without another round-trip to the client.
+    // Stash the full schemas so a later `expand` call can rehydrate without a
+    // round-trip to the client — both in the request body (same-turn) and in
+    // the process-global stash keyed by model (cross-turn, for the agent's
+    // `expand` tool handler).
     let schema_map: serde_json::Map<String, Value> = compacted
         .iter()
         .map(|d| (d.name.clone(), d.full_schema.clone()))
         .collect();
+    let stash_map: HashMap<String, Value> = schema_map
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    stash::put(&model, &stash_map);
 
     prepend_system_text(obj, &block);
     obj.insert("tools".into(), Value::Array(inline.clone()));
@@ -180,6 +212,19 @@ pub fn rehydrate<'a>(body: &'a Value, tool: &str) -> Option<&'a Value> {
     body.get("_kortex_harness")?
         .get("compacted_schemas")?
         .get(tool)
+}
+
+/// Answer an `expand({"tool": name})` call from the agent loop: return the full
+/// schema for a tool that `compress_openai_request` compacted, and mark it
+/// sticky so it stays inline for the rest of this model's session.
+///
+/// `model` is the request's `model` field (the key both sides share). Returns
+/// `None` when nothing was compacted for that (model, tool) — e.g. the harness
+/// is off, or the tool was already inline.
+pub fn expand_tool(model: &str, tool: &str) -> Option<Value> {
+    let schema = stash::get(model, tool)?;
+    stash::mark_sticky(model, tool);
+    Some(schema)
 }
 
 /// Prepend text to the first `system` message, or insert one if absent.
@@ -295,6 +340,30 @@ mod tests {
         compress_openai_request(&mut b, &cfg);
         let s = rehydrate(&b, "tool_15").expect("stashed");
         assert_eq!(s["function"]["name"], "tool_15");
+    }
+
+    #[test]
+    fn expand_roundtrip_and_sticky() {
+        stash::clear();
+        let cfg = HarnessConfig { enabled: true, ..Default::default() };
+
+        // Turn 1: compact — tool_15 goes to the signature block + the stash.
+        let mut b1 = req_with(20);
+        let r1 = compress_openai_request(&mut b1, &cfg);
+        assert!(r1.tools_compacted > 0);
+        assert!(!b1["messages"][0]["content"].as_str().unwrap().contains(r#""name": "tool_15""#));
+
+        // The agent's `expand` handler resolves it from the model-keyed stash.
+        let schema = expand_tool("local", "tool_15").expect("expandable");
+        assert_eq!(schema["function"]["name"], "tool_15");
+        assert!(expand_tool("local", "never_seen").is_none());
+
+        // Turn 2: same model — tool_15 is now sticky, stays inline (full schema).
+        let mut b2 = req_with(20);
+        compress_openai_request(&mut b2, &cfg);
+        let names: Vec<&str> = b2["tools"].as_array().unwrap().iter()
+            .filter_map(|t| t["function"]["name"].as_str()).collect();
+        assert!(names.contains(&"tool_15"), "expanded tool should be inline on the next turn");
     }
 
     #[test]

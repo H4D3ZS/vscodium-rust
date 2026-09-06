@@ -74,6 +74,39 @@ impl AiTools {
         Ok(json!({ "status": "success", "query": query, "skills": Vec::<Value>::new() }))
     }
 
+    /// `expand({"tool": name})` — rehydrate a tool schema the Kortex harness
+    /// compacted, and pin it inline for the rest of this model's session.
+    pub(crate) async fn handle_expand(&self, args: Value) -> Result<Value> {
+        let tool = args
+            .get("tool")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if tool.is_empty() {
+            return Ok(json!({
+                "error": "expand needs a 'tool' argument — the name of the tool to expand"
+            }));
+        }
+        let model = match self.editor_state.read().ok().and_then(|w| w.upgrade()) {
+            Some(st) => st.ai.current_model.lock().await.clone(),
+            None => String::new(),
+        };
+        match crate::kortex_harness::expand_tool(&model, &tool) {
+            Some(schema) => Ok(json!({
+                "tool": tool,
+                "schema": schema,
+                "note": "full schema restored; it stays available inline for the rest of this session"
+            })),
+            None => Ok(json!({
+                "tool": tool,
+                "error": format!(
+                    "no compacted schema for '{tool}' — it may already be inline, or tool-schema compression is off"
+                )
+            })),
+        }
+    }
+
     pub async fn run_command_safe(&self, args: Value) -> Result<Value> {
         self.run_command(args).await
     }

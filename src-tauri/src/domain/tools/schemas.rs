@@ -57,6 +57,9 @@ fn arr_prop(item_schema: serde_json::Value) -> serde_json::Value {
 impl AiTools {
     pub fn list_tools(&self) -> Vec<ToolDefinition> {
         vec![
+            // ── Harness ──
+            td("expand", "Restore the full JSON schema for a tool whose signature was compacted by the Kortex harness. Call this before using a tool if you're unsure of its exact arguments.",
+               obj_schema(&["tool"], json!({ "tool": str_prop("The tool name to expand") }))),
             // ── File Operations ──
             td("view_file", "Read the content of a file",
                obj_schema(&["path"], json!({ "path": str_prop("Relative path to the file") }))),
