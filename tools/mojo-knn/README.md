@@ -18,8 +18,8 @@ re-rank pass (`ivf.rs::dot`, `LiveCatalog::page_fault`). The re-rank /
 brute-force top-k over f32 vectors is the cleanest thing to hand to Mojo:
 a tight, embarrassingly-parallel dot-product + top-k with a stable C ABI.
 
-Mojo is the right tool here (and *only* here — not for inference; ROCmFPX
-already owns that) because:
+Mojo is the right tool here (start here — the retrieval kernel — before any
+bigger MAX/inference bet; ROCmFPX owns local inference today) because:
 
 - it vectorizes and parallelizes the reduction with `vectorize` /
   `parallelize` without hand-written intrinsics per target,

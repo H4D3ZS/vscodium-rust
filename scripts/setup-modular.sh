@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Check out the Modular/Mojo fork under ./modular (git-ignored, ~1.2 GB).
 #
-# We maintain a fork of the OPEN parts of modular/modular — the Mojo stdlib,
-# the MAX accelerator kernels, and the MAX serve/pipelines — for the kortex
-# retrieval kernels and (later) a MAX inference path. The Mojo *compiler* is
-# not in that repo and is not forkable; it comes prebuilt via pixi. See
-# docs/mojo-fork.md for the licensing constraints and the upstream-sync flow.
+# We maintain a fork of modular/modular for the kortex retrieval kernels and
+# (later) a MAX inference path. Since 2026-08-18 the WHOLE stack is Apache-2.0
+# and in the repo — compiler included (Mojo/lib/*, Mojo/tools/mojo). Day to day
+# we use the pixi-pinned prebuilt compiler; a from-source compiler build
+# (./bazelw build //Mojo/tools/mojo) is only for compiler changes. See
+# docs/mojo-fork.md for licensing and the upstream-sync flow.
 #
 #   scripts/setup-modular.sh                 # clone the fork (or upstream)
 #   scripts/setup-modular.sh --sync          # fetch upstream, rebase our overlay
