@@ -154,6 +154,8 @@ pub async fn kortex_gac_launch(
     draft_model_path: Option<String>,
     draft_ngl: Option<u32>,
     draft_max: Option<u32>,
+    // `--spec-draft-p-min`: MTP draft confidence gate (~0.75 on a packed 16 GB card).
+    draft_p_min: Option<f32>,
     lookup_cache: Option<String>,
     // `--n-cpu-moe`: MoE experts to keep in RAM (fits a Q4 35B-A3B on 16 GB).
     n_cpu_moe: Option<u32>,
@@ -176,6 +178,7 @@ pub async fn kortex_gac_launch(
         draft_model_path: draft_model_path.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
         draft_ngl,
         draft_max,
+        draft_p_min: draft_p_min.filter(|p| (0.0..=1.0).contains(p)),
         lookup_cache: lookup_cache.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
         n_cpu_moe: n_cpu_moe.filter(|n| *n > 0),
         extra_args: extra_args.unwrap_or_default(),

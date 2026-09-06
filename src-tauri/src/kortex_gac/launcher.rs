@@ -120,8 +120,15 @@ pub struct LaunchOpts {
     /// `--spec-draft-ngl` / `-ngld`: draft-model GPU layers (put it fully on
     /// the GPU — it's tiny). Default: all. Ignored without a draft model.
     pub draft_ngl: Option<u32>,
-    /// `--draft-max`: tokens to speculate per step (fork default 16).
+    /// `--draft-max` / `--spec-draft-n-max`: tokens to speculate per step. The
+    /// community sweeps for Qwen3.8-27B MTP put the mixed-workload optimum at
+    /// **2** (3 for code-heavy); deeper loses on prose as acceptance decays.
     pub draft_max: Option<u32>,
+    /// `--spec-draft-p-min`: confidence gate — the draft head stops once its
+    /// own probability drops below this, so a deeper `draft_max` costs nothing
+    /// on rounds it would have been rejected anyway. On a packed 16 GB card
+    /// the sweeps land on ~0.75 (n-max 3); looser (0.60) buys noise.
+    pub draft_p_min: Option<f32>,
     /// `--lookup-cache-dynamic` / `-lcd`: file the `ngram-cache` speculator
     /// reads at start and writes back on exit, so learned n-grams persist
     /// across server restarts. Only meaningful with `ngram-cache` in the list.
@@ -176,6 +183,7 @@ impl Default for LaunchOpts {
             draft_model_path: None,
             draft_ngl: None,
             draft_max: None,
+            draft_p_min: None,
             lookup_cache: None,
             n_cpu_moe: None,
             extra_args: Vec::new(),
@@ -231,6 +239,7 @@ pub fn build_argv(plan: &TierPlan, opts: &LaunchOpts) -> Vec<String> {
         .collect();
     if !spec_list.is_empty() {
         let wants_ngram_cache = spec_list.contains(&"ngram-cache");
+        let wants_mtp = spec_list.contains(&"draft-mtp");
         argv.push("--spec-type".into());
         argv.push(spec_list.join(","));
         if let Some(dm) = opts.draft_model_path.as_ref() {
@@ -242,6 +251,22 @@ pub fn build_argv(plan: &TierPlan, opts: &LaunchOpts) -> Vec<String> {
         if let Some(n) = opts.draft_max {
             argv.push("--draft-max".into());
             argv.push(n.to_string());
+        }
+        if let Some(p) = opts.draft_p_min.filter(|p| (0.0..=1.0).contains(p)) {
+            argv.push("--spec-draft-p-min".into());
+            argv.push(format!("{p}"));
+        }
+        // MTP needs a single generation slot — with parallel slots the head is
+        // disabled / degraded (sudoingX/qwen38-mtp). Force it unless the caller
+        // already set --parallel / -np in extra_args.
+        if wants_mtp
+            && !opts
+                .extra_args
+                .iter()
+                .any(|a| a == "--parallel" || a == "-np")
+        {
+            argv.push("--parallel".into());
+            argv.push("1".into());
         }
         if wants_ngram_cache {
             if let Some(lc) = opts.lookup_cache.as_ref() {
@@ -606,5 +631,56 @@ mod tests {
             };
             assert!(!build_argv(&min_plan(), &opts).contains(&"--n-cpu-moe".to_string()));
         }
+    }
+
+    #[test]
+    fn draft_mtp_forces_a_single_slot() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("draft-mtp".into()),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--parallel", "1"]));
+    }
+
+    #[test]
+    fn ngram_only_does_not_force_a_single_slot() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("ngram-simple".into()),
+            ..Default::default()
+        };
+        assert!(!build_argv(&min_plan(), &opts).contains(&"--parallel".to_string()));
+    }
+
+    #[test]
+    fn caller_parallel_override_is_respected() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("draft-mtp".into()),
+            extra_args: vec!["--parallel".into(), "4".into()],
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        // we don't inject our own "1"; the caller's "4" rides in via extra_args
+        assert!(argv.windows(2).any(|w| w == ["--parallel", "4"]));
+        assert!(!argv.windows(2).any(|w| w == ["--parallel", "1"]));
+    }
+
+    #[test]
+    fn draft_p_min_emits_the_gate_when_in_range() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("draft-mtp".into()),
+            draft_p_min: Some(0.75),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--spec-draft-p-min", "0.75"]));
+
+        // out-of-range is dropped
+        let bad = LaunchOpts { draft_p_min: Some(1.5), ..opts.clone() };
+        assert!(!build_argv(&min_plan(), &bad).contains(&"--spec-draft-p-min".to_string()));
     }
 }

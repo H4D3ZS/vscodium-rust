@@ -156,8 +156,10 @@ export interface LaunchExtras {
     draft_model_path?: string;
     /** Draft-model GPU layers. Default: all (it's tiny). Ignored without a draft model. */
     draft_ngl?: number;
-    /** Tokens to speculate per step (fork default 16). */
+    /** Tokens to speculate per step. Qwen3.8-27B MTP sweeps: 2 mixed, 3 code-heavy. */
     draft_max?: number;
+    /** `--spec-draft-p-min`: MTP draft confidence gate. ~0.75 on a packed 16 GB card. */
+    draft_p_min?: number;
     /** Persisted n-gram cache file for `ngram-cache` (`--lookup-cache-dynamic`). */
     lookup_cache?: string;
     /** `--n-cpu-moe`: MoE expert layers to keep in RAM instead of VRAM. The
@@ -177,7 +179,7 @@ export const SPEC_TYPES = [
  *  launcher filters unknown names and drops `draft-*` types with no model, so
  *  this stays permissive and just forwards what the user picked. */
 export function specDecodeExtras(): Pick<LaunchExtras,
-    'spec_type' | 'draft_model_path' | 'draft_ngl' | 'draft_max' | 'lookup_cache'> {
+    'spec_type' | 'draft_model_path' | 'draft_ngl' | 'draft_max' | 'draft_p_min' | 'lookup_cache'> {
     try {
         const raw = (localStorage.getItem('kortex.spec.type') || '').trim();
         if (!raw) return {};
@@ -187,15 +189,21 @@ export function specDecodeExtras(): Pick<LaunchExtras,
             .filter((s) => (SPEC_TYPES as readonly string[]).includes(s))
             .join(',');
         if (!type) return {};
+        const isMtp = type.split(',').includes('draft-mtp');
         const dm = localStorage.getItem('kortex.spec.draftModel') || undefined;
         const ngl = Number(localStorage.getItem('kortex.spec.draftNgl') || '') || undefined;
-        const dmax = Number(localStorage.getItem('kortex.spec.draftMax') || '') || undefined;
+        // Community sweeps (sudoingX/qwen38-mtp): n-max 2 is the mixed-workload
+        // optimum for Qwen3.8-27B MTP; deeper loses on prose. Default to 2 for
+        // MTP unless the user set one.
+        const dmax = Number(localStorage.getItem('kortex.spec.draftMax') || '') || (isMtp ? 2 : undefined);
+        const pmin = Number(localStorage.getItem('kortex.spec.pMin') || '') || undefined;
         const lc = localStorage.getItem('kortex.spec.lookupCache') || undefined;
         return {
             spec_type: type,
             draft_model_path: /(?:^|,)draft-/.test(type) ? dm : undefined,
             draft_ngl: ngl,
             draft_max: dmax,
+            draft_p_min: isMtp ? pmin : undefined,
             lookup_cache: type.split(',').includes('ngram-cache') ? lc : undefined,
         };
     } catch { return {}; }
@@ -333,6 +341,7 @@ export async function launchServer(
         draftModelPath: extras.draft_model_path ?? null,
         draftNgl: extras.draft_ngl ?? null,
         draftMax: extras.draft_max ?? null,
+        draftPMin: extras.draft_p_min ?? null,
         lookupCache: extras.lookup_cache ?? null,
         nCpuMoe: extras.n_cpu_moe ?? null,
         extraArgs: extras.extra_args ?? null,
