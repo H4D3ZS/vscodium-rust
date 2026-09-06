@@ -12,6 +12,7 @@ pub mod mobile;
 pub mod safe_io;
 pub mod security;
 pub mod services;
+pub mod skills;
 pub mod types;
 pub mod vcs;
 pub mod workspace;

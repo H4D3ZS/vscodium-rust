@@ -63,15 +63,37 @@ impl AiTools {
         Ok(json!({ "status": "success", "notified": true }))
     }
 
+    /// Load a `SKILL.md` from `.claude/skills` / `.agent/skills` by name.
+    /// Accepts either `{"name": ...}` (canonical) or `{"skill": ...}` (legacy).
     pub(crate) async fn handle_use_skill(&self, args: Value) -> Result<Value> {
-        let skill = args.get("skill").and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing skill"))?;
-        Ok(json!({ "status": "success", "skill": skill, "message": format!("Skill '{}' invoked", skill) }))
+        let name = args
+            .get("name")
+            .or_else(|| args.get("skill"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("expected a 'name' — the skill to load"))?
+            .trim();
+        let root = self.get_root_path();
+        match crate::domain::skills::load_body(&root, name) {
+            Some(body) => Ok(json!({ "status": "success", "skill": name, "instructions": body })),
+            None => {
+                let available: Vec<String> = crate::domain::skills::discover(&root)
+                    .into_iter()
+                    .map(|s| s.name)
+                    .collect();
+                Ok(json!({
+                    "status": "not_found",
+                    "skill": name,
+                    "available": available,
+                    "message": format!("no skill named '{name}' under .claude/skills or .agent/skills")
+                }))
+            }
+        }
     }
 
     pub(crate) async fn handle_search_skills(&self, args: Value) -> Result<Value> {
         let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
-        Ok(json!({ "status": "success", "query": query, "skills": Vec::<Value>::new() }))
+        let skills = crate::domain::skills::search(&self.get_root_path(), query);
+        Ok(json!({ "status": "success", "query": query, "skills": skills }))
     }
 
     /// `expand({"tool": name})` — rehydrate a tool schema the Kortex harness

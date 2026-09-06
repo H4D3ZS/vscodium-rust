@@ -186,8 +186,8 @@ impl AiTools {
             "task_boundary" => self.handle_task_boundary(arguments).await,
             "create_canvas" => self.handle_create_canvas(arguments).await,
             "notify_user" => self.handle_notify_user(arguments).await,
-            "use_skill" => self.handle_use_skill(arguments).await,
-            "search_skills" => self.handle_search_skills(arguments).await,
+            "use_skill" | "skill" => self.handle_use_skill(arguments).await,
+            "search_skills" | "list_skills" => self.handle_search_skills(arguments).await,
             "expand" => self.handle_expand(arguments).await,
 
             // Live offensive-security tools (real shell / file analysis)

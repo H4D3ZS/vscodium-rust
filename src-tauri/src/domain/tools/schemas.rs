@@ -400,13 +400,10 @@ impl AiTools {
                obj_schema(&["title"], json!({ "title": str_prop("Canvas title") }))),
             td("notify_user", "Notify the user with a message.",
                obj_schema(&["message"], json!({ "message": str_prop("Notification message") }))),
-            td("use_skill", "Use a registered skill.",
-               obj_schema(&["skill"], json!({
-                   "skill": str_prop("Skill name"),
-                   "args": opt_str("Skill arguments")
-               }))),
-            td("search_skills", "Search for available skills.",
-               obj_schema(&["query"], json!({ "query": str_prop("Search query") }))),
+            td("skill", "Load a skill's instructions from .claude/skills or .agent/skills by name. Call search_skills first if you don't know the exact name.",
+               obj_schema(&["name"], json!({ "name": str_prop("Skill name") }))),
+            td("search_skills", "List available skills (name + description). Empty query returns all.",
+               obj_schema(&[], json!({ "query": opt_str("Substring to match against name/description") }))),
 
             // ── Offensive / Exploit ──
             td("generate_0day_exploit", "Generate an exploit scaffold (educational).",
