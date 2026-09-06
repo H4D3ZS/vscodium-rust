@@ -74,6 +74,22 @@ shape — `openai_chat()` → `/v1/chat/completions` on `inference_url` (the
 Kortex proxy when it's up, Lemonade otherwise). The old Ollama-native
 `/api/generate` call is gone.
 
+## Operator/Reasoner vs planner/executor
+
+These are different axes, not a conflict:
+
+- **Operator / Reasoner** is *who runs which kind of work* — sub-agents and
+  APEX go to the small model on Lemonade; the main loop and chat stay on the
+  reasoner. Always on.
+- **Planner / executor** (hybrid mode, `agent.plannerEnabled` /
+  `hybridAuto`) is *whether the main loop is split into a plan pass and an
+  execute pass*, each optionally a different model. It is force-disabled in
+  local single-model mode (`setPlannerEnabled` clamps it when
+  `inferenceServerMode === 'local'`), so on this AMD setup it's off and
+  nothing competes with the Operator routing. If you turn hybrid on with a
+  remote planner, that only affects the main loop; sub-agents still go to
+  the Operator.
+
 ## The pitch, in one line
 
 A consumer AMD box runs a 30-B-class agent locally, and the Kortex layer
