@@ -112,7 +112,7 @@ impl OptimizedInferenceEngine {
                 "moe_routing": "active experts in RAM, inactive on SSD (if MoE)",
             },
             "expected_performance": {
-                "qwen3.5:2b_q4": "~45 tokens/sec (M1 bandwidth ceiling)",
+                "qwen3.5:4b_q4": "~35 tokens/sec (M1 bandwidth ceiling)",
                 "qwen3.5:12b_q4": "~8-12 tokens/sec (M1 8GB bandwidth ceiling)",
                 "first_token_latency": "~2-3 seconds (includes load from cache)",
                 "note": "decode tok/s is memory-bandwidth bound; the ANE cannot raise it",

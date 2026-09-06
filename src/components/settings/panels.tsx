@@ -282,7 +282,7 @@ export function ModelsPanel() {
                                         if (prov === 'lemonade') {
                                             try {
                                                 const { invoke } = await import('../../tauri_bridge');
-                                                await invoke('apex_set_local_mode', { smallModel: 'qwen3.5:2b' });
+                                                await invoke('apex_set_local_mode', { smallModel: 'qwen3.5:4b' });
                                             } catch (err) {
                                                 console.warn('Failed to auto-downgrade APEX models:', err);
                                             }
@@ -667,8 +667,8 @@ export function ApexSettingsPanel() {
         setIsLoading(true);
         try {
             const { invoke } = await import('../../tauri_bridge');
-            await invoke('apex_set_local_mode', { smallModel: 'qwen3.5:2b' });
-            setModels(Object.fromEntries(engines.map(e => [e.key, 'qwen3.5:2b'])));
+            await invoke('apex_set_local_mode', { smallModel: 'qwen3.5:4b' });
+            setModels(Object.fromEntries(engines.map(e => [e.key, 'qwen3.5:4b'])));
         } catch (err) {
             console.error('Failed to set local mode:', err);
         } finally {
@@ -689,7 +689,7 @@ export function ApexSettingsPanel() {
     return (
         <div style={{ maxWidth: 680 }}>
             <SectionTitle>APEX Intelligence Engines</SectionTitle>
-            <p className="settings-section-subtitle">Configure individual specialist models for different analysis tasks. Recommended: use qwen3.5:2b for M1 Macs with 8GB RAM.</p>
+            <p className="settings-section-subtitle">Configure individual specialist models for different analysis tasks. Recommended: use qwen3.5:4b for 8&nbsp;GB rigs.</p>
 
             <div className="settings-card">
                 <div className="settings-card-title">Quick Setup</div>
@@ -700,10 +700,10 @@ export function ApexSettingsPanel() {
                     onClick={handleSetLocalMode}
                     style={{ marginBottom: 12 }}
                 >
-                    {isLoading? 'Configuring...': 'Auto-Downgrade to qwen3.5:2b (Local)'}
+                    {isLoading? 'Configuring...': 'Auto-Downgrade to qwen3.5:4b (Local)'}
                 </button>
                 <p style={{ fontSize: 11, opacity: 0.6, margin: '0' }}>
-                    Sets all APEX engines to qwen3.5:2b for offline M1 Mac development
+                    Sets all APEX engines to qwen3.5:4b for offline / low-VRAM development
                 </p>
             </div>
 
@@ -718,7 +718,7 @@ export function ApexSettingsPanel() {
                             <input
                                 type="text"
                                 className="settings-select"
-                                placeholder="e.g., qwen3.5:2b"
+                                placeholder="e.g., qwen3.5:4b"
                                 value={models[engine.key] || ''}
                                 onChange={(e) => handleModelChange(engine.key, e.target.value)}
                                 style={{ width: 200, fontSize: 11 }}

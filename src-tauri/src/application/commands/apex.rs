@@ -253,7 +253,7 @@ pub async fn apex_set_local_mode(
     state: State<'_, std::sync::Arc<crate::EditorState>>,
     small_model: Option<String>,
 ) -> Result<(), String> {
-    let model = small_model.unwrap_or_else(|| "qwen3.5:2b".to_string());
+    let model = small_model.unwrap_or_else(|| "qwen3.5:4b".to_string());
     let engines = vec![
         "architect",
         "threat",

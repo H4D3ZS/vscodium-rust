@@ -1353,6 +1353,7 @@ mod model_classification_tests {
             "tinyllama:1.1b",
             "qwen2.5-coder:3b",
             "gemma2:2b",
+            "qwen3.5:4b",
             "phi-3-mini",
             "qwen2.5:0.5b",
             "gemma-4-e2b",

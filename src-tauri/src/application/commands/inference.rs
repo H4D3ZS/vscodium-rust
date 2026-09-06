@@ -94,13 +94,13 @@ pub async fn inference_get_setup_recommendation() -> Result<Value, String> {
             },
         },
         "expected_performance": {
-            "qwen3.5:2b_q4": "~45 tokens/sec (bandwidth ceiling on M1)",
+            "qwen3.5:4b_q4": "~35 tokens/sec (bandwidth ceiling on M1)",
             "qwen3.5:12b_q4": "~8-12 tokens/sec (bandwidth ceiling on M1 8GB)",
             "note": "tok/s is set by the local GPU memory bandwidth; ANE offloads indexing instead",
             "first_token_latency": "2-3 seconds (includes SSD load)",
         },
         "optimization_path": [
-            "1. Pull a small model into your local backend (e.g. qwen3.5:2b)",
+            "1. Pull a small model into your local backend (e.g. qwen3.5:4b)",
             "2. IDE Settings → Model Selection → Auto-Detect",
             "3. Settings → ANE Acceleration → Enable (offloads semantic search to the NPU)",
             "4. Semantic search stays fast while a generation stream is active",

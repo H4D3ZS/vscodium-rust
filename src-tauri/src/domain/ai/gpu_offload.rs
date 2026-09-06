@@ -51,8 +51,10 @@ pub fn tier() -> ModelTier {
 // ─── APEX model assignments per tier ────────────────────────────────────────
 
 /// Single shared model for ALL lite-tier engines — one resident model means
-/// zero eviction churn during a sweep. Proven working on M1 Air 8GB.
-const LITE_MODEL: &str = "qwen3.5:2b";
+/// zero eviction churn during a sweep. Qwen3.5-4B: ~2.5 GB at Q4, still fits
+/// an 8 GB rig, and its tool-call / structured-output fidelity is a step
+/// change over the old 2B (which produced malformed tool calls under load).
+const LITE_MODEL: &str = "qwen3.5:4b";
 /// Mid tier also shares one model: 7b weights + KV is most of 16GB's budget.
 const MID_MODEL: &str = "qwen3.5:7b";
 
@@ -531,7 +533,7 @@ mod tests {
         ];
         // All lite-tier entries route to LITE_MODEL by construction; verify
         // the full-tier table still differentiates.
-        assert_eq!(LITE_MODEL, "qwen3.5:2b");
+        assert_eq!(LITE_MODEL, "qwen3.5:4b");
         for e in engines {
             let m = apex_model(e);
             assert!(!m.is_empty());
