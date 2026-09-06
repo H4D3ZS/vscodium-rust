@@ -15,7 +15,13 @@ native process, not an Electron main thread.
 - **Local inference via [Lemonade](https://github.com/lemonade-sdk/lemonade)** — an
   OpenAI-compatible server (`:13305`) running real llama.cpp, tuned for local hardware
   (AMD included). It's the only backend; bring your own API key for a hosted model if
-  you want one. Prompts can route through **kortex** (from the
+  you want one. Optional **two-model split**: a big reasoner on the bundled
+  ROCmFPX server keeps the main loop, and a small fast **Operator**
+  (`qwen3.5:4b` by default, on Lemonade) runs sub-agents and the APEX
+  specialist bank — `KORTEX_OPERATOR_MODEL` / `KORTEX_OPERATOR_URL`, or the
+  fields in the *Kortex ROCmFPX* panel. See
+  [`docs/kortex-lemonade-architecture.md`](docs/kortex-lemonade-architecture.md).
+  Prompts can route through **kortex** (from the
   [kortex submodule](https://github.com/H4D3ZS/kortex), AGPL-3.0):
   - **KV-slot cache** (`:1537`) — an in-process reverse proxy in front of the
     backend that skips re-prefilling repeated prompt prefixes (KDKVC). Opt-in:

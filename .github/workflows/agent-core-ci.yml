@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -30,12 +32,14 @@ jobs:
       - name: Run Rust tests
         run: cargo test --all-targets
 
-  frontend-typecheck:
-    name: Frontend Typecheck
+  frontend-checks:
+    name: Frontend Typecheck + Unit Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -49,8 +53,34 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Unit tests + architecture check
+        run: npm test
+
       - name: Build smoke check
         run: npm run build
+
+  cargo-audit:
+    name: cargo audit (informational)
+    runs-on: ubuntu-latest
+    # Non-blocking: a fresh advisory on an already-unmaintained transitive
+    # (gtk3, unic-*) is not a regression we introduced. Keeps the 0-vuln
+    # state visible without failing PRs on upstream's schedule.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit
+        working-directory: src-tauri
+        run: cargo audit
 
   macos-universal-build:
     name: macOS Universal Build
@@ -59,6 +89,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Node
         uses: actions/setup-node@v4
