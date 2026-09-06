@@ -87,6 +87,80 @@ fn resolve_domain_tools(task_desc: &str) -> Option<&'static [&'static str]> {
 /// Result of slash command handling.
 enum SlashResult { Handled(String), Continue }
 
+/// Detect a collapse into punctuation / line-noise ("morse code"): a weak
+/// quant loses coherence and falls into a high-frequency symbol attractor
+/// (`/\.,;'"=|_-` …). Not necessarily periodic, so `degenerate_loop_start`
+/// misses it. Trips when the tail window is overwhelmingly non-word symbols
+/// with almost no real words; returns the offset where the collapse began.
+fn symbol_collapse_start(text: &str) -> Option<usize> {
+    const WINDOW: usize = 400;
+    const MIN_LEN: usize = 200;
+    if text.len() < MIN_LEN {
+        return None;
+    }
+    // char-safe tail
+    let mut start = text.len().saturating_sub(WINDOW);
+    while start > 0 && !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    let tail = &text[start..];
+
+    let is_noise = |c: char| {
+        matches!(
+            c,
+            '/' | '\\' | '.' | ',' | ';' | ':' | '\'' | '"' | '=' | '|' | '_'
+                | '-' | '<' | '>' | '~' | '^' | '*' | '`' | '(' | ')' | '[' | ']'
+                | '{' | '}' | '+' | '#' | '@' | '!' | '?' | '&' | '%' | '$'
+        )
+    };
+    let alnum = tail.chars().filter(|c| c.is_alphanumeric()).count();
+    let noise = tail.chars().filter(|&c| is_noise(c)).count();
+    let total = tail.chars().count().max(1);
+
+    // A "word" = 3+ consecutive alphabetic chars with a vowel.
+    let words = tail
+        .split(|c: char| !c.is_alphabetic())
+        .filter(|w| w.len() >= 3 && w.chars().any(|c| "aeiouAEIOU".contains(c)))
+        .count();
+
+    if noise * 100 / total >= 55 && alnum * 100 / total <= 20 && words <= 2 {
+        // Collapse confirmed. Keep everything up to and including the last real
+        // word (3+ letters with a vowel) plus its trailing punctuation; the
+        // rest is line-noise.
+        let mut last_word_end = 0usize;
+        let (mut cur_len, mut cur_vowel) = (0usize, false);
+        for (i, c) in text.char_indices() {
+            if c.is_alphabetic() {
+                cur_len += 1;
+                if "aeiouAEIOU".contains(c) {
+                    cur_vowel = true;
+                }
+            } else {
+                if cur_len >= 3 && cur_vowel {
+                    last_word_end = i;
+                }
+                cur_len = 0;
+                cur_vowel = false;
+            }
+        }
+        if cur_len >= 3 && cur_vowel {
+            last_word_end = text.len();
+        }
+        let mut cut = last_word_end;
+        for (i, c) in text[last_word_end..].char_indices() {
+            if c.is_whitespace()
+                || matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '}' | '"' | '\'')
+            {
+                cut = last_word_end + i + c.len_utf8();
+            } else {
+                break;
+            }
+        }
+        return Some(cut.min(text.len()));
+    }
+    None
+}
+
 /// Detect a degenerate repetition loop in a growing generation buffer.
 ///
 /// A ~2.5-bit quant of a large MoE can lock into repeating a phrase, a line,
@@ -2703,31 +2777,38 @@ impl Sentient {
                         + std::time::Duration::from_secs(WARM_TOKEN_SECS);
                 }
 
-                // Catch a verbatim repetition lock before it burns the whole
-                // max_tokens budget. Scan whichever buffer is carrying the
-                // generation; on a hit, drop the degenerate tail (keep one
-                // clean copy) and salvage the turn via the stall path.
+                // Catch a degenerate stream before it burns the whole
+                // max_tokens budget: a verbatim repetition lock, OR a collapse
+                // into punctuation / line-noise (the "morse code" failure on a
+                // low-bit quant). Scan whichever buffer is carrying the
+                // generation; on a hit, drop the bad tail (keep the clean
+                // prefix) and salvage the turn via the stall path.
                 let combined_len = full_content.len() + reasoning_buf.len();
                 if combined_len >= 400 && combined_len - last_loop_scan_len >= 600 {
                     last_loop_scan_len = combined_len;
-                    let (buf_name, cut) = if reasoning_buf.len() >= full_content.len() {
-                        ("reasoning", degenerate_loop_start(&reasoning_buf))
+                    let buf_name = if reasoning_buf.len() >= full_content.len() {
+                        "reasoning"
                     } else {
-                        ("content", degenerate_loop_start(&full_content))
+                        "content"
                     };
-                    if let Some(cut) = cut {
-                        let before = if buf_name == "reasoning" { reasoning_buf.len() } else { full_content.len() };
+                    let buf = if buf_name == "reasoning" { &reasoning_buf } else { &full_content };
+                    let hit = degenerate_loop_start(buf)
+                        .map(|cut| ("cycling", cut))
+                        .or_else(|| symbol_collapse_start(buf).map(|cut| ("collapsed to line-noise", cut)));
+                    if let Some((why, cut)) = hit {
+                        let before = buf.len();
                         if buf_name == "reasoning" {
                             reasoning_buf.truncate(cut);
                         } else {
                             full_content.truncate(cut);
                         }
                         println!(
-                            "[{}] REPETITION LOOP: {} buffer cycling — cut {} degenerate bytes ({}→{}), salvaging turn.",
-                            request_id, buf_name, before - cut, before, cut
+                            "[{}] DEGENERATE STREAM: {} buffer {} — cut {} bytes ({}→{}), salvaging turn.",
+                            request_id, buf_name, why, before - cut, before, cut
                         );
                         self.emit_event("ai-repetition-loop", json!({
                             "buffer": buf_name,
+                            "reason": why,
                             "dropped_bytes": before - cut,
                             "model": active_model,
                             "provider": active_provider,
@@ -4696,6 +4777,46 @@ mod degenerate_loop_tests {
         let s = unit.repeat(60);
         let cut = degenerate_loop_start(&s).expect("detected");
         assert!(s.is_char_boundary(cut));
+    }
+}
+
+#[cfg(test)]
+mod symbol_collapse_tests {
+    use super::symbol_collapse_start;
+
+    #[test]
+    fn morse_code_line_noise_is_caught() {
+        let lead = "Let me start by listing the directory contents so I understand the layout. ";
+        let noise = r#"\n\/. `` \\/ .\\n// \./ // \n/// /// // \n// \n// .. ///\n// .. . /. //\n/. . /. //\n \\\. / \\/. \\\. '/.'/;/;'/,'; = ,= ,= ,= "=","=","=",== =""#;
+        let s = format!("{lead}{}", noise.repeat(4));
+        let cut = symbol_collapse_start(&s).expect("collapse must be detected");
+        assert!(cut <= lead.len() + 40, "cut {cut} kept too much noise");
+        assert!(s.is_char_boundary(cut));
+    }
+
+    #[test]
+    fn normal_prose_and_code_are_not_flagged() {
+        assert_eq!(
+            symbol_collapse_start(
+                "I'll read src/main.rs, check the imports, and run `cargo test` to see \
+                 what breaks. The error mentions a lifetime, so it's probably in the \
+                 borrow at line 42 — let me look there first."
+            ),
+            None
+        );
+        // A dense but legitimate snippet: still has real words.
+        assert_eq!(
+            symbol_collapse_start(
+                "let x = foo(&bar[0..n], |a, b| a.cmp(&b)).map(|v| v * 2).sum::<i64>(); \
+                 assert_eq!(x, expected_total_here);"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn short_buffers_are_ignored() {
+        assert_eq!(symbol_collapse_start("//// .... ==="), None);
     }
 }
 
