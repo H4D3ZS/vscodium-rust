@@ -63,15 +63,90 @@ impl AiTools {
         Ok(json!({ "status": "success", "notified": true }))
     }
 
+    /// Load a `SKILL.md` from `.claude/skills` / `.agent/skills` by name.
+    /// Accepts either `{"name": ...}` (canonical) or `{"skill": ...}` (legacy).
     pub(crate) async fn handle_use_skill(&self, args: Value) -> Result<Value> {
-        let skill = args.get("skill").and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing skill"))?;
-        Ok(json!({ "status": "success", "skill": skill, "message": format!("Skill '{}' invoked", skill) }))
+        let name = args
+            .get("name")
+            .or_else(|| args.get("skill"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("expected a 'name' — the skill to load"))?
+            .trim();
+        let root = self.get_root_path();
+        match crate::domain::skills::load_body(&root, name) {
+            Some(body) => Ok(json!({ "status": "success", "skill": name, "instructions": body })),
+            None => {
+                let available: Vec<String> = crate::domain::skills::discover(&root)
+                    .into_iter()
+                    .map(|s| s.name)
+                    .collect();
+                Ok(json!({
+                    "status": "not_found",
+                    "skill": name,
+                    "available": available,
+                    "message": format!("no skill named '{name}' under .claude/skills or .agent/skills")
+                }))
+            }
+        }
     }
 
     pub(crate) async fn handle_search_skills(&self, args: Value) -> Result<Value> {
         let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
-        Ok(json!({ "status": "success", "query": query, "skills": Vec::<Value>::new() }))
+        let skills = crate::domain::skills::search(&self.get_root_path(), query);
+        Ok(json!({ "status": "success", "query": query, "skills": skills }))
+    }
+
+    /// `recall({"id": ...})` — restore a tool result that history compaction
+    /// replaced with a summary (see `agent_harness::compress_old_tool_results`).
+    pub(crate) async fn handle_recall(&self, args: Value) -> Result<Value> {
+        let id = args
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if id.is_empty() {
+            return Ok(json!({ "error": "recall needs an 'id' (from a '[… compacted]' marker)" }));
+        }
+        match crate::kortex_harness::turn_stash::get(id) {
+            Some(text) => Ok(json!({ "id": id, "content": text })),
+            None => Ok(json!({
+                "id": id,
+                "error": format!("nothing stashed under '{id}' — it may have been evicted (2 MB budget)")
+            })),
+        }
+    }
+
+    /// `expand({"tool": name})` — rehydrate a tool schema the Kortex harness
+    /// compacted, and pin it inline for the rest of this model's session.
+    pub(crate) async fn handle_expand(&self, args: Value) -> Result<Value> {
+        let tool = args
+            .get("tool")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if tool.is_empty() {
+            return Ok(json!({
+                "error": "expand needs a 'tool' argument — the name of the tool to expand"
+            }));
+        }
+        let model = match self.editor_state.read().ok().and_then(|w| w.upgrade()) {
+            Some(st) => st.ai.current_model.lock().await.clone(),
+            None => String::new(),
+        };
+        match crate::kortex_harness::expand_tool(&model, &tool) {
+            Some(schema) => Ok(json!({
+                "tool": tool,
+                "schema": schema,
+                "note": "full schema restored; it stays available inline for the rest of this session"
+            })),
+            None => Ok(json!({
+                "tool": tool,
+                "error": format!(
+                    "no compacted schema for '{tool}' — it may already be inline, or tool-schema compression is off"
+                )
+            })),
+        }
     }
 
     pub async fn run_command_safe(&self, args: Value) -> Result<Value> {

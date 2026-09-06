@@ -131,7 +131,7 @@ async fn serve_async(opts: KvCacheOptions) -> anyhow::Result<()> {
     let store = CacheStore::open(opts.clone())?;
     let resolved_tier = capability::resolve_tier(opts.tier, &probe, &opts.slot_dir).await;
     eprintln!("[kortex-kvcache-cli] resolved tier = {:?} (requested {:?})", resolved_tier, opts.tier);
-    let state: SharedProxy = std::sync::Arc::new(ProxyState::new(opts, store, resolved_tier));
+    let state: SharedProxy = std::sync::Arc::new(ProxyState::new(opts, store, resolved_tier, false));
 
     let _handle = proxy::serve(state.clone()).await?;
 

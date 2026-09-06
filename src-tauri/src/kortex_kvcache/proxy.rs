@@ -59,7 +59,12 @@ pub struct ProxyState {
 }
 
 impl ProxyState {
-    pub fn new(opts: KvCacheOptions, store: CacheStore, resolved_tier: super::types::CacheTier) -> Self {
+    pub fn new(
+        opts: KvCacheOptions,
+        store: CacheStore,
+        resolved_tier: super::types::CacheTier,
+        grammar_ok: bool,
+    ) -> Self {
         let client = LlamaCppClient::new(&opts.upstream_url, opts.slot_id);
         let http = reqwest::Client::builder()
             .pool_max_idle_per_host(8)
@@ -67,7 +72,10 @@ impl ProxyState {
             .timeout(std::time::Duration::from_secs(600))
             .build()
             .expect("reqwest client build");
-        let harness = crate::kortex_harness::HarnessConfig::from_env();
+        let mut harness = crate::kortex_harness::HarnessConfig::from_env();
+        // Never insert a grammar the upstream won't honour (would silently
+        // break generation on a plain OpenAI proxy).
+        harness.constrain_grammar = harness.constrain_grammar && grammar_ok;
         if harness.enabled {
             tracing::info!(
                 "[kortex-kvcache] harness compression ON (grammar={})",

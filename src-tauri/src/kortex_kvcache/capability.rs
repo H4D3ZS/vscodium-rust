@@ -97,6 +97,48 @@ pub fn slot_error_means_unsupported(err_msg: &str) -> bool {
     UNSUPPORTED_MARKERS.iter().any(|marker| m.contains(marker))
 }
 
+/// Probe whether the upstream honours a top-level GBNF `grammar` field on
+/// `/v1/chat/completions` (llama.cpp does; a plain OpenAI proxy ignores it).
+/// Sends a one-token request constrained to output exactly `A`. On any failure
+/// or a mismatch, returns `false` — the harness then never inserts a grammar,
+/// so a non-supporting server can't be silently broken.
+pub async fn probe_grammar(base_url: &str) -> bool {
+    let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "messages": [{ "role": "user", "content": "Output the single letter A and nothing else." }],
+        "max_tokens": 2,
+        "temperature": 0.0,
+        "grammar": "root ::= \"A\"",
+        "stream": false
+    });
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let resp = match client.post(&url).json(&body).send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ => return false,
+    };
+    let v: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let text = v
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .trim();
+    let ok = text == "A";
+    tracing::info!("[kortex-cache] grammar probe: {} (got {:?})", ok, text);
+    ok
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

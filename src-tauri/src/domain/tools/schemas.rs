@@ -57,6 +57,11 @@ fn arr_prop(item_schema: serde_json::Value) -> serde_json::Value {
 impl AiTools {
     pub fn list_tools(&self) -> Vec<ToolDefinition> {
         vec![
+            // ── Harness ──
+            td("expand", "Restore the full JSON schema for a tool whose signature was compacted by the Kortex harness. Call this before using a tool if you're unsure of its exact arguments.",
+               obj_schema(&["tool"], json!({ "tool": str_prop("The tool name to expand") }))),
+            td("recall", "Restore a tool result that history compaction replaced with a summary. Use the id from a '[… compacted]' marker.",
+               obj_schema(&["id"], json!({ "id": str_prop("The recall id") }))),
             // ── File Operations ──
             td("view_file", "Read the content of a file",
                obj_schema(&["path"], json!({ "path": str_prop("Relative path to the file") }))),
@@ -397,13 +402,10 @@ impl AiTools {
                obj_schema(&["title"], json!({ "title": str_prop("Canvas title") }))),
             td("notify_user", "Notify the user with a message.",
                obj_schema(&["message"], json!({ "message": str_prop("Notification message") }))),
-            td("use_skill", "Use a registered skill.",
-               obj_schema(&["skill"], json!({
-                   "skill": str_prop("Skill name"),
-                   "args": opt_str("Skill arguments")
-               }))),
-            td("search_skills", "Search for available skills.",
-               obj_schema(&["query"], json!({ "query": str_prop("Search query") }))),
+            td("skill", "Load a skill's instructions from .claude/skills or .agent/skills by name. Call search_skills first if you don't know the exact name.",
+               obj_schema(&["name"], json!({ "name": str_prop("Skill name") }))),
+            td("search_skills", "List available skills (name + description). Empty query returns all.",
+               obj_schema(&[], json!({ "query": opt_str("Substring to match against name/description") }))),
 
             // ── Offensive / Exploit ──
             td("generate_0day_exploit", "Generate an exploit scaffold (educational).",

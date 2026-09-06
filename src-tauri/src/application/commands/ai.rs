@@ -2173,10 +2173,13 @@ pub async fn set_lemonade_url(state: State<'_, std::sync::Arc<crate::EditorState
     // CORE-Ultra tooling) hit the user's configured llama.cpp server.
     state.ai.apex.set_lemonade_url(&url).await;
 
-    // Propagate to VectorIndexer so embeddings route through Lemonade
-    state.memory.vector_indexer.set_embed_url(url.clone());
+    // NOTE: embeddings are deliberately NOT re-pointed here. `url` is the *chat*
+    // backend — on the Kortex ROCmFPX path that's a proxy fronting a chat-only
+    // model which 404s /v1/embeddings, and that stalled the vector index at
+    // ~108 chunks. Embeddings stay on `default_embed_base_url()` (Lemonade
+    // :13305 / the LEMONADE_URL env). Use `set_embed_url` for a custom embed host.
 
-    // Propagate to AttachmentManager so vision/embedding calls use Lemonade
+    // Vision/attachment inference still follows the configured backend.
     state.memory.attachments.set_inference_url(url).await;
 
     Ok(())

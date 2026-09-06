@@ -346,19 +346,32 @@ pub fn compress_old_tool_results(messages: &mut Vec<ChatMessage>, keep_recent: u
         return;
     }
 
+    // When the Kortex harness is enabled, stash the full text before we shrink
+    // it so the agent can `recall({"id": ...})` it. Otherwise the old text is
+    // simply dropped (the historical behaviour).
+    let recallable = matches!(
+        std::env::var("KORTEX_HARNESS").ok().as_deref(),
+        Some("1") | Some("true") | Some("on")
+    );
+
     let to_summarize = tool_indices.len() - keep_recent;
     for &idx in tool_indices.iter().take(to_summarize) {
         if let Some(msg) = messages.get_mut(idx) {
             let text = msg.content.as_ref().map(|c| c.as_str()).unwrap_or("");
-            let summary = if text.len() > 200 {
-                let first_line = text.lines().next().unwrap_or("");
+            if text.len() <= 200 {
+                continue; // already small
+            }
+            let first_line = text.lines().next().unwrap_or("");
+            let head = &first_line[..first_line.len().min(120)];
+            let summary = if recallable {
+                let id = crate::kortex_harness::turn_stash::next_id();
+                crate::kortex_harness::turn_stash::put(&id, text);
                 format!(
-                    "[tool result — {} chars] {}…",
-                    text.len(),
-                    &first_line[..first_line.len().min(120)]
+                    "[tool result — {} chars, compacted] {head}…  (recall({{\"id\": \"{id}\"}}) for the full text)",
+                    text.len()
                 )
             } else {
-                text.to_string()
+                format!("[tool result — {} chars] {head}…", text.len())
             };
             msg.content = Some(MessageContent::Text(summary));
         }
