@@ -109,7 +109,31 @@ export function KortexLocalInferencePanel() {
     const inferenceBackend = useStore(s => s.inferenceBackend);
     const setInferenceBackend = useStore(s => (s as any).setInferenceBackend);
     const setAgentModel = useStore(s => (s as any).setAgentModel);
+    const availableModels = useStore(s => (s as any).availableModels as any[]);
+    const refreshAvailableModels = useStore(s => (s as any).refreshAvailableModels);
     const activeRoot = useStore(s => (s as any).activeRoot as string | undefined);
+
+    // Turn a GGUF file path into the chat-toolbar model tag. Prefer an existing
+    // Lemonade entry (fuzzy match on quant + a name fragment) so the toolbar
+    // shows it selected; else fall back to a bare `lemonade|<basename>`.
+    const tagForGguf = useCallback((path: string): string => {
+        const base = (path.split(/[\\/]/).pop() || '').replace(/\.gguf$/i, '');
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const nb = norm(base);
+        const quant = (base.match(/i?q\d(_[a-z0-9]+)*|bf16|f16/i) || [''])[0].toLowerCase();
+        const list = (availableModels || []).map((m: any) => (typeof m === 'string' ? { id: m, provider: 'lemonade' } : m));
+        const hit = list.find((m: any) => {
+            const id = String(m.id || m.name || '');
+            const ni = norm(id);
+            if (quant && !ni.includes(norm(quant))) return false;
+            // share a 6+ char run of the base name
+            for (let i = 0; i + 6 <= nb.length; i += 3) {
+                if (ni.includes(nb.slice(i, i + 6))) return true;
+            }
+            return false;
+        });
+        return hit ? `${(hit.provider || 'lemonade')}|${hit.id}` : `lemonade|${base}`;
+    }, [availableModels]);
 
     const [modelPath, setModelPath] = useState<string>(() => {
         try { return localStorage.getItem('kortex.localModelPath') || ''; } catch { return ''; }
@@ -192,12 +216,14 @@ export function KortexLocalInferencePanel() {
 
     const scanGgufs = useCallback(async () => {
         setGgufsLoading(true);
+        // Refresh the Lemonade list too so tagForGguf can match against it.
+        try { await refreshAvailableModels?.('lemonade'); } catch { /* */ }
         try {
             const rows = await invoke<LocalGguf[]>('kortex_gac_list_local_ggufs', { extraDir: null });
             setLocalGgufs(rows || []);
         } catch { /* leave list empty */ }
         finally { setGgufsLoading(false); }
-    }, []);
+    }, [refreshAvailableModels]);
 
     // Scan the local GGUF caches the first time the details panel is opened.
     useEffect(() => {
@@ -246,11 +272,8 @@ export function KortexLocalInferencePanel() {
         // Sync the chat model picker to what this server actually loaded, so the
         // toolbar isn't still showing a stale tag (e.g. the old Escha model)
         // that would trigger a *second* model load on Lemonade.
-        if (modelPath) {
-            const seg = (modelPath.split(/[\\/]/).pop() || '').replace(/\.gguf$/i, '');
-            if (seg) setAgentModel?.(`lemonade|${seg}`);
-        }
-    }, [setLlamaCppUrl, setLlamaCppModelPath, setInferenceBackend, setAgentModel, modelPath]);
+        if (modelPath) setAgentModel?.(tagForGguf(modelPath));
+    }, [setLlamaCppUrl, setLlamaCppModelPath, setInferenceBackend, setAgentModel, tagForGguf, modelPath]);
 
     const start = useCallback(async () => {
         abortRef.current = false;
@@ -472,7 +495,19 @@ export function KortexLocalInferencePanel() {
                     </div>
                     <select style={{ ...inputStyle, flex: 'none', width: '100%' }} disabled={running}
                         value={localGgufs.some(g => g.path === modelPath) ? modelPath : ''}
-                        onChange={e => { if (e.target.value) { setModelPath(e.target.value); try { localStorage.setItem('kortex.localModelPath', e.target.value); } catch { /* */ } } }}>
+                        onChange={e => {
+                            const p = e.target.value;
+                            if (!p) return;
+                            setModelPath(p);
+                            try { localStorage.setItem('kortex.localModelPath', p); } catch { /* */ }
+                            // Point the whole chat at this model right away — not only on
+                            // Start — so the toolbar reflects it and no stale tag routes
+                            // a second model onto Lemonade.
+                            setLlamaCppModelPath?.(p);
+                            setInferenceBackend?.('llama-cpp');
+                            setAgentModel?.(tagForGguf(p));
+                        }}>
+
                         <option value="">{localGgufs.length ? '— pick a downloaded GGUF —' : '(none found — pull one via Lemonade, or use the path below)'}</option>
                         {localGgufs.filter(g => !g.aux).map(g => (
                             <option key={g.path} value={g.path}>
