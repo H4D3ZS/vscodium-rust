@@ -306,6 +306,19 @@ pub struct KvCacheStats {
     /// slot file, so they don't count toward `saves` or `total_bytes`). Plan §2.6.
     #[serde(default)]
     pub anchor_saves: u64,
+
+    // ── Tier 2 exact-match response cache (plan §2.4). Zero unless
+    //    `KORTEX_TIER2=1`. Folded in by `kortex_kvcache_stats`. ──
+    #[serde(default)]
+    pub tier2_hits: u64,
+    #[serde(default)]
+    pub tier2_misses: u64,
+    #[serde(default)]
+    pub tier2_stores: u64,
+    #[serde(default)]
+    pub tier2_entries: u64,
+    #[serde(default)]
+    pub tier2_bytes: u64,
 }
 
 /// What the proxy decided to do with one request — used for tracing + the η metric.

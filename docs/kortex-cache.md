@@ -167,7 +167,7 @@ A visible number is what turns an invisible optimization into trust.
 | 3 | Tier 2 response cache: key, store, non-stream hit/miss + tests | **done (v1)** (2026-09-06) — `kortex_kvcache/response_cache.rs`, in-memory LRU, `KORTEX_TIER2=1`; disk table deferred |
 | 4 | Tier 2 streaming replay + `x-kortex-cache` header | **done (v1)** (2026-09-06) — SSE stored raw + replayed byte-for-byte as one chunk (re-timed chunk list deferred) |
 | 5 | Determinism gating + `cache_nondeterministic` opt-in | **done** (2026-09-06) — `temp==0`/`seed` gate in `key_for`; `KORTEX_TIER2_NONDETERMINISTIC=1` opt-in |
-| 6 | Config surface + KortexInferencePanel stats/tier badge | todo — `ResponseCache::stats()` exists; not surfaced in `KvCacheStats` / the panel yet |
+| 6 | Config surface + KortexInferencePanel stats/tier badge | **partial** (2026-09-06) — Tier 2 + anchor counters folded into `KvCacheStats` by `kortex_kvcache_stats` and shown by `summarizeKvCache`; a dedicated tier badge / env-toggle UI is still todo |
 | 7 | Ollama end-to-end validation; Lemonade (both recipes) validation | todo |
 
 **Also landed 2026-09-06 (not in the original plan):** `kortex_harness` —

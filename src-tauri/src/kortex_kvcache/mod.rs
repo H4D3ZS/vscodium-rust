@@ -170,11 +170,18 @@ pub async fn kortex_kvcache_stop() -> Result<(), String> {
 
 #[command]
 pub async fn kortex_kvcache_stats() -> Result<KvCacheStats, String> {
-    if let Some(state) = current_proxy() {
-        Ok(state.current_stats().await)
-    } else {
-        Ok(KvCacheStats::default())
-    }
+    let Some(state) = current_proxy() else {
+        return Ok(KvCacheStats::default());
+    };
+    let mut s = state.current_stats().await;
+    // Fold in the Tier 2 response-cache counters (plan §2.4).
+    let (h, m, st, entries, bytes) = state.tier2.stats();
+    s.tier2_hits = h;
+    s.tier2_misses = m;
+    s.tier2_stores = st;
+    s.tier2_entries = entries as u64;
+    s.tier2_bytes = bytes as u64;
+    Ok(s)
 }
 
 #[command]

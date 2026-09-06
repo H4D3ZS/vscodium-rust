@@ -60,15 +60,30 @@ model alias + probes real `/props` `n_ctx` + refuses below 24k.
 | §2.4 Tier 2 response cache | `b5ebd522` | **done (v1)** — `kortex_kvcache/response_cache.rs` (exact-key LRU, determinism gate, `validate` rejects failures/truncated streams); `tier2_around` wraps the chat/completions handlers, replays byte-for-byte with `x-kortex-cache: hit`, tees misses on clean stream end. Off unless `KORTEX_TIER2=1`. 11 tests. |
 | §3.2 sub-agent nesting | `47635dff` | **done (v1)** — `task` tool → `handle_subagent_task`: bounded (`KORTEX_SUBAGENT_MAX_ITERS`, default 15, via a `"Subagent"` mode branch), isolated (fresh 1-message `AiRequest`, no root), one level deep (`SubagentDepthGuard`). Runs the child `autonomous_loop` on its own thread+runtime (its future is `!Send`); returns only final text. |
 | §2.6 semantic-anchor KV checkpoints | `76d672ef` | **done (v1)** — `anchors.rs` (`tail_boundary_offsets` + `AnchorConfig`), `proxy.rs::write_boundary_anchors`, `store.rs::put_anchors` + family-aware eviction. Anchors alias the tail `.slotbin`; `longest_prefix` unchanged. Off unless `KORTEX_KV_ANCHORS=1`. Store-level tests; live mid-edit validation pending. |
-| §2.3 `/v1/messages` | _this branch_ | **done (v1)** — `anthropic.rs` (request + non-stream response + SSE-synthesis translation), `proxy.rs::handle_messages` route. Runs through the same KV/harness/Tier 2 path (forced non-stream upstream); streaming clients get the finished message rendered as a well-formed Anthropic SSE burst. 9 tests against **synthetic** fixtures. |
+| §2.3 `/v1/messages` | `121f84b4` | **done (v1)** — `anthropic.rs` (request + non-stream response + SSE-synthesis translation), `proxy.rs::handle_messages` route. Runs through the same KV/harness/Tier 2 path (forced non-stream upstream); streaming clients get the finished message rendered as a well-formed Anthropic SSE burst. 9 tests against **synthetic** fixtures. |
+| Claude Code route choice | `8b16bc71` | **done** — `ai.rs::resolve_claude_anthropic_base` + `running_proxy_urls()`; `route` param on `claude_code_chat`/`spawn_claude_terminal`; `localStorage['claudeCode.route']` (`auto`\|`kortex`\|`lemonade`) + a selector in InferenceBackendPanel. `CLAUDE_CODE_ANTHROPIC_BASE_URL` overrides. |
+| Tier 2 / anchor stats surface | _this branch_ | **done** — `KvCacheStats` gains `tier2_*` + `anchor_saves`; `kortex_kvcache_stats` folds in `ResponseCache::stats()`; `summarizeKvCache` shows both. |
 
 ### Still open
+
+Every buildable item in this plan is landed (v1). What remains is gated on
+things a coding session can't produce on its own:
 
 - **§2.3 fixtures** — the tests use synthetic bodies shaped from the public
   Messages API docs, not a real Claude Code capture. Swap in a capture and
   verify a live multi-tool `claude` turn against Escha (plan's "Done when").
-- **§3.3 Tier 0 residency** — goes with the broader Ollama removal.
-- **§2.6 (new, from FreeToken)** — see below.
+- **§2.6 live check** — the store-level round-trip is unit-tested; the on-path
+  restore win needs a real mid-edit against a running llama-server.
+- **§3.3 Tier 0 residency** — for Lemonade and the ROCmFPX server, residency is
+  already **process-lifetime** (the server holds the model until the IDE window
+  closes), and `gpu_offload::keep_alive()` is correctly scoped to genuine
+  Ollama payloads only (guards at `autonomous.rs`, `streaming.rs`,
+  `providers.rs`). A TTL/idle-unload policy for the ROCmFPX server is the only
+  real remaining work here, and it belongs with the broader Ollama removal —
+  which is a separate transport-layer effort (~100 files, live `/api/chat`
+  streaming + payload builders), not part of this plan.
+- **Milestone 6 tier badge / env-toggle UI** — stats are surfaced
+  (`summarizeKvCache`); a dedicated panel widget is cosmetic and still todo.
 
 ## 2.6 Semantic-anchor KV checkpoints (FreeToken-inspired)
 
