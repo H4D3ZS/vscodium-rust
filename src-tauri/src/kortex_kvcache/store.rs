@@ -1083,7 +1083,10 @@ mod tests {
         let mut store = CacheStore::open(opts.clone()).unwrap();
 
         let a: Vec<u32> = (1u32..=40).collect();
-        let a_entry = make_entry(&opts, &a[..plan_save_count(&opts, 40, true).unwrap() as usize], 4096);
+        let mut a_entry = make_entry(&opts, &a[..plan_save_count(&opts, 40, true).unwrap() as usize], 4096);
+        // Deterministically the LRU victim — `last_used_at` is unix *seconds*, so
+        // a short sleep can't be relied on to make A older than B.
+        a_entry.last_used_at = 1;
         let a_slot = a_entry.slotbin_path.clone();
         store.put(a_entry).unwrap();
         store
@@ -1104,7 +1107,6 @@ mod tests {
         assert_eq!(store.entries_iter().count(), 2);
 
         // A second real entry blows the budget → LRU evicts entry A (older).
-        std::thread::sleep(std::time::Duration::from_millis(5));
         let b: Vec<u32> = (500u32..=540).collect();
         let b_entry = make_entry(&opts, &b[..plan_save_count(&opts, 41, true).unwrap() as usize], 4096);
         store.put(b_entry).unwrap();
