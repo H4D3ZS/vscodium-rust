@@ -185,7 +185,7 @@ pub(crate) fn split_leading_system_messages(messages: &[ChatMessage]) -> (String
 /// path segments and trigger `builder error: relative URL without a base`. Only infer
 /// a scheme when the string already looks like a hostname (contains `.` in the host
 /// part, or starts with `localhost`).
-pub fn normalize_ollama_base_url(raw: &str) -> String {
+pub fn normalize_local_base_url(raw: &str) -> String {
     let s = raw.trim().trim_end_matches('/');
     if s.is_empty() {
         return "http://127.0.0.1:11434".to_string();
@@ -196,12 +196,12 @@ pub fn normalize_ollama_base_url(raw: &str) -> String {
     if s.starts_with("//") {
         return format!("https:{}", s.trim_end_matches('/'));
     }
-    if !ollama_should_infer_scheme(s) {
+    if !local_should_infer_scheme(s) {
         return s.to_string();
     }
     let hostish = s.trim_start_matches('/');
     let lower = hostish.to_lowercase();
-    let scheme = if ollama_looks_like_loopback_or_lan(&lower) {
+    let scheme = if local_looks_like_loopback_or_lan(&lower) {
         "http"
     } else {
         "https"
@@ -212,7 +212,7 @@ pub fn normalize_ollama_base_url(raw: &str) -> String {
 }
 
 /// Strip `:cloud` / `-cloud` suffixes — local agent runs must not target Ollama Cloud IDs.
-pub(crate) fn sanitize_ollama_model_id(raw: &str) -> String {
+pub(crate) fn sanitize_local_model_id(raw: &str) -> String {
     let mut s = raw.trim().to_string();
     if s.ends_with(":cloud") {
         s.truncate(s.len().saturating_sub(":cloud".len()));
@@ -223,7 +223,7 @@ pub(crate) fn sanitize_ollama_model_id(raw: &str) -> String {
     s
 }
 
-pub(crate) fn ollama_should_infer_scheme(s: &str) -> bool {
+pub(crate) fn local_should_infer_scheme(s: &str) -> bool {
     let head = s
         .split('/')
         .next()
@@ -259,7 +259,7 @@ pub(crate) fn ollama_should_infer_scheme(s: &str) -> bool {
     labels.last().map_or(false, |tld| tld.len() >= 2)
 }
 
-pub(crate) fn ollama_looks_like_loopback_or_lan(lower: &str) -> bool {
+pub(crate) fn local_looks_like_loopback_or_lan(lower: &str) -> bool {
     if lower.starts_with("localhost")
         || lower.starts_with("127.")
         || lower.starts_with("0.0.0.0")

@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OllamaModel {
+pub struct LocalModel {
     pub name: String,
     pub size: String,
     pub modified: String,

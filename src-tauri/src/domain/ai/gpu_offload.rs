@@ -331,7 +331,7 @@ pub fn recommended_num_gpu(model: &str) -> Option<i64> {
 /// (`-ngl` / `--n-gpu-layers`). The IDE connects to it, it doesn't spawn it, so
 /// we can't set the split programmatically — we compute the recommended value
 /// from detected VRAM + model size and surface it as launch guidance (the same
-/// pattern as `ollama_doctor`). Returns enough for the UI to show
+/// pattern as `local_model_doctor`). Returns enough for the UI to show
 /// "launch with -ngl N".
 pub fn lemonade_offload_advice(model: &str) -> Value {
     let vram = detect_vram_gb();
@@ -587,7 +587,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_gpu_layers_unknown_model_defers_to_ollama() {
+    fn plan_gpu_layers_unknown_model_defers_to_local() {
         assert_eq!(plan_gpu_layers(0.0, 0, 8.0), -1);
     }
 

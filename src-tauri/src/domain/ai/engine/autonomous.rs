@@ -1460,7 +1460,7 @@ impl Sentient {
                 crate::agent_harness::compress_old_tool_results(&mut messages, keep);
             }
 
-            let ollama_openai_compat = if active_provider.to_lowercase() == "lemonade" {
+            let openai_compat = if active_provider.to_lowercase() == "lemonade" {
                 true // Lemonade is OpenAI-compatible only (/api/v1/chat/completions)
             } else if active_provider.to_lowercase() == "openmodel" {
                 false // OpenModel uses Anthropic-compatible format for DeepSeek
@@ -1836,7 +1836,7 @@ impl Sentient {
                         || m.contains("phi3") || m.contains("phi-3")
                 };
 
-                let mut ollama_system = system_msg.clone();
+                let mut local_system = system_msg.clone();
 
                 // Local / OpenAI-compat self-hosted servers (Ollama, Lemonade, HF
                 // router, vLLM, LM Studio, LiteLLM) may serve small models that lack
@@ -1851,16 +1851,16 @@ impl Sentient {
                 );
                 if is_local_openai_compat || is_webchat {
                     // Gemma 4 thinking mode — Ollama handles chat template; we only prefix system.
-                    if Self::is_gemma4_model(&active_model) && !is_chat_mode && !ollama_system.starts_with("<|think|>") {
-                        ollama_system = format!("<|think|>\n{ollama_system}");
+                    if Self::is_gemma4_model(&active_model) && !is_chat_mode && !local_system.starts_with("<|think|>") {
+                        local_system = format!("<|think|>\n{local_system}");
                     }
                     if is_chat_mode {
-                        ollama_system.push_str(
+                        local_system.push_str(
                             "\n\nIMPORTANT: You are in CHAT mode. Respond naturally with plain text only. \
                             Do NOT output any JSON blocks or tool calls."
                         );
                     } else if !supports_native_tools && !turn_tools.is_empty() {
-                        ollama_system.push_str(
+                        local_system.push_str(
                             "\n\n### AUTONOMOUS AGENT MODE\n\
                             You are a local coding agent. Be terse, concrete, tool-first. \
                             Do NOT explain or plan in prose — ACT immediately with tools.\n\
@@ -1888,12 +1888,12 @@ impl Sentient {
                                 (tool["name"].as_str().unwrap_or(""), tool["description"].as_str().unwrap_or(""), String::new())
                             };
                             if params.is_empty() {
-                                ollama_system.push_str(&format!("- `{}`: {}\n", name, desc));
+                                local_system.push_str(&format!("- `{}`: {}\n", name, desc));
                             } else {
-                                ollama_system.push_str(&format!("- `{}` ({}) — {}\n", name, params, desc));
+                                local_system.push_str(&format!("- `{}` ({}) — {}\n", name, params, desc));
                             }
                         }
-                        ollama_system.push_str("\nUse tools until the task is done. Never stop early.");
+                        local_system.push_str("\nUse tools until the task is done. Never stop early.");
                     }
                 }
 
@@ -1930,7 +1930,7 @@ impl Sentient {
                             0,
                             ChatMessage {
                                 role: "system".to_string(),
-                                content: Some(MessageContent::Text(ollama_system.clone())),
+                                content: Some(MessageContent::Text(local_system.clone())),
                                 tool_calls: None,
                                 tool_call_id: None,
                                 metadata: None,
@@ -1939,7 +1939,7 @@ impl Sentient {
                 } else {
                     for m in &mut final_messages {
                         if m.role == "system" {
-                            m.content = Some(MessageContent::Text(ollama_system.clone()));
+                            m.content = Some(MessageContent::Text(local_system.clone()));
                             break;
                         }
                     }
@@ -1956,17 +1956,17 @@ impl Sentient {
                 }
 
                 // For Ollama: lower temperature improves tool call reliability on most models.
-                // Gemma 4 uses publisher defaults (temp 1.0) — see ollama_sampling().
-                let (ollama_temp, _, _) = Self::ollama_sampling(
+                // Gemma 4 uses publisher defaults (temp 1.0) — see local_sampling().
+                let (local_temp, _, _) = Self::local_sampling(
                     &active_model,
                     is_chat_mode,
                     req.temperature,
                 );
-                let ollama_predict = Self::ollama_num_predict(&active_model, is_chat_mode);
+                let local_predict = Self::local_num_predict(&active_model, is_chat_mode);
 
                 let is_vision = Self::is_vision_model(&active_model);
-                let ollama_messages =
-                    Self::build_ollama_messages(&final_messages, is_vision, ollama_openai_compat);
+                let local_messages =
+                    Self::build_local_messages(&final_messages, is_vision, openai_compat);
 
                 let is_local_inference = matches!(
                     active_provider.to_lowercase().as_str(),
@@ -1975,25 +1975,25 @@ impl Sentient {
 
                 let mut base = json!({
                     "model": active_model,
-                    "messages": ollama_messages,
+                    "messages": local_messages,
                     "stream": true,
                 });
                 if use_top_level_system {
-                    if !ollama_system.trim().is_empty() {
-                        base["system"] = json!(ollama_system);
+                    if !local_system.trim().is_empty() {
+                        base["system"] = json!(local_system);
                     }
                     base["max_tokens"] = json!(16000);
                     // Opus 4.8 gateways reject non-default sampling params on some routes.
                     if !is_opus_48_model(&active_model) {
-                        base["temperature"] = json!(ollama_temp);
+                        base["temperature"] = json!(local_temp);
                     }
                 } else {
-                    base["temperature"] = json!(ollama_temp);
+                    base["temperature"] = json!(local_temp);
                 }
                 if is_local_inference && active_provider.to_lowercase() != "lemonade" {
                     // num_ctx/num_predict must live under `options` for Ollama (/v1 and /api).
                     // Lemonade is strict OpenAI-compat and rejects Ollama-only fields.
-                    base["options"] = Self::ollama_inference_options(&active_model, ollama_temp, ollama_predict);
+                    base["options"] = Self::local_inference_options(&active_model, local_temp, local_predict);
                     base["keep_alive"] = json!(crate::gpu_offload::keep_alive());
                 }
                 // Prevent repetition loops (model stuck printing the same character).
@@ -2049,12 +2049,12 @@ impl Sentient {
             }
 
             // Local backends share payload construction, tool_choice, and auth.
-            let is_ollama = active_provider.to_lowercase() == "antigravity"
+            let is_native_api = active_provider.to_lowercase() == "antigravity"
                 || active_provider.to_lowercase() == "lemonade";
             // All non-small local models support native OpenAI-style tool calls.
             // Previously this was gated on a keyword allowlist which caused large capable
             // models (gemma4:27b, phi-4, etc.) to fall back to the slower MD-JSON protocol.
-            let supports_native_tools_payload = !is_ollama || {
+            let supports_native_tools_payload = !is_native_api || {
                 !Self::is_small_model_name(&active_model)
             };
 
@@ -2084,7 +2084,7 @@ impl Sentient {
             // supports_native_tools_payload flag only controls tool_choice,
             // not whether tools are present in the payload.
             let tools_to_inject = !tools.is_empty() && !is_chat_mode && (
-                supports_native_tools_payload || is_ollama
+                supports_native_tools_payload || is_native_api
             );
             if tools_to_inject {
                 if active_provider.to_lowercase() == "anthropic" || active_provider.to_lowercase() == "openmodel" {
@@ -2152,7 +2152,7 @@ impl Sentient {
                     // fold the long tail of tool schemas into a compact Hermes
                     // signature block + `expand` tool so a big catalog fits a
                     // small n_ctx. No-op unless the env flag is set.
-                    if is_ollama {
+                    if is_native_api {
                         let hcfg = crate::kortex_harness::HarnessConfig::from_env();
                         if hcfg.enabled {
                             let rpt = crate::kortex_harness::compress_openai_request(&mut payload, &hcfg);
@@ -2179,7 +2179,7 @@ impl Sentient {
             // naturally or fall back to JSON text parsing.
             // Use a 14B threshold here (not 7B) because forced tool_choice with
             // 31 tool schemas overwhelms models under ~14B params.
-            let forced_tool_choice = is_ollama && !tools.is_empty() && !is_chat_mode
+            let forced_tool_choice = is_native_api && !tools.is_empty() && !is_chat_mode
                 && supports_native_tools_payload
                 // Once we've seen this model ignore native tool calling, forcing
                 // tool_choice=required just makes it emit malformed calls.
@@ -2197,14 +2197,14 @@ impl Sentient {
             }
 
             if active_provider.to_lowercase() == "lemonade" {
-                let (ollama_temp, _, _) = Self::ollama_sampling(
+                let (local_temp, _, _) = Self::local_sampling(
                     &active_model,
                     is_chat_mode,
                     req.temperature,
                 );
-                let ollama_predict = Self::ollama_num_predict(&active_model, is_chat_mode);
-                if !ollama_openai_compat {
-                    Self::ensure_ollama_payload(&mut payload, &active_model, ollama_temp, ollama_predict);
+                let local_predict = Self::local_num_predict(&active_model, is_chat_mode);
+                if !openai_compat {
+                    Self::ensure_native_payload(&mut payload, &active_model, local_temp, local_predict);
                 }
             }
 
@@ -2268,9 +2268,9 @@ impl Sentient {
                 "highwayapi" | "interfaceai" | "jiekou"
             ) {
                 request = apply_highway_auth(request, &provider_key);
-            } else if is_ollama {
-                let ollama_base = self.resolved_local_base(&req).await;
-                let k = self.local_bearer_for_base(&ollama_base);
+            } else if is_native_api {
+                let local_base = self.resolved_local_base(&req).await;
+                let k = self.local_bearer_for_base(&local_base);
                 if !k.trim().is_empty() {
                     request = request.bearer_auth(k.trim());
                 }
@@ -2330,8 +2330,8 @@ impl Sentient {
                 } else if matches!(provider_lc.as_str(), "highwayapi" | "interfaceai" | "jiekou") {
                     fallback_request = apply_highway_auth(fallback_request, &provider_key);
                 } else if provider_lc == "lemonade" || provider_lc == "antigravity" {
-                    let ollama_base = self.resolved_local_base(&req).await;
-                    let k = self.local_bearer_for_base(&ollama_base);
+                    let local_base = self.resolved_local_base(&req).await;
+                    let k = self.local_bearer_for_base(&local_base);
                     if !k.trim().is_empty() {
                         fallback_request = fallback_request.bearer_auth(k.trim());
                     }
@@ -2444,10 +2444,10 @@ impl Sentient {
                     };
                     if let serde_json::Value::Object(ref mut map) = payload {
                         if let Some(msgs) = map.get_mut("messages") {
-                            *msgs = json!(Self::build_ollama_messages(
+                            *msgs = json!(Self::build_local_messages(
                                 &messages,
                                 Self::is_vision_model(&active_model),
-                                ollama_openai_compat,
+                                openai_compat,
                             ));
                         }
                         let retry_ctx = Self::recommended_num_ctx(&active_model);
@@ -2959,7 +2959,7 @@ impl Sentient {
                                     .map(|s| s.to_string())
                                     .unwrap_or_else(|| {
                                         format!(
-                                            "ollama_call_{}_{}",
+                                            "local_call_{}_{}",
                                             iteration,
                                             native_tool_calls.len() + 1
                                         )

@@ -66,8 +66,8 @@ fn vision_match_score(name: &str) -> i32 {
         .unwrap_or(0)
 }
 
-pub async fn discover_vision_models(ollama_base: &str, bearer: &str) -> Vec<String> {
-    let base = normalize_ollama_base(ollama_base);
+pub async fn discover_vision_models(local_base: &str, bearer: &str) -> Vec<String> {
+    let base = normalize_local_base(local_base);
     let url = format!("{}/api/tags", base.trim_end_matches('/'));
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
@@ -102,14 +102,14 @@ pub async fn discover_vision_models(ollama_base: &str, bearer: &str) -> Vec<Stri
     scored.into_iter().map(|(n, _)| n).collect()
 }
 
-pub async fn discover_best_vision_model(ollama_base: &str, bearer: &str) -> Option<String> {
-    discover_vision_models(ollama_base, bearer)
+pub async fn discover_best_vision_model(local_base: &str, bearer: &str) -> Option<String> {
+    discover_vision_models(local_base, bearer)
         .await
         .into_iter()
         .next()
 }
 
-fn normalize_ollama_base(url: &str) -> String {
+fn normalize_local_base(url: &str) -> String {
     url.trim()
         .trim_end_matches('/')
         .trim_end_matches("/v1/chat/completions")
@@ -119,7 +119,7 @@ fn normalize_ollama_base(url: &str) -> String {
         .to_string()
 }
 
-fn ollama_bearer_for(state: &EditorState, _ollama_base: &str) -> String {
+fn local_bearer_for(state: &EditorState, _local_base: &str) -> String {
     if let Ok(keys) = std::fs::read_to_string(state.config_dir.join("api_keys.json")) {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&keys) {
             if let Some(k) = v.get("lemonade").and_then(|x| x.as_str()) {
@@ -133,13 +133,13 @@ fn ollama_bearer_for(state: &EditorState, _ollama_base: &str) -> String {
 }
 
 pub async fn describe_image_b64(
-    ollama_base: &str,
+    local_base: &str,
     bearer: &str,
     model: &str,
     b64: &str,
     user_prompt: Option<&str>,
 ) -> Result<String, String> {
-    let base = normalize_ollama_base(ollama_base);
+    let base = normalize_local_base(local_base);
     let ctx = user_prompt
         .map(|p| p.trim())
         .filter(|p| !p.is_empty())
@@ -237,7 +237,7 @@ pub async fn discover_vision_models_cmd(
     state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Vec<String>, String> {
     let inference_url = state.ai.engine.lemonade_base().await;
-    let bearer = ollama_bearer_for(&state, &inference_url);
+    let bearer = local_bearer_for(&state, &inference_url);
     Ok(discover_vision_models(&inference_url, &bearer).await)
 }
 
@@ -306,7 +306,7 @@ pub async fn vision_sidecar_process_attachments(
     } else {
         primary_url
     };
-    let bearer = ollama_bearer_for(&state, &primary_url);
+    let bearer = local_bearer_for(&state, &primary_url);
     let (vision_model, vision_base) =
         resolve_vision_endpoint(&primary_url, &bearer).await;
     let Some(vision_model) = vision_model else {
@@ -403,13 +403,13 @@ const LOCAL_OLLAMA: &str = "http://127.0.0.1:11434";
 
 async fn resolve_vision_endpoint(primary: &str, bearer: &str) -> (Option<String>, String) {
     if let Some(m) = discover_best_vision_model(primary, bearer).await {
-        return (Some(m), normalize_ollama_base(primary));
+        return (Some(m), normalize_local_base(primary));
     }
-    let local = normalize_ollama_base(LOCAL_OLLAMA);
-    if normalize_ollama_base(primary) != local {
+    let local = normalize_local_base(LOCAL_OLLAMA);
+    if normalize_local_base(primary) != local {
         if let Some(m) = discover_best_vision_model(LOCAL_OLLAMA, "").await {
             return (Some(m), local);
         }
     }
-    (None, normalize_ollama_base(primary))
+    (None, normalize_local_base(primary))
 }

@@ -52,7 +52,7 @@ pub async fn ane_diagnostics(
         "estimated_speedup": status.estimated_speedup,
         "tokens_per_sec": status.tokens_per_sec_estimate,
         "can_accelerate": state.ai.ane.can_accelerate().await,
-        "token_generation": "ollama_metal", // decode is bandwidth-bound; ANE can't enter Ollama's process
+        "token_generation": "metal_decode", // decode is bandwidth-bound; ANE can't enter Ollama's process
         "ane_workload": "vector_index_similarity",
     }))
 }

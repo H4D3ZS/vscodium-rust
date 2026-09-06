@@ -35,7 +35,7 @@ pub struct AneStatus {
     pub available: bool,
     pub m1_or_newer: bool,
     pub model: String, // M1, M2, M3, M4, etc.
-    /// "ane_aux_offload" (similarity kernel live), "ollama_metal" (generation
+    /// "ane_aux_offload" (similarity kernel live), "metal_decode" (generation
     /// path, ANE idle), or "unavailable" (not Apple Silicon).
     pub inference_mode: String,
     /// Token-generation speedup vs Ollama alone. Always 1.0 — the ANE does not
@@ -77,7 +77,7 @@ impl AneInferenceOptimizer {
             m1_or_newer: available,
             model: model.clone(),
             inference_mode: if available {
-                "ollama_metal".to_string() // generation runs on Metal; ANE idle until aux kernel init
+                "metal_decode".to_string() // generation runs on Metal; ANE idle until aux kernel init
             } else {
                 "unavailable".to_string()
             },

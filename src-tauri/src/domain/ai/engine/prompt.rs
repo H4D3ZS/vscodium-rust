@@ -47,7 +47,7 @@ impl Sentient {
         u.contains("ai.cyberifrit.xyz") || u.contains("api.cyberifrit.xyz")
     }
 
-    pub(crate) fn ollama_auth_hint(base_url: &str, status_code: u16) -> &'static str {
+    pub(crate) fn local_auth_hint(base_url: &str, status_code: u16) -> &'static str {
         if Self::is_cyberifrit_managed_inference_url(base_url) {
             return match status_code {
                 401 => "Sign in to Cyber-Ifrit (Settings → Account) to use Cyber-Ifrit Cloud.",

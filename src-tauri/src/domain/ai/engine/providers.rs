@@ -37,7 +37,7 @@ impl Sentient {
     /// Ollama sampling tuned per model family (Gemma 4 uses publisher defaults).
     /// Small models (1B-4B) get slightly higher temperature to help with
     /// tool call diversity and reduce repetition loops.
-    pub(crate) fn ollama_sampling(model: &str, is_chat_mode: bool, req_temp: Option<f32>) -> (f32, f32, u32) {
+    pub(crate) fn local_sampling(model: &str, is_chat_mode: bool, req_temp: Option<f32>) -> (f32, f32, u32) {
         if Self::is_gemma4_model(model) {
             // https://ollama.com/library/gemma4:12b — temp=1.0, top_p=0.95, top_k=64
             return (req_temp.unwrap_or(1.0), 0.95, 64);
@@ -51,7 +51,7 @@ impl Sentient {
         (temp, 1.0, 40)
     }
 
-    pub(crate) fn ollama_num_predict(model: &str, is_chat_mode: bool) -> u32 {
+    pub(crate) fn local_num_predict(model: &str, is_chat_mode: bool) -> u32 {
         if Self::is_gemma4_model(model) && !is_chat_mode {
             return 16_384;
         }
@@ -204,8 +204,8 @@ impl Sentient {
 
     /// Ollama only honors `num_ctx` / `num_predict` inside the `options` object
     /// (top-level fields are ignored → default 4096 ctx → exceed_context_size_error).
-    pub(crate) fn ollama_inference_options(model: &str, temperature: f32, num_predict: u32) -> Value {
-        let (_, top_p, top_k) = Self::ollama_sampling(model, false, Some(temperature));
+    pub(crate) fn local_inference_options(model: &str, temperature: f32, num_predict: u32) -> Value {
+        let (_, top_p, top_k) = Self::local_sampling(model, false, Some(temperature));
         let mut opts = json!({
             "num_ctx": Self::recommended_num_ctx(model),
             "num_predict": num_predict,
@@ -226,14 +226,14 @@ impl Sentient {
     }
 
     /// Last-chance guard: force `options.num_ctx` on every Ollama payload before POST.
-    pub(crate) fn ensure_ollama_payload(payload: &mut Value, model: &str, temperature: f32, num_predict: u32) {
+    pub(crate) fn ensure_native_payload(payload: &mut Value, model: &str, temperature: f32, num_predict: u32) {
         if let Some(obj) = payload.as_object_mut() {
             obj.remove("num_ctx");
             obj.remove("num_predict");
             let num_ctx = Self::recommended_num_ctx(model);
             obj.insert(
                 "options".to_string(),
-                Self::ollama_inference_options(model, temperature, num_predict),
+                Self::local_inference_options(model, temperature, num_predict),
             );
             // RAM-tiered residency: lite keeps its single model warm so weights
             // aren't reloaded between agent turns (Ollama default is only 5m).
@@ -295,7 +295,7 @@ impl Sentient {
         "{}".to_string()
     }
 
-    pub(crate) fn truncate_for_ollama(s: &str, max: usize) -> String {
+    pub(crate) fn truncate_for_local(s: &str, max: usize) -> String {
         if s.len() <= max {
             return s.to_string();
         }
@@ -308,7 +308,7 @@ impl Sentient {
 
     /// Serialize tool calls for Ollama. OpenAI-compat (`/v1`) wants `arguments` as a JSON
     /// string; native `/api/chat` accepts a parsed object (avoids template parser 400s).
-    pub(crate) fn ollama_tool_calls_json(calls: &[ToolCall], openai_compat: bool) -> Value {
+    pub(crate) fn native_tool_calls_json(calls: &[ToolCall], openai_compat: bool) -> Value {
         json!(
             calls
                 .iter()
@@ -332,7 +332,7 @@ impl Sentient {
         )
     }
 
-    pub(crate) async fn ollama_use_openai_compat_endpoint(&self, req: &AiRequest, model: &str) -> bool {
+    pub(crate) async fn use_openai_compat_endpoint(&self, req: &AiRequest, model: &str) -> bool {
         // Lemonade only speaks the OpenAI-compatible protocol (no native
         // /api/chat), so its payloads must always use the OpenAI shape.
         if req.provider.eq_ignore_ascii_case("lemonade") {
@@ -348,7 +348,7 @@ impl Sentient {
     /// Transform `ChatMessage` list into a Ollama-compatible JSON messages array.
     /// For vision models: extracts `image_url` content parts → `images: [base64]` field.
     /// For text-only or non-vision Ollama models: serialises messages normally.
-    pub(crate) fn build_ollama_messages(messages: &[ChatMessage], vision: bool, openai_compat: bool) -> Value {
+    pub(crate) fn build_local_messages(messages: &[ChatMessage], vision: bool, openai_compat: bool) -> Value {
         const TOOL_CONTENT_MAX: usize = 48_000;
         let msg_array: Vec<Value> = messages
             .iter()
@@ -360,13 +360,13 @@ impl Sentient {
                 None | Some(MessageContent::Text(_)) => {
                     let mut text = m.content.as_ref().map(|c| c.to_text()).unwrap_or_default();
                     if role_lc == "tool" {
-                        text = Self::truncate_for_ollama(&text, TOOL_CONTENT_MAX);
+                        text = Self::truncate_for_local(&text, TOOL_CONTENT_MAX);
                     }
                     let mut obj = json!({ "role": role, "content": text });
                     // Pass tool_calls through if present (Ollama native tools)
                     if let Some(tc) = &m.tool_calls {
                         if !tc.is_empty() {
-                            obj["tool_calls"] = Self::ollama_tool_calls_json(tc, openai_compat);
+                            obj["tool_calls"] = Self::native_tool_calls_json(tc, openai_compat);
                             // Duplicate ```json tool blocks in content break Ollama parsers.
                             if role_lc == "assistant" {
                                 obj["content"] = json!("");

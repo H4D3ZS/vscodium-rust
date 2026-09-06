@@ -31,7 +31,7 @@ pub enum ThinkingFormat {
     /// Content was empty; thinking came from `reasoning_content` field.
     ReasoningContent,
     /// Content was empty; thinking came from `message.thinking` field.
-    OllamaThinking,
+    NativeThinking,
 }
 
 /// Extract thinking from content. Handles all formats uniformly.

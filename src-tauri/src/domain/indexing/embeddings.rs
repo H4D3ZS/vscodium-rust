@@ -52,8 +52,8 @@ pub async fn embed_text_at(
 
     // An Ollama base URL keeps its own endpoint and payload shape, so an existing
     // Ollama install still works if configured explicitly.
-    let is_ollama = base_url.contains("11434");
-    let (url, payload) = if is_ollama {
+    let is_native_api = base_url.contains("11434");
+    let (url, payload) = if is_native_api {
         (
             format!("{}/api/embeddings", base_url.trim_end_matches('/')),
             json!({ "model": model, "prompt": trimmed }),
@@ -172,7 +172,7 @@ mod embeddings_tests {
     /// The old Ollama shape must still parse, so pointing at an Ollama backend
     /// keeps working.
     #[test]
-    fn still_parses_the_ollama_flat_shape() {
+    fn still_parses_the_native_flat_shape() {
         let body = json!({"embedding": [0.4, 0.5]});
         assert_eq!(parse_embedding_array(&body).unwrap(), vec![0.4f32, 0.5]);
     }
@@ -189,7 +189,7 @@ mod embeddings_tests {
     /// The default must not point at Ollama. This machine has no Ollama, and the
     /// failure mode is silent — semantic search returns nothing rather than erroring.
     #[test]
-    fn default_backend_is_lemonade_not_ollama() {
+    fn default_backend_is_lemonade_not_native() {
         let url = default_embed_base_url();
         assert!(!url.contains("11434"), "default must not be Ollama, got {url}");
         assert!(url.contains("13305"), "expected the Lemonade port, got {url}");

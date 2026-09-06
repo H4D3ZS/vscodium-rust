@@ -163,10 +163,10 @@ impl OrchestratorState {
         }
 
         // 4. Send to Ollama for synthesis.
-        let ollama_json = self.pipeline.synthesize(&synthesis_events).await?;
+        let local_json = self.pipeline.synthesize(&synthesis_events).await?;
 
         // 5. Parse the JSON response into a CanvasSnapshot.
-        let snapshot = parse_synthesis_response(&ollama_json, self.run_count)?;
+        let snapshot = parse_synthesis_response(&local_json, self.run_count)?;
 
         self.last_snapshot = Some(snapshot.clone());
         self.run_count += 1;

@@ -305,10 +305,10 @@ impl Sentient {
 
         let payload = if is_local {
             let is_vision = Self::is_vision_model(&req.model);
-            let ollama_openai_compat =
-                self.ollama_use_openai_compat_endpoint(&req, &req.model).await;
+            let openai_compat =
+                self.use_openai_compat_endpoint(&req, &req.model).await;
             let messages =
-                Self::build_ollama_messages(&req.messages, is_vision, ollama_openai_compat);
+                Self::build_local_messages(&req.messages, is_vision, openai_compat);
             let temp = req.temperature.unwrap_or(0.1);
             let chat_stream = req.feature.as_deref() == Some("Chat");
             let mut body = json!({
@@ -317,8 +317,8 @@ impl Sentient {
                 "temperature": temp,
                 "stream": chat_stream,
             });
-            if !ollama_openai_compat {
-                body["options"] = Self::ollama_inference_options(&req.model, temp, 1024);
+            if !openai_compat {
+                body["options"] = Self::local_inference_options(&req.model, temp, 1024);
                 body["keep_alive"] = json!(crate::gpu_offload::keep_alive());
             }
             body
@@ -336,12 +336,12 @@ impl Sentient {
                 (String::new(), trimmed.clone())
             };
             let is_vision = Self::is_vision_model(&req.model);
-            let ollama_openai_compat =
-                self.ollama_use_openai_compat_endpoint(&req, &req.model).await;
-            let api_messages = Self::build_ollama_messages(
+            let openai_compat =
+                self.use_openai_compat_endpoint(&req, &req.model).await;
+            let api_messages = Self::build_local_messages(
                 if use_top_level { &conv_messages } else { &trimmed },
                 is_vision,
-                ollama_openai_compat,
+                openai_compat,
             );
             let mut body = json!({
                 "model": req.model,
@@ -451,7 +451,7 @@ impl Sentient {
 
         let chat_stream = is_local && req.feature.as_deref() == Some("Chat");
         if chat_stream {
-            return self.single_shot_ollama_stream(resp).await;
+            return self.single_shot_native_stream(resp).await;
         }
 
         let val: Value = resp.json().await?;
@@ -481,7 +481,7 @@ impl Sentient {
     }
 
     /// Stream Ollama /api/chat for fast Chat replies — tokens land in `chat_stream_buf`.
-    pub(crate) async fn single_shot_ollama_stream(&self, response: reqwest::Response) -> Result<String> {
+    pub(crate) async fn single_shot_native_stream(&self, response: reqwest::Response) -> Result<String> {
         if let Ok(mut b) = self.chat_stream_buf.lock() {
             b.clear();
         }
