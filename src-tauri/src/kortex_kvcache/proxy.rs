@@ -139,6 +139,7 @@ pub async fn serve(state: SharedProxy) -> Result<tokio::task::JoinHandle<()>> {
     let app = Router::new()
         .route("/v1/chat/completions", post(handle_chat_completions))
         .route("/v1/completions", post(handle_completions))
+        .route("/v1/messages", post(handle_messages))
         .fallback(any(handle_passthrough))
         .with_state(state.clone());
 
@@ -359,6 +360,69 @@ async fn capture_for_tier2(state: SharedProxy, key: String, resp: Response) -> R
 enum IntercepKind {
     Chat,
     Completion,
+}
+
+/// `POST /v1/messages` — Anthropic Messages API (Claude Code). Plan §2.3.
+///
+/// Translate the request to OpenAI shape, run it through the same
+/// KV-cache + harness + Tier 2 path as `/v1/chat/completions` (forcing a
+/// non-streamed upstream call), then translate the response back. If the client
+/// asked for a stream, the finished Anthropic message is rendered as a
+/// well-formed SSE event sequence (emitted whole, not token-timed).
+async fn handle_messages(
+    State(state): State<SharedProxy>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let a: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => return (StatusCode::BAD_REQUEST, format!("invalid JSON: {e}")).into_response(),
+    };
+    let wants_stream = a.get("stream").and_then(Value::as_bool).unwrap_or(false);
+
+    let mut openai_req = match super::anthropic::anthropic_to_openai(&a) {
+        Ok(v) => v,
+        Err(e) => return (StatusCode::BAD_REQUEST, format!("translate: {e}")).into_response(),
+    };
+    // Always call upstream non-streamed; synthesize the Anthropic stream after.
+    openai_req["stream"] = Value::Bool(false);
+    let openai_body = match serde_json::to_vec(&openai_req) {
+        Ok(v) => Bytes::from(v),
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, format!("serialize: {e}")).into_response()
+        }
+    };
+
+    let resp = tier2_around(state, headers, openai_body, IntercepKind::Chat).await;
+    let (parts, rbody) = resp.into_parts();
+    if parts.status != StatusCode::OK {
+        return Response::from_parts(parts, rbody); // surface upstream errors verbatim
+    }
+    let raw = match axum::body::to_bytes(rbody, 32 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(e) => {
+            return (StatusCode::BAD_GATEWAY, format!("read upstream: {e}")).into_response()
+        }
+    };
+    let openai_resp: Value = match serde_json::from_slice(&raw) {
+        Ok(v) => v,
+        Err(_) => return (StatusCode::BAD_GATEWAY, "upstream did not return JSON").into_response(),
+    };
+    let msg = super::anthropic::openai_response_to_anthropic(&openai_resp);
+
+    let (content_type, payload) = if wants_stream {
+        ("text/event-stream", super::anthropic::anthropic_message_to_sse(&msg))
+    } else {
+        ("application/json", msg.to_string())
+    };
+    let mut b = Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", content_type);
+    if wants_stream {
+        b = b.header("cache-control", "no-cache");
+    }
+    b.body(Body::from(payload))
+        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "messages build failed").into_response())
 }
 
 async fn handle_intercepted(

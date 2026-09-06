@@ -14,6 +14,7 @@
 //!   3. IDE clients point at the proxy URL instead of the raw upstream.
 
 pub mod anchors;
+pub mod anthropic;
 pub mod capability;
 pub mod llamacpp;
 pub mod proxy;

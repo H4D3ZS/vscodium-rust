@@ -59,12 +59,14 @@ model alias + probes real `/props` `n_ctx` + refuses below 24k.
 | Remote agent bridge | `40b7b4a0` | **done** — `remote_bridge.rs`: 127.0.0.1 WebSocket → `Sentient::autonomous_loop`, token auth, `KORTEX_REMOTE=1` autostart, `remote_bridge_{start,stop,status}`. |
 | §2.4 Tier 2 response cache | `b5ebd522` | **done (v1)** — `kortex_kvcache/response_cache.rs` (exact-key LRU, determinism gate, `validate` rejects failures/truncated streams); `tier2_around` wraps the chat/completions handlers, replays byte-for-byte with `x-kortex-cache: hit`, tees misses on clean stream end. Off unless `KORTEX_TIER2=1`. 11 tests. |
 | §3.2 sub-agent nesting | `47635dff` | **done (v1)** — `task` tool → `handle_subagent_task`: bounded (`KORTEX_SUBAGENT_MAX_ITERS`, default 15, via a `"Subagent"` mode branch), isolated (fresh 1-message `AiRequest`, no root), one level deep (`SubagentDepthGuard`). Runs the child `autonomous_loop` on its own thread+runtime (its future is `!Send`); returns only final text. |
-| §2.6 semantic-anchor KV checkpoints | _this branch_ | **done (v1)** — `anchors.rs` (`tail_boundary_offsets` + `AnchorConfig`), `proxy.rs::write_boundary_anchors`, `store.rs::put_anchors` + family-aware eviction. Anchors alias the tail `.slotbin`; `longest_prefix` unchanged. Off unless `KORTEX_KV_ANCHORS=1`. Store-level tests; live mid-edit validation pending. |
+| §2.6 semantic-anchor KV checkpoints | `76d672ef` | **done (v1)** — `anchors.rs` (`tail_boundary_offsets` + `AnchorConfig`), `proxy.rs::write_boundary_anchors`, `store.rs::put_anchors` + family-aware eviction. Anchors alias the tail `.slotbin`; `longest_prefix` unchanged. Off unless `KORTEX_KV_ANCHORS=1`. Store-level tests; live mid-edit validation pending. |
+| §2.3 `/v1/messages` | _this branch_ | **done (v1)** — `anthropic.rs` (request + non-stream response + SSE-synthesis translation), `proxy.rs::handle_messages` route. Runs through the same KV/harness/Tier 2 path (forced non-stream upstream); streaming clients get the finished message rendered as a well-formed Anthropic SSE burst. 9 tests against **synthetic** fixtures. |
 
 ### Still open
 
-- **§2.3 `/v1/messages`** — needs Anthropic↔OpenAI translation + fixtures from a
-  real Claude Code capture. Supervised.
+- **§2.3 fixtures** — the tests use synthetic bodies shaped from the public
+  Messages API docs, not a real Claude Code capture. Swap in a capture and
+  verify a live multi-tool `claude` turn against Escha (plan's "Done when").
 - **§3.3 Tier 0 residency** — goes with the broader Ollama removal.
 - **§2.6 (new, from FreeToken)** — see below.
 
@@ -215,6 +217,31 @@ harness compressor nor the KV cache reach that path.
 
 **Done when.** `claude` (CLI) pointed at `:1537` completes a multi-tool turn
 against Escha, and the KV-cache `hits` counter increments on turn 2.
+
+**Implemented (v1).**
+
+- `kortex_kvcache/anthropic.rs`:
+  - `anthropic_to_openai` — `system` (string or text blocks) → a `system`
+    message; per-message content blocks → text / `tool_calls` (from `tool_use`)
+    / a `role:"tool"` message (from `tool_result`, `is_error` prefixed);
+    `tools[].input_schema` → `function.parameters`; `tool_choice`
+    `auto|any|tool` → `"auto"|"required"|{function}`; `stop_sequences` → `stop`;
+    `temperature/top_p/top_k/max_tokens/stream` + `metadata.user_id` → `user`.
+    `thinking` blocks pass through as text; `image` blocks become a marker.
+  - `openai_response_to_anthropic` — `message` → `content` blocks (text +
+    `tool_use`), `finish_reason` → `stop_reason`, `usage` mapped.
+  - `anthropic_message_to_sse` — renders the finished message as the ordered
+    event sequence (`message_start` → per-block `content_block_start` /
+    `_delta` (`text_delta` or `input_json_delta`) / `_stop` → `message_delta`
+    → `message_stop`). Emitted whole, not token-timed.
+- `proxy.rs::handle_messages` (`POST /v1/messages`): translate → force
+  `stream:false` upstream → run through `tier2_around` (so KV cache + harness +
+  Tier 2 all apply) → `axum::body::to_bytes` the JSON → translate back →
+  return JSON, or the SSE burst when the client asked to stream.
+- **v1 gaps:** tests use **synthetic** fixtures (public API docs shape), not a
+  real Claude Code capture; no true token-by-token streaming; image blocks and
+  prompt-caching hints (`cache_control`) are dropped; `count_tokens` endpoint
+  not implemented.
 
 ### 2.4 Tier 2 — response cache (the "past `n_ctx`" mechanism for repeats)
 
