@@ -1062,9 +1062,9 @@ async function pickFastChatModel(preferred: string): Promise<string> {
     const isHeavy = isHeavyAgentModel(ml);
     if (!isHeavy) return preferred;
     try {
-        const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
+        const { resolveLocalModelTag } = await import('./lib/localModelClient');
         for (const tag of ['airi-fast:latest', 'gemma4:e2b', 'soft-eng-qwen:latest', 'qwen2.5:7b', 'llama3.2:3b']) {
-            const hit = await resolveOllamaModelTag(tag);
+            const hit = await resolveLocalModelTag(tag);
             const h = hit.toLowerCase();
             if (hit && !/(?:^|[/:\-_])(40|35|32|70|72)(?:b|-)|deck-opus|neo-code/.test(h)) {
                 return hit;
@@ -1736,8 +1736,8 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             // has installed.
             if (fastProvider.toLowerCase() === 'lemonade' && !fastLlamaCpp) {
                 try {
-                    const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
-                    const resolved = await resolveOllamaModelTag(fastModel);
+                    const { resolveLocalModelTag } = await import('./lib/localModelClient');
+                    const resolved = await resolveLocalModelTag(fastModel);
                     if (resolved && resolved !== fastModel) {
                         console.warn(`[agent] Model "${fastModel}" not installed — swapping to "${resolved}".`);
                         fastModel = resolved;
@@ -2492,8 +2492,8 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const looksCloud = /^(claude|gpt|o1|o3|gemini|mimo|grok|deepseek-(chat|reasoner|v\d))/i.test(routingModel || '');
     if (routingProvider === 'lemonade' && routingModel && !looksCloud) {
         try {
-            const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
-            const resolved = await resolveOllamaModelTag(routingModel);
+            const { resolveLocalModelTag } = await import('./lib/localModelClient');
+            const resolved = await resolveLocalModelTag(routingModel);
             if (resolved && resolved !== routingModel) {
                 console.warn(`[agent] Full-loop model "${routingModel}" not installed — swapping to "${resolved}".`);
                 routingModel = resolved;
@@ -3585,7 +3585,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             const q = args.trim() || 'Research the current project context and summarize actionable findings.';
             const urlMatch = q.match(/\bhttps?:\/\/[^\s)]+/i);
             addAgentMessage('assistant', `**Web mission started**— invisible_playwright stealth browser → scrape → security audit → terminal.\n\nQuery: ${q}`);
-            store.getState().openAiriPanel?.();
+            store.getState().openChatSidebar?.();
             window.dispatchEvent(new CustomEvent('ide:open-studio', {
                 detail: { tab: 'research', query: q, url: urlMatch?.[0] },
             }));

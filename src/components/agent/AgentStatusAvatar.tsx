@@ -6,7 +6,7 @@ import errorImg   from '../../assets/sentient_avatar/error.png';
 
 export type AvatarState = 'idle' | 'thinking' | 'coding' | 'error' | 'success' | 'executing' | 'browsing';
 
-interface SentientAvatarProps {
+interface AgentStatusAvatarProps {
     state: AvatarState;
     size?: number;
 }
@@ -27,7 +27,7 @@ const STATE_CONFIG: Record<AvatarState, {
     error: { img: errorImg, animation: 'sa-shake 0.5s linear infinite', glow: 'rgba(239,68,68,0.4)', border: '#ef4444', badge: '' },
 };
 
-const SentientAvatar: React.FC<SentientAvatarProps> = ({ state, size = 32 }) => {
+const AgentStatusAvatar: React.FC<AgentStatusAvatarProps> = ({ state, size = 32 }) => {
     const cfg = STATE_CONFIG[state] || STATE_CONFIG.idle;
     return (
         <div style={{
@@ -68,4 +68,4 @@ const SentientAvatar: React.FC<SentientAvatarProps> = ({ state, size = 32 }) => 
     );
 };
 
-export default SentientAvatar;
+export default AgentStatusAvatar;

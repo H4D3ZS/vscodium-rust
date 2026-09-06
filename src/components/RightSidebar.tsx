@@ -3,8 +3,8 @@ import { useStore } from '../store';
 import type { FileEntry } from '../store';
 import { invoke } from '../tauri_bridge';
 import { Icon, ToolIcon } from './ui/Icon';
-import SentientAvatar from './agent/SentientAvatar';
-import type { AvatarState } from './agent/SentientAvatar';
+import AgentStatusAvatar from './agent/AgentStatusAvatar';
+import type { AvatarState } from './agent/AgentStatusAvatar';
 import ChatInput from './chat/ChatInput';
 import ChatToolbar from './chat/ChatToolbar';
 import ChatMessageList from './chat/ChatMessageList';
@@ -28,7 +28,7 @@ async function getVoice() {
 
 // Lazy-load heavy panels — only load Three.js/VRM/Emulator code when the
 // user actually opens those tabs. Keeps initial renderer RAM under 250MB.
-const AiriPanel = lazy(() => import('./AiriPanel').then(m => ({ default: m.AiriPanel })));
+const ChatSidebar = lazy(() => import('./ChatSidebar').then(m => ({ default: m.ChatSidebar })));
 const UnifiedEmulatorPanel = lazy(() => import('./UnifiedEmulatorPanel'));
 const AgentStudioPanel = lazy(() => import('./agentStudio/AgentStudioPanel'));
 // AIRI auto-init must happen exactly once per app session
@@ -38,7 +38,7 @@ const RightSidebar: React.FC = () => {
     const isOpen = useStore(state => state.isRightSidebarOpen);
     const toggle = useStore(state => state.toggleRightSidebar);
     const isEmulatorPanelOpen = useStore(state => state.isEmulatorPanelOpen);
-    const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
+    const isChatSidebarOpen = useStore(state => state.isChatSidebarOpen);
     const aiStatus = useStore(state => state.aiStatus || 'idle');
     // 'settings' is no longer a right-sidebar view — the gear opens the
     // unified Settings tab in the editor pane instead. We keep the union
@@ -184,10 +184,10 @@ const RightSidebar: React.FC = () => {
     useEffect(() => {
         if (isEmulatorPanelOpen && view !== 'emulator') {
             setView('emulator');
-        } else if (isAiriPanelOpen && !isEmulatorPanelOpen && view === 'emulator') {
+        } else if (isChatSidebarOpen && !isEmulatorPanelOpen && view === 'emulator') {
             setView('chat');
         }
-    }, [isEmulatorPanelOpen, isAiriPanelOpen, view]);
+    }, [isEmulatorPanelOpen, isChatSidebarOpen, view]);
     const [inputValue, setInputValue] = useState('');
     const [isMentionDropdownOpen, setIsMentionDropdownOpen] = useState(false);
     const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
@@ -295,8 +295,8 @@ const RightSidebar: React.FC = () => {
         // consciousness, biology, and the security threat-monitor were loading +
         // running on EVERY launch — inflating memory and startup with zero benefit
         // to core IDE/agent coding. The editor, agent chat, and terminal do not
-        // need any of it. Enable with localStorage 'airi.companion' = '1'.
-        if (localStorage.getItem('airi.companion') !== '1') {
+        // need any of it. Enable with localStorage 'chat.companion' = '1'.
+        if (localStorage.getItem('chat.companion') !== '1') {
             return;
         }
 
@@ -562,7 +562,7 @@ const RightSidebar: React.FC = () => {
     // Neural sync — companion mode only. AIRI biology/consciousness removed;
     // still broadcast a minimal status so any external listener keeps working.
     useEffect(() => {
-        if (localStorage.getItem('airi.companion') !== '1') return;
+        if (localStorage.getItem('chat.companion') !== '1') return;
         let cancelled = false;
         (async () => {
             const { emit } = await import('@tauri-apps/api/event');
@@ -1379,7 +1379,7 @@ const RightSidebar: React.FC = () => {
                                     if (v === 'emulator') {
                                         useStore.getState().openEmulatorPanel();
                                     } else {
-                                        useStore.getState().openAiriPanel();
+                                        useStore.getState().openChatSidebar();
                                     }
                                 }}
                                 style={{
@@ -1619,7 +1619,7 @@ const RightSidebar: React.FC = () => {
                         {/* Full-height 3D avatar */}
                         <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
                             <Suspense fallback={<div style={{ padding: 16, opacity: 0.4, fontSize: 11 }}>Loading 3D avatar…</div>}>
-                                <AiriPanel style={{ width: '100%', height: '100%' }} transparent={true} character={avatarCharacter} />
+                                <ChatSidebar style={{ width: '100%', height: '100%' }} transparent={true} character={avatarCharacter} />
                             </Suspense>
 
                             {/* Active tool pill — bottom of avatar */}
@@ -1808,7 +1808,7 @@ const RightSidebar: React.FC = () => {
                                             transition: 'all 0.3s ease-in-out'
                                         }}>
                                             <Suspense fallback={<div style={{ padding: 16, opacity: 0.4, fontSize: 11 }}>Loading 3D avatar…</div>}>
-                                                <AiriPanel style={{ width: '100%', height: '100%' }} scale={messages.length === 0? 0.5: 0.6} yOffset={messages.length === 0? "-44%": "-44%"} transparent={true} character={avatarCharacter} />
+                                                <ChatSidebar style={{ width: '100%', height: '100%' }} scale={messages.length === 0? 0.5: 0.6} yOffset={messages.length === 0? "-44%": "-44%"} transparent={true} character={avatarCharacter} />
                                             </Suspense>
                                         </div>
                                         {messages.length === 0 && (

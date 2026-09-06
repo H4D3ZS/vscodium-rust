@@ -4,8 +4,8 @@
 // =============================================================================
 
 import { invoke } from './tauri_bridge';
-import { qwenTTS } from './airi/qwen-tts'; // Qwen3-TTS local fallback
-import { qwenNativeTTS } from './airi/qwen-tts-native'; // Qwen3-TTS High Quality Server
+import { qwenTTS } from './audio/qwen-tts'; // Qwen3-TTS local fallback
+import { qwenNativeTTS } from './audio/qwen-tts-native'; // Qwen3-TTS High Quality Server
 
 // NEW API KEY (saved securely via Tauri backend)
 const ELEVENLABS_API_KEY = 'e184e0a4bfa989bb8a04dee3076313f56173c6b29adcc777';

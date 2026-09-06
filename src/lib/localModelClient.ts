@@ -8,7 +8,7 @@
  * old Rust CORS-bypass bridge (`ollama_native_get`/`_post`) is gone.
  *
  * Host + optional `Authorization: Bearer …` come from Settings → Inference
- * Backend and API Keys; `refreshOllamaConfig` keeps them in sync.
+ * Backend and API Keys; `refreshLocalModelConfig` keeps them in sync.
  */
 import type { Ollama } from 'ollama';
 import { Ollama as OllamaClient } from 'ollama';
@@ -65,7 +65,7 @@ function browserOllamaBase(): string {
     // call it cross-origin directly. The old `/__ollama` dev proxy pointed at a
     // remote host and is gone — it broke the local-only guarantee and spammed
     // ECONNREFUSED when that host was unreachable.
-    return getOllamaHost();
+    return getLocalModelHost();
 }
 
 async function bootstrap(): Promise<void> {
@@ -94,18 +94,18 @@ async function bootstrap(): Promise<void> {
  * Force a fresh host/headers snapshot. Call from the agent bridge once the
  * store + API keys are loaded, and again whenever settings change.
  */
-export function refreshOllamaConfig(host?: string, headers?: Headers | null): void {
+export function refreshLocalModelConfig(host?: string, headers?: Headers | null): void {
     if (host !== undefined) cachedHost = normalizeHost(host);
     if (headers !== undefined) cachedHeaders = headers ?? undefined;
     bootstrapped = true;
 }
 
-export function getOllamaHost(): string {
+export function getLocalModelHost(): string {
     if (!bootstrapped) cachedHost = readStoredHost();
     return cachedHost;
 }
 
-export function getOllamaHeaders(): Headers | undefined {
+export function getLocalModelHeaders(): Headers | undefined {
     return cachedHeaders;
 }
 
@@ -328,7 +328,7 @@ async function substituteUnknownModel(req: Record<string, unknown>): Promise<Rec
  * Public helper: pick a tag that exists on the configured server (exact,
  * fuzzy match on defaults, then user preference order).
  */
-export async function resolveOllamaModelTag(requested: string): Promise<string> {
+export async function resolveLocalModelTag(requested: string): Promise<string> {
     await refreshInstalled();
     const r = (requested || '').trim();
     if (!r) return chooseFallback() || 'airi-fast:latest';
@@ -362,7 +362,7 @@ export async function resolveOllamaModelTag(requested: string): Promise<string> 
  */
 async function tauriListRaw(): Promise<{ models: Array<{ name: string;[k: string]: unknown }> }> {
     return withOllamaConcurrency('list', async () => {
-        const res = await fetch(`${getOllamaHost()}/api/v1/models`, { headers: getOllamaHeaders() });
+        const res = await fetch(`${getLocalModelHost()}/api/v1/models`, { headers: getLocalModelHeaders() });
         const data = (await res.json()) as Record<string, unknown>;
         const rows: any[] = Array.isArray((data as any)?.data)
             ? (data as any).data
@@ -389,7 +389,7 @@ async function tauriList(): Promise<{ models: Array<{ name: string;[k: string]: 
 async function tauriGenerate(request: Record<string, any>): Promise<any | AsyncIterable<any>> {
     if (request.stream === true) {
         // Bypass the IPC bridge for streaming if it is a local host
-        const host = getOllamaHost();
+        const host = getLocalModelHost();
         const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
         if (isLocal) {
             const client = buildClient();
@@ -401,9 +401,9 @@ async function tauriGenerate(request: Record<string, any>): Promise<any | AsyncI
     }
     const finalReq = await substituteUnknownModel(request);
     return withOllamaConcurrency('generate', async () => {
-        const res = await fetch(`${getOllamaHost()}/api/generate`, {
+        const res = await fetch(`${getLocalModelHost()}/api/generate`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(getOllamaHeaders() ?? {}) },
+            headers: { 'Content-Type': 'application/json', ...(getLocalModelHeaders() ?? {}) },
             body: JSON.stringify(finalReq),
         });
         return (await res.json()) as Record<string, unknown>;
@@ -413,7 +413,7 @@ async function tauriGenerate(request: Record<string, any>): Promise<any | AsyncI
 async function tauriChat(request: Record<string, any>): Promise<any | AsyncIterable<any>> {
     if (request.stream === true) {
         // Bypass the IPC bridge for streaming if it is a local host
-        const host = getOllamaHost();
+        const host = getLocalModelHost();
         const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
         if (isLocal) {
             const client = buildClient();
@@ -425,9 +425,9 @@ async function tauriChat(request: Record<string, any>): Promise<any | AsyncItera
     }
     const finalReq = await substituteUnknownModel(request);
     return withOllamaConcurrency('chat', async () => {
-        const res = await fetch(`${getOllamaHost()}/api/chat`, {
+        const res = await fetch(`${getLocalModelHost()}/api/chat`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(getOllamaHeaders() ?? {}) },
+            headers: { 'Content-Type': 'application/json', ...(getLocalModelHeaders() ?? {}) },
             body: JSON.stringify(finalReq),
         });
         return (await res.json()) as Record<string, unknown>;
@@ -441,8 +441,8 @@ export function invalidateInstalledModelCache(): void {
 }
 
 function buildClient(): Ollama {
-    const host = isTauri() ? getOllamaHost() : browserOllamaBase();
-    const headers = getOllamaHeaders();
+    const host = isTauri() ? getLocalModelHost() : browserOllamaBase();
+    const headers = getLocalModelHeaders();
     return new OllamaClient({ host, ...(headers ? { headers } : {}) } as any);
 }
 
@@ -451,7 +451,7 @@ function buildClient(): Ollama {
  * (no CORS). Other methods fall back to the browser client (may still hit CORS
  * on exotic remote-only setups).
  */
-export function createSharedOllama(): Ollama {
+export function createLocalModelClient(): Ollama {
     void bootstrap();
     if (isTauri()) {
         return new Proxy({} as Record<string, unknown>, {
@@ -475,7 +475,7 @@ export function createSharedOllama(): Ollama {
     return new Proxy({} as any, handler) as Ollama;
 }
 
-export async function fetchOllama(path: string, init?: RequestInit): Promise<Response> {
+export async function fetchLocalModel(path: string, init?: RequestInit): Promise<Response> {
     void bootstrap();
     const host = browserOllamaBase();
     const headers: Record<string, string> = {

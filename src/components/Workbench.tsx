@@ -42,7 +42,7 @@ const Workbench: React.FC = () => {
     const bottomPanelHeight = useStore(state => state.bottomPanelHeight);
 
     // Panel state (from store)
-    const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
+    const isChatSidebarOpen = useStore(state => state.isChatSidebarOpen);
     const isEmulatorPanelOpen = useStore(state => state.isEmulatorPanelOpen);
     const emulatorLayout = useStore(state => state.emulatorLayout);
 
@@ -345,7 +345,7 @@ const Workbench: React.FC = () => {
             </div>
 
             <Suspense fallback={<PanelFallback />}><DocumentOutline /></Suspense>
-            {localStorage.getItem('airi.companion') === '1' && (
+            {localStorage.getItem('chat.companion') === '1' && (
                 <Suspense fallback={<PanelFallback />}><ThoughtProcess /></Suspense>
             )}
             <Suspense fallback={<PanelFallback />}><SpecsToCodeWizard /></Suspense>

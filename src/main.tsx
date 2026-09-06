@@ -71,7 +71,7 @@ scheduleDeferredInit(() => {
 }, 5_000);
 
 // Kokoro/VRM error filters — only needed when AIRI avatar loads.
-scheduleDeferredInit(() => { void import('./airi/kokoro-worker-wrapper'); }, 8_000);
+scheduleDeferredInit(() => { void import('./audio/kokoro-worker-wrapper'); }, 8_000);
 
 // HeroUI reads its dark-theme CSS variables from a `.dark` ancestor. Put it on
 // <html> so components portaled to <body> (modals, dropdowns, tooltips) are themed

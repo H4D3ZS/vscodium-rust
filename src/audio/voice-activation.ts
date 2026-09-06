@@ -197,4 +197,4 @@ export class AIRIVoiceActivation {
 }
 
 // Singleton instance
-export const airiVoiceActivation = new AIRIVoiceActivation();
+export const voiceActivation = new AIRIVoiceActivation();

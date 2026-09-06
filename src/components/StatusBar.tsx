@@ -106,9 +106,9 @@ const StatusBar: React.FC = () => {
     const inferenceBackend = useStore(state => state.inferenceBackend);
     const toggleRightSidebar = useStore(state => state.toggleRightSidebar);
     const openEmulatorPanel = useStore(state => state.openEmulatorPanel);
-    const openAiriPanel = useStore(state => state.openAiriPanel);
+    const openChatSidebar = useStore(state => state.openChatSidebar);
     const isEmulatorPanelOpen = useStore(state => state.isEmulatorPanelOpen);
-    const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
+    const isChatSidebarOpen = useStore(state => state.isChatSidebarOpen);
     const diagnosticsMap = useStore(state => state.diagnosticsMap);
     const gitBranch = useStore(state => state.gitBranch);
     const activeTabId = useStore(state => state.activeTabId);
@@ -442,9 +442,9 @@ const StatusBar: React.FC = () => {
 
                 {/* Agent chat — Cursor-style quick access */}
                 <StatusItem
-                    onClick={() => (isAiriPanelOpen ? toggleRightSidebar() : openAiriPanel?.())}
+                    onClick={() => (isChatSidebarOpen ? toggleRightSidebar() : openChatSidebar?.())}
                     title="Agent chat (Ctrl+Alt+B)"
-                    accent={isAiriPanelOpen}
+                    accent={isChatSidebarOpen}
                 >
                     <i className="codicon codicon-comment-discussion" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
                     <span style={{ fontSize: '11px' }}>Chat</span>

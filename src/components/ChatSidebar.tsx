@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { listen } from '@tauri-apps/api/event';
 import { useStore } from '../store';
 import { speak, stop, isSpeaking, initTTS, getProvider, type VoicePreset } from '../voice';
-import { airiVoiceActivation } from '../airi/voice-activation';
+import { voiceActivation } from '../audio/voice-activation';
 
 // VRM 3D avatar removed. No-op shim keeps the panel's lifecycle calls working;
 // `initialize` rejects so the panel falls back to the lightweight orb.
@@ -16,7 +16,7 @@ const airiVRMAvatar = {
     setEmotion: (_v?: unknown) => {},
 };
 
-interface AiriPanelProps {
+interface ChatSidebarProps {
     className?: string;
     style?: React.CSSProperties;
     scale?: number;
@@ -65,7 +65,7 @@ async function ttsSpeak(text: string) {
 
     ensureTtsInit().then(() => {
         speak(clean, 'airi');
-    }).catch(err => console.error('[AiriPanel] TTS speak failed:', err));
+    }).catch(err => console.error('[ChatSidebar] TTS speak failed:', err));
 }
 
 function ttsStop() {
@@ -135,7 +135,7 @@ function useTypewriter(text: string, speed = 18): string {
     return displayed;
 }
 
-export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, yOffset, transparent, character = 'airi' }) => {
+export const ChatSidebar: React.FC<ChatSidebarProps> = ({ className, style, scale, yOffset, transparent, character = 'airi' }) => {
     const vrmContainerRef = useRef<HTMLDivElement>(null);
     const avatar3dConfig = useStore(state => state.avatar3dConfig);
     const showVrmAvatar = useStore(state => state.showVrmAvatar);
@@ -250,7 +250,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                 airiVRMAvatar.initialize(vrmContainerRef.current, e.detail.modelUrl)
                     .then(() => setAiriLoading(false))
                     .catch(err => {
-                        console.error('[AiriPanel] Model change failed:', err);
+                        console.error('[ChatSidebar] Model change failed:', err);
                         setAiriLoading(false);
                     });
             }
@@ -663,9 +663,9 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
 
                             // Use voice activation system
                             if (newState) {
-                                await airiVoiceActivation.startConversation();
+                                await voiceActivation.startConversation();
                             } else {
-                                airiVoiceActivation.stopListening();
+                                voiceActivation.stopListening();
                             }
 
                             airiVRMAvatar.setListening(newState);
@@ -720,4 +720,4 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     );
 };
 
-export default AiriPanel;
+export default ChatSidebar;
