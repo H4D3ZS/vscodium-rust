@@ -416,11 +416,11 @@ impl Sentient {
                     // view_file — near-zero upfront footprint instead of the full map.
                     let gist_spans = self.memory_store.query_relevant_spans(&query_for_spans, 6, 60).await;
                     project_memory.push_str(&format!(
-                        "\n### BRAIN (Kortex AIM gist — {} files indexed, zero-grep)\n\
+                        "\n### BRAIN (Kortex AIM gist — {}, zero-grep)\n\
                          This is a MINIMAL gist: only the spans relevant to the current request.\n\
                          For anything not listed, call `aim_query_spans(\"<symbol/topic>\")` or `view_file`\n\
                          — do NOT grep/list_files to orient.\n",
-                        indexed_count,
+                        super::prefix_cache::indexed_hint(indexed_count),
                     ));
                     if !gist_spans.is_empty() {
                         project_memory.push_str(&format!("{}\n", gist_spans));
@@ -898,11 +898,11 @@ impl Sentient {
             let mode = req.mode.as_deref().unwrap_or("Fast");
             let zero_grep_planning = if aim_indexed_files > 0 {
                 format!(
-                    "CORE OBJECTIVE: AUTONOMOUS RESEARCH & PREP with AIM zero-grep ({} files indexed). \
+                    "CORE OBJECTIVE: AUTONOMOUS RESEARCH & PREP with AIM zero-grep ({}). \
                      1. Use ### BRAIN + `view_file` + `aim_query_spans` + `semantic_search` — do NOT glob/grep/list/shell-ls to orient. \
                      2. Build `implementation_plan.md` / `task.md` from what you already know + targeted file reads. \
                      3. If the request is actionable, proceed to execution immediately.",
-                    aim_indexed_files
+                    super::prefix_cache::indexed_hint(aim_indexed_files)
                 )
             } else {
                 "CORE OBJECTIVE: You are in AUTONOMOUS RESEARCH & PREP mode. \
@@ -912,10 +912,10 @@ impl Sentient {
             };
             let zero_grep_sentient = if aim_indexed_files > 0 {
                 format!(
-                    "CORE OBJECTIVE: SENTIENT mode — NON-STOP EXECUTION. AIM zero-grep active ({} files). \
+                    "CORE OBJECTIVE: SENTIENT mode — NON-STOP EXECUTION. AIM zero-grep active ({}). \
                      PHASE 1 (KNOW): Use ### BRAIN — no glob/grep/list/shell tree walks. \
                      PHASE 2 (DO): Write/fix/build. PHASE 3 (SHIP): Verify with cargo/npm tests.",
-                    aim_indexed_files
+                    super::prefix_cache::indexed_hint(aim_indexed_files)
                 )
             } else {
                 "CORE OBJECTIVE: You are in SENTIENT mode — NON-STOP PURE EXECUTION. \
@@ -954,9 +954,9 @@ impl Sentient {
 
             let fs_awareness = if aim_indexed_files > 0 {
                 format!(
-                    "AIM BRAIN active ({} files indexed). Structure is in ### BRAIN — do NOT list_files/grep to orient. \
+                    "AIM BRAIN active ({}). Structure is in ### BRAIN — do NOT list_files/grep to orient. \
                      Use `view_file`, `aim_query_spans`, or `semantic_search`; grep only with a specific symbol/string.",
-                    aim_indexed_files
+                    super::prefix_cache::indexed_hint(aim_indexed_files)
                 )
             } else {
                 "You may use `list_files`, `grep`, `search_codebase`, and `semantic_search` to explore.".to_string()
@@ -1027,6 +1027,22 @@ impl Sentient {
                     system_prompt, repo_map
                 )
             };
+
+            // Guardrail (see prefix_cache.rs): a clock time / uuid / nonce in the
+            // system prompt moves the KV-cache prefix's first differing byte on
+            // every turn — measured ~78x cold-prefill penalty on the 35B here.
+            // The detector is cheap; run it and shout if something slipped in.
+            if let Some(frag) = super::prefix_cache::prefix_volatility(&system_prompt) {
+                eprintln!(
+                    "[prefix-cache] WARNING: volatile fragment in system prompt (`{}`) — \
+                     this defeats KV-cache reuse and re-prefills the whole prompt every turn",
+                    frag.chars().take(48).collect::<String>()
+                );
+                self.emit_event(
+                    "ai-prefix-volatility",
+                    json!({ "fragment": frag }),
+                );
+            }
 
             if let Some(sys_msg) = messages.iter_mut().find(|m| m.role == "system") {
                 let existing = sys_msg.content.as_ref().map(|c| c.to_text()).unwrap_or_default();
@@ -1248,14 +1264,14 @@ impl Sentient {
                 messages.push(ChatMessage {
                     role: "system".to_string(),
                     content: Some(MessageContent::Text(format!(
-                        "### [ZERO-GREP ENFORCED] AIM index active — {} files\n\
+                        "### [ZERO-GREP ENFORCED] AIM index active ({})\n\
                          ### BRAIN already contains the project tree — do NOT re-discover it.\n\
                          **Blocked (orientation only):**root `list_files`, `list_dir_tree`, shell `ls`/`dir`/`find`/`tree`, \
                          broad grep (TODO/FIXME/import/.*), repo-wide `**/*` globs.\n\
                          **Still allowed — use freely when needed:**targeted `grep` (specific symbol/string), \
                          scoped `glob` (e.g. `backend/**/*.py`), `search_codebase`, `semantic_search`, \
                          `view_file`, `run_command` for build/test/git.",
-                        aim_indexed_files
+                        super::prefix_cache::indexed_hint(aim_indexed_files)
                     ))),
                     ..Default::default()
                 });
