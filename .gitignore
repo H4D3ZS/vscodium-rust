@@ -37,15 +37,16 @@ src-tauri/binaries/browser-agent.exe
 src-tauri/binaries/lsp/typescript-language-server/node-v20.18.0-win-x64/node.exe
 # ROCmFPX llama-server build output (built locally via scripts/build-rocmfpx-windows.ps1)
 src-tauri/binaries/rocmfpx/
+# Cursor IDE extract (reference only — Anysphere proprietary, do not commit)
 /cursor/
-!src/components/cursor/
 Cursor/
 Kiro/
 kiro/
 cursor-ide/
-# Cursor IDE extract (reference only — Anysphere proprietary, do not commit)
-cursor/
 kiro-ide/
+# …but our own Cursor-compat UI is real source.
+!src/components/cursor/
+!src/components/cursor/**
 
 
 # Editor directories and files

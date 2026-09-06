@@ -63,7 +63,7 @@ describe('Zustand Store Preferences & Kortex Integrations', () => {
   it('correctly initializes GAC and KV cache default values', () => {
     const state = useStore.getState();
     expect(state.kortexGacEnabled).toBe(true);
-    expect(state.kortexVramTotalMb).toBe(8192);
+    expect(state.kortexVramTotalMb).toBe(16384);
     expect(state.kortexTheta).toBe(0.85);
     expect(state.kortexBackend).toBe('vulkan');
     expect(state.kvCacheEnabled).toBe(true);
