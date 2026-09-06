@@ -117,6 +117,10 @@ export function KortexLocalInferencePanel() {
     const [msg, setMsg] = useState('');
     const [modelLabel, setModelLabel] = useState('');
     const [statsLine, setStatsLine] = useState('');
+    const [specLine, setSpecLine] = useState('');
+    const [specType, setSpecType] = useState<string>(() => {
+        try { return localStorage.getItem('kortex.spec.type') || ''; } catch { return ''; }
+    });
     const [showDetails, setShowDetails] = useState(false);
     const [showLog, setShowLog] = useState(false);
     const startedByUs = useRef(false);
@@ -171,6 +175,11 @@ export function KortexLocalInferencePanel() {
                 const s = await getKvCacheStats();
                 if (s) setStatsLine(summarizeKvCache(s));
             } catch { /* ignore */ }
+            try {
+                const gac = await import('../../kortex/gac-orchestrator');
+                const acc = gac.parseSpecAcceptance(await gac.getServerLog(120));
+                setSpecLine(gac.formatSpecAcceptance(acc));
+            } catch { /* ignore */ }
         };
         void tick();
         pollRef.current = setInterval(tick, 3000);
@@ -198,12 +207,21 @@ export function KortexLocalInferencePanel() {
 
     const start = useCallback(async () => {
         abortRef.current = false;
-        setPhase('starting'); setStatsLine(''); setMsg('');
+        setPhase('starting'); setStatsLine(''); setSpecLine(''); setMsg('');
         try {
             const kv = await import('../../kortex/kvcache-orchestrator');
             const gac = await import('../../kortex/gac-orchestrator');
             const base = await resolveBase();
             if (!base) throw new Error('Could not resolve a cache directory.');
+
+            // The ngram-cache speculator wants a file to persist learned
+            // n-grams between restarts; park it next to the KV slots.
+            // startLocalInference reads kortex.spec.* from localStorage.
+            try {
+                if (specType.split(',').includes('ngram-cache')) {
+                    localStorage.setItem('kortex.spec.lookupCache', `${base}/ngram-cache.bin`);
+                }
+            } catch { /* ignore */ }
 
             // Where the actual llama-server lives (the KV-cache proxy fronts it).
             let upstream = UPSTREAM_URL;
@@ -281,7 +299,7 @@ export function KortexLocalInferencePanel() {
             setPhase('error');
             setMsg(String((e as any)?.message ?? e));
         }
-    }, [llamaCppUrl, modelPath, vramMb, serverBinary, proxyPort, resolveBase, useBackend]);
+    }, [llamaCppUrl, modelPath, vramMb, serverBinary, proxyPort, specType, resolveBase, useBackend]);
 
     const stop = useCallback(async () => {
         abortRef.current = true;
@@ -367,6 +385,9 @@ export function KortexLocalInferencePanel() {
             {running && statsLine && (
                 <div style={{ fontSize: 10, marginTop: 3, marginLeft: 18, opacity: 0.6, fontFamily: 'var(--vscode-editor-font-family, monospace)' }}>{statsLine}</div>
             )}
+            {running && specLine && (
+                <div style={{ fontSize: 10, marginTop: 2, marginLeft: 18, opacity: 0.6, fontFamily: 'var(--vscode-editor-font-family, monospace)' }}>{specLine}</div>
+            )}
             {showLog && rest && (
                 <pre style={{
                     fontSize: 10, lineHeight: 1.35, margin: '6px 0 0 18px', padding: 8, maxHeight: 110, overflow: 'auto',
@@ -400,6 +421,23 @@ export function KortexLocalInferencePanel() {
                     <input type="number" min={2048} step={512} style={{ ...inputStyle, flex: 'none', width: 120 }}
                         value={vramMb || 16384} disabled={running}
                         onChange={e => setVramMb?.(parseInt(e.target.value) || 16384)} />
+
+                    <label style={label}>Speculative decoding (decode-speed, output unchanged)</label>
+                    <select style={{ ...inputStyle, flex: 'none', width: '100%' }} value={specType} disabled={running}
+                        onChange={e => {
+                            setSpecType(e.target.value);
+                            try { localStorage.setItem('kortex.spec.type', e.target.value); } catch { /* ignore */ }
+                        }}>
+                        <option value="">Off</option>
+                        <option value="ngram-simple">Prompt lookup — code (no model, no VRAM)</option>
+                        <option value="ngram-cache">Prompt lookup + persistent cache</option>
+                        <option value="ngram-simple,draft-mtp">Lookup + MTP head</option>
+                        <option value="draft-mtp">MTP head only (auto-detected)</option>
+                    </select>
+                    <div style={{ ...label, opacity: 0.55, marginTop: 0 }}>
+                        The full model verifies every drafted token — same output, more tokens per pass.
+                        Applies on next Start.
+                    </div>
                 </div>
             )}
         </div>

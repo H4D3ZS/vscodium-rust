@@ -198,6 +198,46 @@ export function specDecodeExtras(): Pick<LaunchExtras,
     } catch { return {}; }
 }
 
+export interface SpecAcceptance {
+    /** accepted / generated, 0..1. */
+    ratio: number;
+    /** Drafted tokens the target model kept. */
+    accepted: number;
+    /** Drafted tokens the target model checked. */
+    generated: number;
+    /** Mean tokens emitted per verify step (1.0 = speculation bought nothing). */
+    mean_accept_len: number;
+}
+
+/**
+ * Pull the most recent speculative-decoding acceptance stats out of a
+ * llama-server log tail. The ROCmFPX fork prints, per completed request:
+ *
+ *   draft acceptance = 0.54212 (   65 accepted /   120 generated), mean acceptance length =  2.15, ...
+ *
+ * Returns null when speculation is off or no such line is in the tail yet.
+ */
+export function parseSpecAcceptance(logLines: string[]): SpecAcceptance | null {
+    const re = /draft acceptance\s*=\s*([\d.]+)\s*\(\s*(\d+)\s*accepted\s*\/\s*(\d+)\s*generated\s*\)\s*,\s*mean acceptance length\s*=\s*([\d.]+)/i;
+    for (let i = logLines.length - 1; i >= 0; i--) {
+        const m = re.exec(logLines[i]);
+        if (!m) continue;
+        const ratio = Number(m[1]);
+        const accepted = Number(m[2]);
+        const generated = Number(m[3]);
+        const mean_accept_len = Number(m[4]);
+        if (![ratio, accepted, generated, mean_accept_len].every(Number.isFinite)) return null;
+        return { ratio, accepted, generated, mean_accept_len };
+    }
+    return null;
+}
+
+/** One-line readout for the inference panel, e.g. "spec: 54% kept · 2.15 tok/step". */
+export function formatSpecAcceptance(s: SpecAcceptance | null): string {
+    if (!s || s.generated <= 0) return '';
+    return `spec: ${Math.round(s.ratio * 100)}% kept · ${s.mean_accept_len.toFixed(2)} tok/step`;
+}
+
 const DEFAULT_PLAN_OPTS: Required<Pick<PlanOptions,
     'kv_reserve_frac' | 'theta' | 'safe_mult' | 'unsafe_mult' | 'backend'>> = {
     kv_reserve_frac: 0.30,
