@@ -202,7 +202,14 @@ const RightSidebar: React.FC = () => {
     const [airiSpeech, setAiriSpeech] = useState<string>('');
     const [airiSpeechHtml, setAiriSpeechHtml] = useState<string>('');
     const [airiSpeaking, setAiriSpeaking] = useState(false);
-    const [ttsEnabled, setTtsEnabled] = useState(true); // Enable by default
+    // TTS is opt-in — off unless the user turned it on. Persisted so the
+    // choice sticks and so voice.ts's speak()/initTTS() gate agrees with the UI.
+    const [ttsEnabled, setTtsEnabled] = useState(() => {
+        try { return localStorage.getItem('tts.enabled') === '1'; } catch { return false; }
+    });
+    useEffect(() => {
+        try { localStorage.setItem('tts.enabled', ttsEnabled ? '1' : '0'); } catch { /* quota */ }
+    }, [ttsEnabled]);
     const [ttsPreset, setTtsPreset] = useState<'airi' | 'sage' | 'nova' | 'kawaii' | 'yamato' | 'hana' | 'ren' | 'yuki' | 'haru' | 'sora' | 'zero' | 'aria'>('airi');
     const [isVoiceListening, setIsVoiceListening] = useState(false);
     const recognitionRef = useRef<any>(null);
@@ -1700,13 +1707,11 @@ const RightSidebar: React.FC = () => {
                                 {/* ── TTS Voice Controls ────────────────────────────────────────── */}
                                 <div
                                     onClick={() => {
-                                        if (!ttsEnabled) {
-                                            getVoice().then(v => v.initTTS()).then(ready => {
-                                                if (ready) setTtsEnabled(true);
-                                            });
-                                        } else {
-                                            setTtsEnabled(!ttsEnabled);
-                                        }
+                                        const next = !ttsEnabled;
+                                        // Persist first so initTTS()'s opt-in gate passes.
+                                        try { localStorage.setItem('tts.enabled', next ? '1' : '0'); } catch { /* quota */ }
+                                        setTtsEnabled(next);
+                                        if (next) getVoice().then(v => v.initTTS());
                                     }}
                                     style={{
                                         width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,

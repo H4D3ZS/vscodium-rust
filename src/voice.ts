@@ -202,6 +202,11 @@ let isAudioQueuePlaying = false;
 // ── Initialization ─────────────────────────────────────────────────────────
 
 export async function initTTS(): Promise<boolean> {
+    // Don't spin up the TTS engine / fetch provider keys unless the user
+    // has opted in. Prevents surprise audio and needless network calls.
+    try {
+        if (localStorage.getItem('tts.enabled') !== '1') return false;
+    } catch { return false; }
     console.log('[TTS] Initializing voice system...');
 
     // ALWAYS load API keys first before any speech
@@ -540,14 +545,17 @@ export async function speak(
     onEnd?: () => void,
     onStart?: () => void
 ): Promise<boolean> {
-    // User kill-switch (Settings → Voice). TTS is otherwise always functional:
-    // remote providers when configured, offline browser SpeechSynthesis otherwise.
+    // Opt-in only. TTS stays silent unless the user turned it on
+    // (Settings -> Voice, or the speaker toggle in the chat toolbar).
     try {
-        if (localStorage.getItem('tts.enabled') === '0') {
+        if (localStorage.getItem('tts.enabled') !== '1') {
             onEnd?.();
             return false;
         }
-    } catch { /* no localStorage in this context */ }
+    } catch {
+        onEnd?.();
+        return false;
+    }
 
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
         console.warn('[TTS] No speech synthesis available in this environment.');

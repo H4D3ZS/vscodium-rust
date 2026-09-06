@@ -29,11 +29,13 @@ interface ChatSidebarProps {
 
 let _isInitialized = false;
 
+function ttsOptedIn(): boolean {
+    try { return localStorage.getItem('tts.enabled') === '1'; } catch { return false; }
+}
+
 async function ensureTtsInit() {
-    if (!_isInitialized) {
-        await initTTS();
-        _isInitialized = true;
-    }
+    if (_isInitialized || !ttsOptedIn()) return;
+    _isInitialized = await initTTS();
 }
 
 // Split text into natural sentences for smooth streaming speech
@@ -143,7 +145,15 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ className, style, scal
     const [vrmFailed, setVrmFailed] = useState(false);
     const [isHibernating, setIsHibernating] = useState(false);
     const [lastActivityTime, setLastActivityTime] = useState(Date.now());
-    const [isTtsEnabled, setTtsEnabled] = useState(true); // ENABLED by default - AIRI should speak!
+    // TTS is opt-in — silent unless the user turns it on. Persisted, and shared
+    // with voice.ts's speak()/initTTS() gate via the 'tts.enabled' key.
+    const [isTtsEnabled, setTtsEnabledState] = useState(() => {
+        try { return localStorage.getItem('tts.enabled') === '1'; } catch { return false; }
+    });
+    const setTtsEnabled = useCallback((v: boolean) => {
+        try { localStorage.setItem('tts.enabled', v ? '1' : '0'); } catch { /* quota */ }
+        setTtsEnabledState(v);
+    }, []);
     const [isListening, setIsListening] = useState(false);
 
     const IDLE_TIMEOUT = 60000; // 1 minute

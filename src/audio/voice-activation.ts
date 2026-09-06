@@ -63,9 +63,14 @@ export class AIRIVoiceActivation {
         console.error('[VoiceActivation] Recognition error:', event.error);
       };
 
-      // Start listening
-      this.recognition.start();
-      this.isListening = true;
+      // Opt-in only. Importing this module must NOT open the mic or fire a
+      // permission prompt. The chat toolbar's mic button calls startListening().
+      let optedIn = false;
+      try { optedIn = localStorage.getItem('voice.wakeword.enabled') === '1'; } catch { /* no storage */ }
+      if (optedIn) {
+        this.recognition.start();
+        this.isListening = true;
+      }
 
     } else {
       console.warn('[VoiceActivation] Web Speech API not supported');
