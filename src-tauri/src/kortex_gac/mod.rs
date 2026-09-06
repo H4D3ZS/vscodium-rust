@@ -145,12 +145,16 @@ pub async fn kortex_gac_launch(
     batch_size: Option<u32>,
     flash_attn: Option<bool>,
     slot_save_path: Option<String>,
-    // Speculative decoding: "draft" | "mtp". Big model verifies every token,
-    // so output is identical; typical 1.5-3x on decode tok/s.
+    // Speculative decoding. Comma-separated list from the ROCmFPX fork's menu
+    // (`ngram-simple`, `ngram-map-k`, `ngram-map-k4v`, `ngram-mod`,
+    // `ngram-cache`, `draft-mtp`, `draft-eagle3`, `draft-simple`, ...). The
+    // big model verifies every drafted token, so output is bit-identical;
+    // the ngram-* guessers need no model and no extra VRAM.
     spec_type: Option<String>,
     draft_model_path: Option<String>,
     draft_ngl: Option<u32>,
     draft_max: Option<u32>,
+    lookup_cache: Option<String>,
     extra_args: Option<Vec<String>>,
     wait_healthy_secs: Option<u64>,
 ) -> Result<RunningInfo, String> {
@@ -170,6 +174,7 @@ pub async fn kortex_gac_launch(
         draft_model_path: draft_model_path.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
         draft_ngl,
         draft_max,
+        lookup_cache: lookup_cache.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
         extra_args: extra_args.unwrap_or_default(),
     };
     let host_clone = opts.host.clone();

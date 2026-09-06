@@ -138,27 +138,63 @@ export interface LaunchExtras {
     slot_save_path?: string;
     /** Verbatim extra args appended to the launch line. */
     extra_args?: string[];
-    /** Speculative decoding: 'draft' (separate small GGUF) or 'mtp' (the
-     *  model's own multi-token head). Output is identical; ~1.5-3x decode. */
-    spec_type?: 'draft' | 'mtp';
-    /** Draft GGUF path — required for spec_type 'draft'. */
+    /**
+     * Speculative decoding — the software path around the memory-bandwidth
+     * wall. A comma-separated list from the ROCmFPX fork's `--spec-type` menu,
+     * in priority order. The big model verifies every drafted token, so the
+     * output is bit-identical to a plain run.
+     *   - `ngram-*` (`ngram-simple`, `ngram-map-k`, `ngram-map-k4v`,
+     *     `ngram-mod`, `ngram-cache`) — zero model, zero VRAM; guesses the
+     *     continuation from the prompt/context. Big win on code.
+     *   - `draft-mtp` — the model's own multi-token head (auto-discovered).
+     *   - `draft-eagle3` / `draft-simple` / `draft-dflash` / `draft-dspark` —
+     *     a separate small draft/EAGLE GGUF (needs `draft_model_path`).
+     */
+    spec_type?: string;
+    /** Draft / EAGLE-3 GGUF path — required for the `draft-simple`/`-eagle3`/
+     *  `-dflash`/`-dspark` types; optional for `draft-mtp`; unused for `ngram-*`. */
     draft_model_path?: string;
-    /** Draft-model GPU layers. Default: all (it's tiny). */
+    /** Draft-model GPU layers. Default: all (it's tiny). Ignored without a draft model. */
     draft_ngl?: number;
-    /** Tokens to speculate per step (llama.cpp default 16). */
+    /** Tokens to speculate per step (fork default 16). */
     draft_max?: number;
+    /** Persisted n-gram cache file for `ngram-cache` (`--lookup-cache-dynamic`). */
+    lookup_cache?: string;
     /** Seconds to wait for /health before returning. Default 60. 0 = don't wait. */
     wait_healthy_secs?: number;
 }
 
-/** Read persisted speculative-decoding settings (off by default). */
-export function specDecodeExtras(): Pick<LaunchExtras, 'spec_type' | 'draft_model_path' | 'draft_ngl' | 'draft_max'> {
+/** Valid `--spec-type` names in the ROCmFPX fork (mirror of launcher.rs SPEC_TYPES). */
+export const SPEC_TYPES = [
+    'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache',
+    'draft-mtp', 'draft-eagle3', 'draft-simple', 'draft-dflash', 'draft-dspark',
+] as const;
+
+/** Read persisted speculative-decoding settings (off by default). The Rust
+ *  launcher filters unknown names and drops `draft-*` types with no model, so
+ *  this stays permissive and just forwards what the user picked. */
+export function specDecodeExtras(): Pick<LaunchExtras,
+    'spec_type' | 'draft_model_path' | 'draft_ngl' | 'draft_max' | 'lookup_cache'> {
     try {
-        const t = localStorage.getItem('kortex.spec.type');
-        if (t !== 'draft' && t !== 'mtp') return {};
+        const raw = (localStorage.getItem('kortex.spec.type') || '').trim();
+        if (!raw) return {};
+        const type = raw
+            .split(',')
+            .map((s) => s.trim())
+            .filter((s) => (SPEC_TYPES as readonly string[]).includes(s))
+            .join(',');
+        if (!type) return {};
         const dm = localStorage.getItem('kortex.spec.draftModel') || undefined;
+        const ngl = Number(localStorage.getItem('kortex.spec.draftNgl') || '') || undefined;
         const dmax = Number(localStorage.getItem('kortex.spec.draftMax') || '') || undefined;
-        return { spec_type: t, draft_model_path: t === 'draft' ? dm : undefined, draft_max: dmax };
+        const lc = localStorage.getItem('kortex.spec.lookupCache') || undefined;
+        return {
+            spec_type: type,
+            draft_model_path: /(?:^|,)draft-/.test(type) ? dm : undefined,
+            draft_ngl: ngl,
+            draft_max: dmax,
+            lookup_cache: type.split(',').includes('ngram-cache') ? lc : undefined,
+        };
     } catch { return {}; }
 }
 
@@ -254,6 +290,7 @@ export async function launchServer(
         draftModelPath: extras.draft_model_path ?? null,
         draftNgl: extras.draft_ngl ?? null,
         draftMax: extras.draft_max ?? null,
+        lookupCache: extras.lookup_cache ?? null,
         extraArgs: extras.extra_args ?? null,
         waitHealthySecs: extras.wait_healthy_secs ?? null,
     });

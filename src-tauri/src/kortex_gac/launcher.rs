@@ -93,24 +93,66 @@ pub struct LaunchOpts {
     pub slot_save_path: Option<PathBuf>,
 
     // ── Speculative decoding — the decode-throughput lever ──
-    // The big model verifies every token, so output is bit-identical to a
-    // plain run; a small draft (or the model's own MTP head) just proposes
-    // several tokens per forward pass. Typical 1.5-3x on decode tok/s.
-    /// `--spec-type`: `draft` (separate small GGUF) or `mtp` (the model's
-    /// built-in multi-token-prediction head, if it has one — Escha/Qwen3.6 do).
-    /// `None` = no speculation.
+    // The big model verifies every drafted token, so output is bit-identical to
+    // a plain run; the speculator just proposes several tokens per forward pass
+    // of the big weights. This is the software path around the memory-bandwidth
+    // wall: N accepted tokens per weight read instead of one.
+    //
+    /// `--spec-type`: a comma-separated list from the ROCmFPX fork's menu, in
+    /// priority order. Known names (`SPEC_TYPES`):
+    ///   * `ngram-simple` / `ngram-map-k` / `ngram-map-k4v` / `ngram-mod` /
+    ///     `ngram-cache` — zero model, zero VRAM. Guess the continuation by
+    ///     matching recent tokens against the prompt / context. Big win on
+    ///     code (imports, repeated identifiers, boilerplate).
+    ///   * `draft-mtp` — the model's own multi-token-prediction head,
+    ///     auto-discovered next to the `-hf` model or passed explicitly.
+    ///   * `draft-eagle3` — a trained lightweight EAGLE-3 head (needs a model).
+    ///   * `draft-simple` / `draft-dflash` / `draft-dspark` — a separate small
+    ///     draft GGUF (needs a model).
+    /// Unknown names are dropped; `draft-*` names that need a model are dropped
+    /// when none is supplied. `None`/empty = no speculation. Stacking e.g.
+    /// `"ngram-simple,draft-mtp"` lets the cheap guesser run first.
     pub spec_type: Option<String>,
-    /// `--spec-draft-model` / `-md`: the small draft GGUF. Required for
-    /// `spec_type = "draft"`; ignored for `"mtp"`.
+    /// `--spec-draft-model` / `-md`: the small draft / EAGLE-3 GGUF. Required
+    /// for `draft-simple` / `draft-eagle3` / `draft-dflash` / `draft-dspark`;
+    /// optional for `draft-mtp` (auto-discovered); ignored for `ngram-*`.
     pub draft_model_path: Option<PathBuf>,
     /// `--spec-draft-ngl` / `-ngld`: draft-model GPU layers (put it fully on
-    /// the GPU — it's tiny). Default: all.
+    /// the GPU — it's tiny). Default: all. Ignored without a draft model.
     pub draft_ngl: Option<u32>,
-    /// `--draft-max`: tokens to speculate per step (llama.cpp default 16).
+    /// `--draft-max`: tokens to speculate per step (fork default 16).
     pub draft_max: Option<u32>,
+    /// `--lookup-cache-dynamic` / `-lcd`: file the `ngram-cache` speculator
+    /// reads at start and writes back on exit, so learned n-grams persist
+    /// across server restarts. Only meaningful with `ngram-cache` in the list.
+    pub lookup_cache: Option<PathBuf>,
 
     /// Extra free-form args appended verbatim. Useful for `--mlock`, `--no-mmap`, etc.
     pub extra_args: Vec<String>,
+}
+
+/// Speculative-decoding type names accepted by the ROCmFPX llama.cpp fork's
+/// `--spec-type` (see `common/speculative.cpp::common_speculative_type_from_name_map`).
+/// Anything not in this set makes the server abort at parse time, so the
+/// launcher filters against it.
+pub const SPEC_TYPES: &[&str] = &[
+    "ngram-simple",
+    "ngram-map-k",
+    "ngram-map-k4v",
+    "ngram-mod",
+    "ngram-cache",
+    "draft-mtp",
+    "draft-eagle3",
+    "draft-simple",
+    "draft-dflash",
+    "draft-dspark",
+];
+
+/// Does this spec type load a *separate* model that the launcher must be able
+/// to point at? `draft-mtp` doesn't (the fork auto-discovers the head next to
+/// the `-hf` model); the `ngram-*` guessers don't touch a model at all.
+fn spec_type_needs_draft_model(t: &str) -> bool {
+    matches!(t, "draft-simple" | "draft-eagle3" | "draft-dflash" | "draft-dspark")
 }
 
 impl Default for LaunchOpts {
@@ -129,6 +171,7 @@ impl Default for LaunchOpts {
             draft_model_path: None,
             draft_ngl: None,
             draft_max: None,
+            lookup_cache: None,
             extra_args: Vec::new(),
         }
     }
@@ -159,23 +202,39 @@ pub fn build_argv(plan: &TierPlan, opts: &LaunchOpts) -> Vec<String> {
         argv.push(p.to_string_lossy().into_owned());
     }
 
-    // Speculative decoding (see LaunchOpts). Only emitted when a spec_type is
-    // set; `draft` needs a draft model, `mtp` uses the model's own head.
-    if let Some(t) = opts.spec_type.as_deref().filter(|t| !t.is_empty()) {
-        let valid = matches!(t, "draft" | "mtp");
-        let usable = t != "draft" || opts.draft_model_path.is_some();
-        if valid && usable {
-            argv.push("--spec-type".into());
-            argv.push(t.to_string());
-            if let Some(dm) = opts.draft_model_path.as_ref() {
-                argv.push("--spec-draft-model".into());
-                argv.push(dm.to_string_lossy().into_owned());
-            }
+    // Speculative decoding (see LaunchOpts). The fork's `--spec-type` takes a
+    // comma-separated list from SPEC_TYPES; unknown names abort the server, and
+    // `draft-*` names that load a separate model are useless without one, so we
+    // filter to the types that will actually run.
+    let has_draft_model = opts.draft_model_path.is_some();
+    let spec_list: Vec<&str> = opts
+        .spec_type
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .filter(|t| SPEC_TYPES.contains(t))
+        .filter(|t| !spec_type_needs_draft_model(t) || has_draft_model)
+        .collect();
+    if !spec_list.is_empty() {
+        let wants_ngram_cache = spec_list.contains(&"ngram-cache");
+        argv.push("--spec-type".into());
+        argv.push(spec_list.join(","));
+        if let Some(dm) = opts.draft_model_path.as_ref() {
+            argv.push("--spec-draft-model".into());
+            argv.push(dm.to_string_lossy().into_owned());
             argv.push("--spec-draft-ngl".into());
             argv.push(opts.draft_ngl.unwrap_or(999).to_string());
-            if let Some(n) = opts.draft_max {
-                argv.push("--draft-max".into());
-                argv.push(n.to_string());
+        }
+        if let Some(n) = opts.draft_max {
+            argv.push("--draft-max".into());
+            argv.push(n.to_string());
+        }
+        if wants_ngram_cache {
+            if let Some(lc) = opts.lookup_cache.as_ref() {
+                argv.push("--lookup-cache-dynamic".into());
+                argv.push(lc.to_string_lossy().into_owned());
             }
         }
     }
@@ -418,20 +477,45 @@ mod tests {
     fn spec_type_mtp_needs_no_draft_model() {
         let opts = LaunchOpts {
             model_path: PathBuf::from("escha.gguf"),
-            spec_type: Some("mtp".into()),
+            spec_type: Some("draft-mtp".into()),
             ..Default::default()
         };
         let argv = build_argv(&min_plan(), &opts);
-        assert!(argv.windows(2).any(|w| w == ["--spec-type", "mtp"]));
-        assert!(argv.contains(&"--spec-draft-ngl".to_string()));
+        assert!(argv.windows(2).any(|w| w == ["--spec-type", "draft-mtp"]));
+        // no separate model -> no --spec-draft-model / --spec-draft-ngl
+        assert!(!argv.contains(&"--spec-draft-model".to_string()));
+        assert!(!argv.contains(&"--spec-draft-ngl".to_string()));
+    }
+
+    #[test]
+    fn ngram_types_run_with_no_model_and_no_vram() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("escha.gguf"),
+            spec_type: Some("ngram-simple".into()),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--spec-type", "ngram-simple"]));
         assert!(!argv.contains(&"--spec-draft-model".to_string()));
     }
 
     #[test]
-    fn spec_type_draft_without_a_model_is_dropped() {
+    fn unknown_spec_names_are_filtered_out() {
         let opts = LaunchOpts {
             model_path: PathBuf::from("m.gguf"),
-            spec_type: Some("draft".into()),
+            // "draft" / "mtp" are NOT valid fork names; only ngram-mod survives.
+            spec_type: Some("draft, mtp, bogus, ngram-mod".into()),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--spec-type", "ngram-mod"]));
+    }
+
+    #[test]
+    fn draft_only_list_without_a_model_emits_nothing() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("draft-simple".into()),
             draft_model_path: None,
             ..Default::default()
         };
@@ -442,15 +526,50 @@ mod tests {
     fn spec_type_draft_emits_model_ngl_and_max() {
         let opts = LaunchOpts {
             model_path: PathBuf::from("m.gguf"),
-            spec_type: Some("draft".into()),
+            spec_type: Some("draft-simple".into()),
             draft_model_path: Some(PathBuf::from("draft-0.5b.gguf")),
             draft_ngl: Some(99),
             draft_max: Some(8),
             ..Default::default()
         };
         let argv = build_argv(&min_plan(), &opts);
-        assert!(argv.windows(2).any(|w| w == ["--spec-type", "draft"]));
+        assert!(argv.windows(2).any(|w| w == ["--spec-type", "draft-simple"]));
         assert!(argv.windows(2).any(|w| w == ["--spec-draft-model", "draft-0.5b.gguf"]));
+        assert!(argv.windows(2).any(|w| w == ["--spec-draft-ngl", "99"]));
         assert!(argv.windows(2).any(|w| w == ["--draft-max", "8"]));
+    }
+
+    #[test]
+    fn stacked_ngram_plus_mtp_keeps_order_and_joins() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("ngram-simple,draft-mtp".into()),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--spec-type", "ngram-simple,draft-mtp"]));
+    }
+
+    #[test]
+    fn ngram_cache_takes_a_dynamic_lookup_file() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("ngram-cache".into()),
+            lookup_cache: Some(PathBuf::from("/w/.aim/ngram.bin")),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--lookup-cache-dynamic", "/w/.aim/ngram.bin"]));
+    }
+
+    #[test]
+    fn lookup_file_is_ignored_without_ngram_cache() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("ngram-simple".into()),
+            lookup_cache: Some(PathBuf::from("/w/.aim/ngram.bin")),
+            ..Default::default()
+        };
+        assert!(!build_argv(&min_plan(), &opts).contains(&"--lookup-cache-dynamic".to_string()));
     }
 }
