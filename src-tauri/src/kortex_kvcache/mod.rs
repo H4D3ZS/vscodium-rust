@@ -90,7 +90,19 @@ pub async fn kortex_kvcache_start(mut opts: KvCacheOptions) -> Result<u16, Strin
         resolved_tier, opts.tier
     );
 
-    let state = Arc::new(proxy::ProxyState::new(opts, store, resolved_tier));
+    // Only pay the grammar probe when constrained decoding was actually asked
+    // for; otherwise assume unsupported (the harness won't use it either way).
+    let want_grammar = matches!(
+        std::env::var("KORTEX_HARNESS_GRAMMAR").ok().as_deref(),
+        Some("1") | Some("true") | Some("on")
+    );
+    let grammar_ok = if want_grammar {
+        capability::probe_grammar(&opts.upstream_url).await
+    } else {
+        false
+    };
+
+    let state = Arc::new(proxy::ProxyState::new(opts, store, resolved_tier, grammar_ok));
 
     // Smoke-check the upstream once before binding the listener; we want
     // launch errors to surface here, not as a 502 on first request.
