@@ -237,6 +237,20 @@ pub struct LocalGguf {
     pub aux: bool,
 }
 
+/// `std::fs::canonicalize` on Windows returns the extended-length `\\?\C:\…`
+/// form, which is ugly in the UI and trips some downstream path handling.
+/// Strip it back to a plain path (`\\?\UNC\host\share` → `\\host\share`).
+fn strip_verbatim(p: &std::path::Path) -> String {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        s.into_owned()
+    }
+}
+
 fn parse_quant(name: &str) -> String {
     let up = name.to_uppercase();
     // Longest / most-specific tags first so `Q4_K_M` wins over `Q4_0`, and the
@@ -307,7 +321,8 @@ pub async fn kortex_gac_list_local_ggufs(extra_dir: Option<String>) -> Result<Ve
                     continue;
                 }
                 let canon = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-                if !seen.insert(canon.clone()) {
+                let path_str = strip_verbatim(&canon);
+                if !seen.insert(path_str.clone()) {
                     continue;
                 }
                 let file = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
@@ -337,7 +352,7 @@ pub async fn kortex_gac_list_local_ggufs(extra_dir: Option<String>) -> Result<Ve
                     repo,
                     quant: parse_quant(&file),
                     file,
-                    path: canon.to_string_lossy().into_owned(),
+                    path: path_str,
                     size_mb,
                     aux,
                 });

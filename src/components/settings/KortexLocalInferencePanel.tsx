@@ -467,10 +467,16 @@ export function KortexLocalInferencePanel() {
                             const p = await pickFile([{ name: 'GGUF', extensions: ['gguf'] }]); if (p) setModelPath(p);
                         }}>…</button>
                     </div>
-                    {/(^|[^a-z0-9])(i?q2|i?q3|q2_k|q3_k)([^a-z0-9]|$)/i.test(modelPath) && (
-                        <div style={{ ...label, color: 'var(--vscode-editorWarning-foreground, #e5a00d)', marginTop: 0 }}>
-                            ⚠ Sub-4-bit quant — tool-call JSON and reasoning degrade fast at this size.
-                            Use Q4_K_M or better for the reasoner.
+                    {/(^|[^a-z0-9])(i?q1|i?q2|q2_k)([^a-z0-9]|$)/i.test(modelPath) && (
+                        <div style={{ ...label, color: 'var(--vscode-errorForeground, #f7768e)', marginTop: 0 }}>
+                            ⚠ 2-bit quant — expect malformed tool calls and incoherent runs.
+                            Only run this if nothing larger fits.
+                        </div>
+                    )}
+                    {/(^|[^a-z0-9])(i?q3|q3_k)([^a-z0-9]|$)/i.test(modelPath) && (
+                        <div style={{ ...label, opacity: 0.7, marginTop: 0 }}>
+                            3-bit — the practical ceiling for a 27B on 16 GB (Q4 won't fit).
+                            Occasional tool-call slips; MTP + lenient-JSON parsing catch most.
                         </div>
                     )}
                     <label style={label}>Server engine</label>
