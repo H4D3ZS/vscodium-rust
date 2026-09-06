@@ -5,6 +5,7 @@
 //! split into focused submodules — see ARCHITECTURE.md
 
 pub mod agent_harness;
+pub mod context_budget;
 pub mod engine;
 pub mod ai_prompts;
 pub mod ane;

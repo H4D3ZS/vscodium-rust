@@ -4463,6 +4463,17 @@ listen('ai-thinking', (event: { payload: { thought: string } | any }) => {
     }
 });
 
+// Context budget — fired when the loop trims the prompt to the model's window.
+// Surfaces via the existing tokenUsage plumbing; logs the shed so a "why did it
+// forget?" is answerable.
+listen('ai-context-budget', (event: { payload: { before_tokens?: number; after_tokens?: number; window?: number; ceiling?: number; dropped_messages?: number; fit?: boolean } | any }) => {
+    const p = event?.payload || {};
+    try { useStore.getState().setTokenUsage?.(Number(p.after_tokens || 0)); } catch { /* non-fatal */ }
+    if (p.dropped_messages || p.fit === false) {
+        console.info(`[context] ${p.before_tokens}→${p.after_tokens} tok (window ${p.window}, ceiling ${p.ceiling}), dropped ${p.dropped_messages}${p.fit === false ? ' — STILL OVER' : ''}`);
+    }
+});
+
 // Auto-open the Mermaid visualizer when the agent finishes a diagram, the way
 // Antigravity pops the rendered flowchart into the editor. Deduped on the source
 // so re-emitted ai-content (streaming → final) doesn't reopen the same diagram.

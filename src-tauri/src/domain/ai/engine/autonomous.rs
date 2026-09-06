@@ -1669,23 +1669,39 @@ impl Sentient {
             // local backends: preflight trim so pasted specs + tool schemas fit
             // inside num_ctx. Without this, small local models get the full 24K+
             // system prompt and silently produce empty streams.
-            let preftrim_provider = active_provider.to_lowercase();
-            if preftrim_provider == "lemonade" || preftrim_provider == "huggingface" {
-                let num_ctx = Self::recommended_num_ctx(&active_model);
-                let est = Self::estimate_messages_tokens(&messages);
-                let tool_overhead = if tools.is_empty() { 512 } else { 6_000 };
-                let max_prompt_tokens = num_ctx
-                    .saturating_mul(70)
-                    .saturating_div(100)
-                    .saturating_sub(tool_overhead);
-                if est > max_prompt_tokens {
+            // ── Context budget (single source of truth; see context_budget.rs) ──
+            // Fit the assembled prompt to the model's window before we pay to
+            // send it: keep the system prompt + current turn, shed the oldest
+            // tool results first. Runs for every provider — a cloud model just
+            // has a much bigger window so `fit` is usually a no-op there.
+            {
+                use crate::domain::ai::context_budget::{self, ContextBudget};
+                let out_reserve = req
+                    .reasoning_budget
+                    .map(|b| b as usize + 2_048)
+                    .unwrap_or(if is_chat_mode { 1_536 } else { 4_096 });
+                let budget = ContextBudget::resolve(
+                    &active_model,
+                    Self::recommended_num_ctx(&active_model),
+                    out_reserve,
+                );
+                let tools_tokens = if tools.is_empty() {
+                    0
+                } else {
+                    context_budget::estimate_tokens(&serde_json::to_string(&tools).unwrap_or_default())
+                };
+                let report = context_budget::fit(&mut messages, tools_tokens, budget);
+                if report.dropped_messages > 0 || !report.fit {
                     println!(
-                        "[AI] Preflight trim: ~{} tok + ~{} tools > {} budget (num_ctx={}, provider={})",
-                        est, tool_overhead, max_prompt_tokens, num_ctx, active_provider
+                        "[AI] context budget: {} -> {} tok (ceiling {}, window {}, dropped {}{})",
+                        report.before_tokens,
+                        report.after_tokens,
+                        report.ceiling,
+                        report.window,
+                        report.dropped_messages,
+                        if report.fit { "" } else { ", STILL OVER" }
                     );
-                    messages = self
-                        .trim_context(messages, max_prompt_tokens.saturating_mul(4))
-                        .await;
+                    self.emit_event("ai-context-budget", serde_json::to_value(&report).unwrap_or_default());
                 }
             }
 
