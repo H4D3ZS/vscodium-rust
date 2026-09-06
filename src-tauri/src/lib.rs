@@ -282,6 +282,7 @@ pub mod kortex_kvcache;
 #[cfg(feature = "tauri")]
 pub mod kortex_retrieval;
 pub mod kortex_bin;
+pub mod remote_bridge;
 #[cfg(feature = "tauri")]
 pub mod kortex_vfs;
 
@@ -343,6 +344,7 @@ pub fn run() {
             // Weak<EditorState> back-reference (decouples them from AppHandle).
             let editor_state = std::sync::Arc::new(EditorState::new(app.handle()));
             editor_state.wire_back_refs();
+            remote_bridge::maybe_autostart(editor_state.clone());
             app.manage(editor_state);
             app.manage(std::sync::Arc::new(jobs::JobManager::new()));
             let iphone_manager = iphone_emulator::IPhoneEmulatorManager::new();
@@ -1133,6 +1135,9 @@ pub fn run() {
             kortex_vfs::kortex_vfs_start,
             kortex_vfs::kortex_vfs_stop,
             kortex_vfs::kortex_vfs_status,
+            remote_bridge::remote_bridge_start,
+            remote_bridge::remote_bridge_stop,
+            remote_bridge::remote_bridge_status,
             hades_harness::kortex_correction_run,
             // ═══ Browser ═══
             browser::browser_open,
