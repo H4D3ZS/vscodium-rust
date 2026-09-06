@@ -45,6 +45,26 @@ export interface KvCacheOptions {
     proxy_host: string;
     /** Bind port for the proxy. */
     proxy_port: number;
+
+    /** Context-engine knobs. `undefined` = leave the backend default. */
+    /** Tool-schema compression (`KORTEX_HARNESS`). Big win for small local models. */
+    engine_harness?: boolean;
+    /** Tier 2 exact-match response cache (`KORTEX_TIER2`). */
+    engine_tier2?: boolean;
+    /** Message-boundary KV checkpoints (`KORTEX_KV_ANCHORS`). */
+    engine_kv_anchors?: boolean;
+}
+
+/** Read the persisted context-engine toggles (harness on by default). */
+export function kortexEngineToggles(): Pick<KvCacheOptions, 'engine_harness' | 'engine_tier2' | 'engine_kv_anchors'> {
+    const get = (k: string, def: boolean) => {
+        try { const v = localStorage.getItem(k); return v === null ? def : v === '1'; } catch { return def; }
+    };
+    return {
+        engine_harness: get('kortex.engine.harness', true),
+        engine_tier2: get('kortex.engine.tier2', false),
+        engine_kv_anchors: get('kortex.engine.anchors', false),
+    };
 }
 
 export interface KvCacheStats {
@@ -110,6 +130,7 @@ export function makeKvCacheOptions(baseDir: string, overrides: Partial<KvCacheOp
         ...DEFAULT_KV_CACHE_OPTS,
         index_dir: `${baseDir}/index`,
         slot_dir: `${baseDir}/slots`,
+        ...kortexEngineToggles(),
         ...overrides,
     };
 }

@@ -454,6 +454,9 @@ mod tests {
             model: test_identity(),
             match_policy: super::super::types::ModelMatchPolicy::SameModel,
             tier: super::super::types::CacheTier::Auto,
+            engine_harness: None,
+            engine_tier2: None,
+            engine_kv_anchors: None,
         }
     }
 

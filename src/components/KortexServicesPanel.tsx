@@ -118,6 +118,17 @@ export function KortexPanel() {
     };
     const sub: React.CSSProperties = { fontSize: 10, color: 'var(--vscode-descriptionForeground)', margin: '2px 0 8px 14px' };
 
+    const engToggle = (key: string, label: string, def: boolean) => {
+        const cur = (() => { try { const v = localStorage.getItem(key); return v === null ? def : v === '1'; } catch { return def; } })();
+        return (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, cursor: 'pointer' }}>
+                <input type="checkbox" defaultChecked={cur}
+                    onChange={(e) => { try { localStorage.setItem(key, e.target.checked ? '1' : '0'); } catch { /* */ } }} />
+                {label}
+            </label>
+        );
+    };
+
     const svc = (
         on: boolean, name: string, port: number | string | null,
         note: string, actions: React.ReactNode,
@@ -148,6 +159,13 @@ export function KortexPanel() {
                     ? <button style={btn} onClick={stopKv} disabled={!!busy}>Stop</button>
                     : <button style={btn} onClick={startKv} disabled={!!busy}>{busy === 'kv' ? '…' : 'Start'}</button>,
             )}
+
+            <div style={{ margin: '0 0 8px 14px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div style={{ fontSize: 10, opacity: 0.6 }}>Context engine (applies on next KV-cache start):</div>
+                {engToggle('kortex.engine.harness', 'Tool-schema compression', true)}
+                {engToggle('kortex.engine.tier2', 'Exact-match response cache', false)}
+                {engToggle('kortex.engine.anchors', 'Message-boundary KV anchors', false)}
+            </div>
 
             {svc(
                 !!vfs?.running, 'VFS daemon', vfs?.port ?? null,

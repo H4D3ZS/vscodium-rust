@@ -167,6 +167,20 @@ pub struct KvCacheOptions {
     /// deserialize (they resolve to Auto).
     #[serde(default)]
     pub tier: CacheTier,
+
+    // ── Kortex context-engine knobs. `None` = leave the env var alone (use its
+    //    default); `Some(b)` = force it. Applied by `kortex_kvcache_start`
+    //    before the proxy reads its config. ──
+    /// Tool-schema compression (Hermes-style compact signatures + `expand`).
+    /// `KORTEX_HARNESS`. Big win for small local models; safe.
+    #[serde(default)]
+    pub engine_harness: Option<bool>,
+    /// Tier 2 exact-match response cache. `KORTEX_TIER2`.
+    #[serde(default)]
+    pub engine_tier2: Option<bool>,
+    /// Message-boundary KV checkpoints. `KORTEX_KV_ANCHORS`.
+    #[serde(default)]
+    pub engine_kv_anchors: Option<bool>,
 }
 
 /// Which caching mechanism the proxy uses for a given upstream. Chosen either
@@ -269,6 +283,9 @@ impl Default for KvCacheOptions {
             model: ModelIdentity::default(),
             match_policy: ModelMatchPolicy::default(),
             tier: CacheTier::default(),
+            engine_harness: None,
+            engine_tier2: None,
+            engine_kv_anchors: None,
         }
     }
 }
