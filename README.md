@@ -20,10 +20,14 @@ native process, not an Electron main thread.
   - **KV-slot cache** (`:1537`) — an in-process reverse proxy in front of the
     backend that skips re-prefilling repeated prompt prefixes (KDKVC). Opt-in:
     the *Kortex Services* panel's **Start** button, or `kvcache.autostart=1`.
-  - **AIM retrieval proxy** (`:1536`) — an in-process router (`aim-proxy`) that
-    injects `.aim` workspace context into prompts. **Experimental, off by
-    default** — it needs a verified `.aim` catalog or it can feed models bad
-    context.
+  - **AIM retrieval proxy** (`:1536`) — an in-process router (`aim-proxy`).
+    On Start it builds a dense `.aim` catalog of the workspace (via the
+    Lemonade embedder), then embeds each request's last user turn, searches
+    the catalog, and prepends only the chunks that clear the gate — so the
+    model gets *less, more relevant* context instead of the whole repo.
+    Falls back to a plain pass-through if the catalog is empty or a search
+    overruns its latency budget. Opt-in (panel **Start**, or
+    `kortex.retrieval.autostart=1`).
   - **VFS daemon** (`:1538`) — a sidecar process managing `.aim` memory and file
     watching. Auto-starts on boot.
 - **Agentic by default** — multi-turn tool loop with verify-before-done, a shadow

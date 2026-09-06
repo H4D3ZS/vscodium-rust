@@ -8,6 +8,11 @@ import {
 } from '../kortex/kvcache-orchestrator';
 
 interface SvcStatus { running: boolean; port: number | null }
+interface RetrievalStatus extends SvcStatus {
+    catalog_active?: boolean;
+    chunks?: number;
+    catalog_dir?: string | null;
+}
 
 /**
  * Kortex services — the three local processes the README describes.
@@ -30,17 +35,32 @@ export function KortexPanel() {
         try { await invoke('set_lemonade_url', { url: clean }); } catch { /* engine offline */ }
     }, [setInferenceUrl, setLemonadeUrl]);
 
-    const [retrieval, setRetrieval] = useState<SvcStatus | null>(null);
+    const [retrieval, setRetrieval] = useState<RetrievalStatus | null>(null);
     const [vfs, setVfs] = useState<SvcStatus | null>(null);
     const [kv, setKv] = useState<RunningCacheInfo | null>(null);
     const [kvStats, setKvStats] = useState<KvCacheStats | null>(null);
     const [busy, setBusy] = useState('');
     const [error, setError] = useState('');
+    const [indexMsg, setIndexMsg] = useState('');
+
+    useEffect(() => {
+        let un: (() => void) | undefined;
+        import('@tauri-apps/api/event').then(({ listen }) =>
+            listen<Record<string, unknown>>('aim-index-progress', (e) => {
+                const p = e.payload;
+                if (p.status === 'indexing') setIndexMsg(`indexing… ${p.files ?? 0} files, ${p.chunks ?? 0} chunks`);
+                else if (p.status === 'complete') setIndexMsg(`indexed ${p.files_indexed ?? 0} files in ${Math.round(Number(p.elapsed_secs ?? 0))}s`);
+                else if (p.status === 'started') setIndexMsg('building catalog…');
+                else if (p.status === 'error') setIndexMsg(`catalog build failed: ${p.error ?? ''}`);
+            }).then((u) => { un = u; }),
+        );
+        return () => { un?.(); };
+    }, []);
 
     const refresh = useCallback(async () => {
         try {
             const [r, v, k] = await Promise.all([
-                invoke<SvcStatus>('kortex_retrieval_status').catch(() => null),
+                invoke<RetrievalStatus>('kortex_retrieval_status').catch(() => null),
                 invoke<SvcStatus>('kortex_vfs_status').catch(() => null),
                 getKvCacheStatus().catch(() => null),
             ]);
@@ -139,10 +159,21 @@ export function KortexPanel() {
 
             {svc(
                 !!retrieval?.running, 'AIM retrieval proxy', retrieval?.port ?? null,
-                'Experimental — injects .aim workspace context into prompts. Off by default: needs a verified .aim catalog or it can feed models bad context.',
                 retrieval?.running
-                    ? <button style={btn} onClick={() => run('ret', () => invoke('kortex_retrieval_stop'))} disabled={!!busy}>Stop</button>
-                    : <button style={btn} onClick={() => run('ret', () => invoke('kortex_retrieval_start'))} disabled={!!busy}>{busy === 'ret' ? '…' : 'Start'}</button>,
+                    ? (retrieval.catalog_active
+                        ? `Active — ${retrieval.chunks ?? 0} chunks. Injects only the relevant .aim slices, shrinking every prompt.`
+                        : `Pass-through — no usable catalog. Hit "Rebuild".`)
+                    : (indexMsg || 'Injects relevant .aim workspace context into prompts so the model gets less, better context. Builds a dense catalog from the workspace on first Start.'),
+                <div style={{ display: 'flex', gap: 6 }}>
+                    {retrieval?.running && (
+                        <button style={btn} onClick={() => run('ret', () => invoke('kortex_retrieval_start', { rebuild: true }))} disabled={!!busy} title="Re-index the workspace">
+                            {busy === 'ret' ? '…' : 'Rebuild'}
+                        </button>
+                    )}
+                    {retrieval?.running
+                        ? <button style={btn} onClick={() => run('ret', () => invoke('kortex_retrieval_stop'))} disabled={!!busy}>Stop</button>
+                        : <button style={btn} onClick={() => run('ret', () => invoke('kortex_retrieval_start'))} disabled={!!busy}>{busy === 'ret' ? '…' : 'Start'}</button>}
+                </div>,
             )}
         </div>
     );

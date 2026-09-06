@@ -164,6 +164,16 @@ export async function bootstrapOfflineCyberStack(opts?: { heavy?: boolean }): Pr
         }
     }
 
+    // Opt-in: bring up the AIM retrieval proxy (:1536) now that the workspace
+    // root + backend are known. It builds a dense .aim catalog on first run.
+    let retrievalAutostart = false;
+    try { retrievalAutostart = localStorage.getItem('kortex.retrieval.autostart') === '1'; } catch { /* */ }
+    if (retrievalAutostart && store.activeRoot) {
+        void invoke('kortex_retrieval_start', { root: store.activeRoot })
+            .then((port) => console.log(`[offline-cyber] AIM retrieval proxy on :${port}`))
+            .catch((e) => console.warn('[offline-cyber] AIM retrieval autostart skipped:', e));
+    }
+
     const currentModel = (store.agentModel || '').trim();
     if (!currentModel && store.inferenceBackend === 'lemonade') {
         try {

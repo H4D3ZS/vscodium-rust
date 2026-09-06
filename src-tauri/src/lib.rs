@@ -538,20 +538,14 @@ pub fn run() {
                 }
             });
 
-            // ═══ Kortex retrieval proxy — DISABLED until MmapIndex is verified ═══
-            // The proxy auto-starts and injects .aim context into all AI requests.
-            // If the catalog is corrupted or the mmap index has wrong offsets, it
-            // injects garbage that breaks ALL models (slash output loops).
-            // Re-enable once MmapIndex is verified with a real .aim catalog.
-            //
-            // tauri::async_runtime::spawn(async {
-            //     let handle = app.handle().clone();
-            //     tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
-            //     match crate::kortex_retrieval::kortex_retrieval_start(handle).await {
-            //         Ok(port) => println!("[boot] kortex retrieval auto-started on :{port}"),
-            //         Err(e) => eprintln!("[boot] kortex retrieval auto-start skipped: {e}"),
-            //     }
-            // });
+            // ═══ Kortex retrieval proxy (:1536) ═══
+            // Not auto-started: it augments *every* AI request with .aim context,
+            // and a bad catalog would inject noise. `kortex_retrieval_start` now
+            // builds a real libaim dense catalog from the workspace (via the
+            // Lemonade embedder) and reports `catalog_active`, so it's safe to
+            // turn on explicitly — the Kortex Services panel's Start button, or
+            // `kortex.retrieval.autostart=1` handled on the frontend after the
+            // workspace root + backend are known (they aren't yet, here).
 
             // Auto-start VFS daemon (3s delay, after retrieval proxy's 2s)
             {
