@@ -70,7 +70,6 @@
     "marked": "^18.0.5",
     "mermaid": "^11.17.2",
     "monaco-editor": "^0.55.1",
-    "ollama": "^0.6.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",

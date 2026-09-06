@@ -2,7 +2,7 @@
  * Qwen3-TTS Integration - Local Python TTS Server
  * 
  * Uses the local Qwen3-TTS Python package
- * Runs as a subprocess, no Ollama needed
+ * Runs as a subprocess, no the local backend needed
  * 
  * GitHub: https://github.com/QwenLM/Qwen3-TTS
  * 

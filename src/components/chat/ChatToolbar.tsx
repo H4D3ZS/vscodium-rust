@@ -63,7 +63,7 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
     const agentModel = useStore(state => state.agentModel);
     const setAgentModel = useStore(state => state.setAgentModel);
     const refreshAvailableModels = useStore(state => state.refreshAvailableModels);
-    const ollamaStatus = useStore(state => state.ollamaStatus);
+    const inferenceStatus = useStore(state => state.inferenceStatus);
 
     const [showModePicker, setShowModePicker] = useState(false);
     const [showModelPicker, setShowModelPicker] = useState(false);
@@ -128,7 +128,7 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 isLocal: !m.provider || m.provider.toLowerCase() === 'lemonade',
             };
         });
-        // Ollama-first: local installed models float to the top of the picker.
+        // the local backend-first: local installed models float to the top of the picker.
         return mapped.sort((a, b) => (a.isLocal === b.isLocal ? 0 : a.isLocal ? -1 : 1));
     }, [availableModels]);
 
@@ -204,7 +204,7 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                                 onClose={() => setShowModelPicker(false)}
                                 onRefresh={doRefreshModels}
                                 isRefreshing={isRefreshingModels}
-                                ollamaStatus={ollamaStatus}
+                                inferenceStatus={inferenceStatus}
                             />
                         </div>,
                         document.body,

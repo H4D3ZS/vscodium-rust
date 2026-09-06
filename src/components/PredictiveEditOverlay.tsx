@@ -104,7 +104,7 @@ const PredictiveEditOverlay: React.FC = () => {
             const autoSel = st.modelSelectionOfFeature?.['Autocomplete'];
             const modelOverride = autoSel?.modelName || st.agentModel || undefined;
             // Pass the active backend so qwen/llama-style Lemonade model names
-            // aren't misrouted to Ollama by backend name-sniffing.
+            // aren't misrouted to the local backend by backend name-sniffing.
             const provider = autoSel?.providerName
                 || st.inferenceBackend
                 || localStorage.getItem('inferenceBackend')

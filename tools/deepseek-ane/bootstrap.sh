@@ -39,12 +39,12 @@ set -euo pipefail
 # Sanity: this script is Mac-only and arm64 only.
 if [[ "$(uname -s)" != "Darwin" ]]; then
     echo " This script is for macOS (Apple Silicon) only."
-    echo "   On other platforms, use the Ollama or cloud DeepSeek provider instead."
+    echo "   On other platforms, use Lemonade or the cloud DeepSeek provider instead."
     exit 1
 fi
 if [[ "$(uname -m)" != "arm64" ]]; then
     echo " Detected $(uname -m). DeepSeek-ANE requires Apple Silicon (arm64)."
-    echo "   On Intel Macs use Ollama or the cloud DeepSeek provider instead."
+    echo "   On Intel Macs use Lemonade or the cloud DeepSeek provider instead."
     exit 1
 fi
 

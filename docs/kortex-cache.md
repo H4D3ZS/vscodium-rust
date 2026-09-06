@@ -5,7 +5,7 @@
 
 Make Kortex reduce redundant local-inference work for **all** the backends our
 users actually run — llama.cpp, Lemonade (AMD, both llamacpp and Ryzen-AI/NPU
-recipes), and Ollama — not just raw llama.cpp.
+recipes) — not just raw llama.cpp.
 
 The real problem we are attacking: self-hosted agent loops re-send and re-process
 the **same large prompt prefix** (system prompt + tool catalog + conversation
@@ -42,7 +42,6 @@ that plainly so the real win isn't oversold into something reviewers dismiss.
 | llama.cpp (`llama-server`) | yes | yes (with `--slot-save-path`) | yes (in-mem) | **Tier 1** |
 | Lemonade — `llamacpp` recipe | yes* | yes* (if launched with flag) | yes | **Tier 1** (detect) |
 | Lemonade — `ryzenai-llm` / NPU | no | no | backend-specific | **Tier 2** only |
-| Ollama | no external slot API | **no** | yes (automatic, in-mem, lost on swap/restart) | **Tier 2** only |
 
 `*` = capability must be probed at runtime, not assumed.
 
@@ -62,8 +61,8 @@ detection** that routes each backend to the best tier it supports.
                  └─────────────────────────────────────────────┘
 ```
 
-- **Tier 0 — Residency** (already in `ollama_offload.rs`): tune `keep_alive` and
-  `OLLAMA_MAX_LOADED_MODELS` so weights don't get evicted/reloaded between turns.
+- **Tier 0 — Residency** (`gpu_offload.rs`): tune `keep_alive` so weights don't
+  get evicted/reloaded between turns.
   Provider-agnostic policy already exists; this tier is "don't make it worse."
 - **Tier 1 — KV-slot reuse** (existing KDKVC): the deepest win — skips prefill of
   the matched prefix. Only where slot-save is detected. **No redesign needed**;
@@ -72,7 +71,7 @@ detection** that routes each backend to the best tier it supports.
   When an identical prompt prefix **and** identical sampling params recur, serve
   the previously produced completion without calling the model at all. Doesn't
   skip prefill mid-generation like Tier 1 — it eliminates the whole call. This is
-  what finally helps Ollama and NPU users.
+  what finally helps local-server and NPU users.
 
 ## 5. Capability detection
 
@@ -168,7 +167,7 @@ A visible number is what turns an invisible optimization into trust.
 | 4 | Tier 2 streaming replay + `x-kortex-cache` header | **done (v1)** (2026-09-06) — SSE stored raw + replayed byte-for-byte as one chunk (re-timed chunk list deferred) |
 | 5 | Determinism gating + `cache_nondeterministic` opt-in | **done** (2026-09-06) — `temp==0`/`seed` gate in `key_for`; `KORTEX_TIER2_NONDETERMINISTIC=1` opt-in |
 | 6 | Config surface + KortexInferencePanel stats/tier badge | **partial** (2026-09-06) — Tier 2 + anchor counters folded into `KvCacheStats` by `kortex_kvcache_stats` and shown by `summarizeKvCache`; a dedicated tier badge / env-toggle UI is still todo |
-| 7 | Ollama end-to-end validation; Lemonade (both recipes) validation | todo |
+| 7 | Lemonade (both recipes) end-to-end validation | todo |
 
 **Also landed 2026-09-06 (not in the original plan):** `kortex_harness` —
 deterministic tool-schema compression (Hermes-style compact signatures + an
@@ -179,9 +178,9 @@ request path and the native agent loop. See
 Each milestone lands with unit tests in the `store`/`proxy` test modules (the project's first-real-tests-here precedent).
 
 ## 11. Non-goals / honest limitations
-- Not modifying Ollama or contributing slot-save upstream (out of scope; huge).
+- Not contributing slot-save upstream (out of scope; huge).
 - Tier 2 does not reduce first-time cost — only repeats. Cold prompts still pay
-  full price on Ollama/NPU.
+  full price on a raw server / NPU.
 - Semantic (fuzzy) caching is explicitly **out** for v1: near-match serving is a
   correctness minefield. Exact-key only.
 - No cross-user/shared network cache — local disk only, same trust boundary as

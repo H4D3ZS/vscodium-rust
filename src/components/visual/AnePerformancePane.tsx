@@ -37,7 +37,7 @@ const AnePerformancePane: React.FC = () => {
     const [isRunning, setIsRunning] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [deviceMode, setDeviceMode] = useState<'ANE' | 'CPU' | 'GPU'>('ANE');
-    const [ollamaModels, setOllamaModels] = useState<any[]>([]);
+    const [localModels, setLocalModels] = useState<any[]>([]);
 
     const runBenchmark = async () => {
         setIsRunning(true);
@@ -63,16 +63,16 @@ const AnePerformancePane: React.FC = () => {
     };
 
     // Loaded-model list comes straight from Lemonade's health endpoint; there is
-    // no Rust command for it (the old `get_ollama_ps` went with Ollama).
-    const fetchOllamaPs = async () => {
+    // no Rust command for it (the old `get_model_ps` went with the local backend).
+    const fetchModelPs = async () => {
         try {
             const base = localStorage.getItem('provider.lemonade.url') || 'http://127.0.0.1:13305';
             const res = await fetch(`${base.replace(/\/$/, '')}/api/v1/health`);
             const data: any = await res.json();
-            setOllamaModels(Array.isArray(data?.all_models_loaded) ? data.all_models_loaded : []);
+            setLocalModels(Array.isArray(data?.all_models_loaded) ? data.all_models_loaded : []);
         } catch (e) {
             console.error('Failed to fetch loaded Lemonade models:', e);
-            setOllamaModels([]);
+            setLocalModels([]);
         }
     };
 
@@ -84,8 +84,8 @@ const AnePerformancePane: React.FC = () => {
 
     useEffect(() => {
         if (deviceMode === 'GPU') {
-            fetchOllamaPs();
-            const interval = setInterval(fetchOllamaPs, 3000);
+            fetchModelPs();
+            const interval = setInterval(fetchModelPs, 3000);
             return () => clearInterval(interval);
         }
     }, [deviceMode]);
@@ -217,14 +217,14 @@ const AnePerformancePane: React.FC = () => {
                     </div>
                 )}
 
-                {deviceMode === 'GPU' && ollamaModels.length > 0 && (
+                {deviceMode === 'GPU' && localModels.length > 0 && (
                     <div style={{ marginTop: '16px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px' }}>
                         <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.5, marginBottom: '8px', display: 'flex', alignItems: 'center' }}>
                             <i className="codicon codicon-layers" style={{ marginRight: '6px' }}></i>
-                            Active Ollama Models
+                            Active local models
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {ollamaModels.map((model, i) => {
+                            {localModels.map((model, i) => {
                                 const vramGB = (model.size_vram / (1024 * 1024 * 1024)).toFixed(1);
                                 const totalGB = (model.size / (1024 * 1024 * 1024)).toFixed(1);
                                 const gpuPct = model.size > 0 ? Math.round((model.size_vram / model.size) * 100) : 0;

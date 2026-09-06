@@ -12,7 +12,7 @@ const PERSONAS: { id: Persona; title: string; desc: string; mode: string; modelH
         title: 'Software engineer',
         desc: 'Ship features with the engineering harness loop.',
         mode: 'Harness',
-        modelHint: 'Local: `ollama pull gemma4:12b` — strong SWE + agentic on 16 GB. Cloud: Cyber-Ifrit or BugTraceAI.',
+        modelHint: 'Local: load a strong SWE/agentic model (~16 GB) into your local server. Cloud: Cyber-Ifrit or BugTraceAI.',
     },
     {
         id: 'bounty',
@@ -26,7 +26,7 @@ const PERSONAS: { id: Persona; title: string; desc: string; mode: string; modelH
         title: 'ML / PyTorch',
         desc: 'Local training + agent-assisted notebooks.',
         mode: 'Agent',
-        modelHint: 'Local Ollama or cloud — open ML Studio from the activity bar.',
+        modelHint: 'A local backend or cloud — open ML Studio from the activity bar.',
     },
 ];
 
@@ -72,12 +72,12 @@ const AgentSetupWizard: React.FC = () => {
     if (!open) return null;
 
     return (
-        <div className="ollama-wizard-overlay" role="dialog" aria-modal="true" aria-labelledby="agent-setup-title">
-            <div className="ollama-wizard-card">
-                <header className="ollama-wizard-header">
-                    <span className="ollama-wizard-badge">Enterprise-ready agent IDE</span>
+        <div className="agent-wizard-overlay" role="dialog" aria-modal="true" aria-labelledby="agent-setup-title">
+            <div className="agent-wizard-card">
+                <header className="agent-wizard-header">
+                    <span className="agent-wizard-badge">Enterprise-ready agent IDE</span>
                     <h2 id="agent-setup-title">How the agent works</h2>
-                    <p className="ollama-wizard-sub">
+                    <p className="agent-wizard-sub">
                         Three separate knobs — do not mix them up:
                         <strong> Mode</strong> (behavior) · <strong> Model</strong> (which LLM) ·{' '}
                         <strong> Antigravity</strong> (mission memory on disk, not a model name).
@@ -85,26 +85,26 @@ const AgentSetupWizard: React.FC = () => {
                 </header>
 
                 {step === 'persona' && (
-                    <div className="ollama-wizard-body">
+                    <div className="agent-wizard-body">
                         <p style={{ fontSize: 12, opacity: 0.75, marginBottom: 10 }}>What are you here to do?</p>
-                        <div className="ollama-wizard-models">
+                        <div className="agent-wizard-models">
                             {PERSONAS.map((p) => (
                                 <button
                                     key={p.id}
                                     type="button"
-                                    className={`ollama-wizard-model${persona === p.id? ' is-selected': ''}`}
+                                    className={`agent-wizard-model${persona === p.id? ' is-selected': ''}`}
                                     onClick={() => setPersona(p.id)}
                                 >
-                                    <span className="ollama-wizard-model-name">{p.title}</span>
-                                    <span className="ollama-wizard-model-desc">{p.desc}</span>
+                                    <span className="agent-wizard-model-name">{p.title}</span>
+                                    <span className="agent-wizard-model-desc">{p.desc}</span>
                                 </button>
                             ))}
                         </div>
-                        <div className="ollama-wizard-actions">
-                            <button type="button" className="ollama-wizard-primary" onClick={() => setStep('explain')}>
+                        <div className="agent-wizard-actions">
+                            <button type="button" className="agent-wizard-primary" onClick={() => setStep('explain')}>
                                 Continue
                             </button>
-                            <button type="button" className="ollama-wizard-ghost" onClick={dismiss}>
+                            <button type="button" className="agent-wizard-ghost" onClick={dismiss}>
                                 Skip
                             </button>
                         </div>
@@ -112,24 +112,24 @@ const AgentSetupWizard: React.FC = () => {
                 )}
 
                 {step === 'explain' && (
-                    <div className="ollama-wizard-body">
-                        <ul className="ollama-wizard-list">
+                    <div className="agent-wizard-body">
+                        <ul className="agent-wizard-list">
                             <li>
                                 <strong>Mode → {chosen.mode}</strong> — set in the chat toolbar pill (Bug Bounty, Harness, Sentient…).
                             </li>
                             <li>
-                                <strong>Model</strong> — second pill in chat; must be a real Ollama/Cyber-Ifrit model.
+                                <strong>Model</strong> — second pill in chat; must be a real local or Cyber-Ifrit model.
                             </li>
                             <li>{chosen.modelHint}</li>
                             <li>
                                 <strong>YOLO / AUTO</strong> — auto-approve tools during autonomous runs (on for Bug Bounty).
                             </li>
                         </ul>
-                        <div className="ollama-wizard-actions">
-                            <button type="button" className="ollama-wizard-primary" onClick={() => void finish()}>
+                        <div className="agent-wizard-actions">
+                            <button type="button" className="agent-wizard-primary" onClick={() => void finish()}>
                                 Set mode to {chosen.mode} &amp; start
                             </button>
-                            <button type="button" className="ollama-wizard-ghost" onClick={() => setStep('persona')}>
+                            <button type="button" className="agent-wizard-ghost" onClick={() => setStep('persona')}>
                                 Back
                             </button>
                         </div>
@@ -137,8 +137,8 @@ const AgentSetupWizard: React.FC = () => {
                 )}
 
                 {step === 'done' && (
-                    <div className="ollama-wizard-body ollama-wizard-center">
-                        <p className="ollama-wizard-success">
+                    <div className="agent-wizard-body agent-wizard-center">
+                        <p className="agent-wizard-success">
                              Mode set to <strong>{chosen.mode}</strong> — open chat with <kbd>Ctrl+L</kbd>, pick a model, send a mission.
                         </p>
                     </div>

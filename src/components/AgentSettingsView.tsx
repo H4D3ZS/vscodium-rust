@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
-import { CYBERIFRIT_CLOUD_OLLAMA_URL } from '../store/inferenceSlice';
+import { CYBERIFRIT_CLOUD_INFERENCE_URL } from '../store/inferenceSlice';
 import { classifyModels, modelKey } from '../model_capabilities';
 import { WORKSTATION_PRESETS, applyWorkstationPreset } from '../lib/workstationPresets';
 import { COMPOSER2_BLOG_URL, COMPOSER2_STACKS, applyComposer2Stack } from '../lib/composer2Stack';
@@ -44,17 +44,17 @@ function isMaskedApiKey(value?: string): boolean {
 }
 
 const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHeader }) => {
-    const ollamaUrl = useStore(state => state.ollamaUrl);
+    const inferenceUrl = useStore(state => state.inferenceUrl);
     // Cursor-style server mode picker (Local / Auto / Remote). The new
-    // picker replaces the legacy "AIM Proxy vs Direct Ollama" port toggle
+    // picker replaces the legacy "AIM Proxy vs Direct the local backend" port toggle
     // in the day-to-day UX. The legacy setters are still exported from
     // the store for any callers that haven't migrated yet, but this
     // component drives the new flow only.
-    const ollamaServerMode = useStore(state => state.ollamaServerMode);
-    const setOllamaServerMode = useStore(state => state.setOllamaServerMode);
-    const customOllamaUrl = useStore(state => state.customOllamaUrl);
-    const setCustomOllamaUrl = useStore(state => state.setCustomOllamaUrl);
-    const ollamaStatus = useStore(state => state.ollamaStatus);
+    const inferenceServerMode = useStore(state => state.inferenceServerMode);
+    const setInferenceServerMode = useStore(state => state.setInferenceServerMode);
+    const customInferenceUrl = useStore(state => state.customInferenceUrl);
+    const setCustomInferenceUrl = useStore(state => state.setCustomInferenceUrl);
+    const inferenceStatus = useStore(state => state.inferenceStatus);
     const refreshModels = useStore(state => state.refreshAvailableModels);
     const agentModel = useStore(state => state.agentModel);
     const setAgentModel = useStore(state => state.setAgentModel);
@@ -71,7 +71,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
     const listMcpServers = useStore(state => state.listMcpServers);
     const setMcpServerEnabled = useStore(state => state.setMcpServerEnabled);
     const isPullingModel = useStore(state => state.isPullingModel);
-    const pullOllamaModel = useStore(state => state.pullOllamaModel);
+    const pullLocalModel = useStore(state => state.pullLocalModel);
     const avatarCharacter = useStore(state => state.avatarCharacter);
     const setAvatarCharacter = useStore(state => state.setAvatarCharacter);
     const avatarCustomConfig = useStore(state => state.avatarCustomConfig);
@@ -81,12 +81,12 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
     const showVrmAvatar = useStore(state => state.showVrmAvatar);
     const setShowVrmAvatar = useStore(state => state.setShowVrmAvatar);
     const [pullInput, setPullInput] = useState('');
-    /**Raw bearer for nginx-proxied Ollama; persisted in api_keys.json as `ollama`. */
-    const [ollamaBearerDraft, setOllamaBearerDraft] = useState('');
-    const [ollamaBearerSaved, setOllamaBearerSaved] = useState(false);
-    const [ollamaBearerStatus, setOllamaBearerStatus] = useState<'idle' | 'saving' | 'ok' | 'error'>('idle');
+    /**Raw bearer for nginx-proxied the local backend; persisted in api_keys.json as `the local backend`. */
+    const [inferenceBearerDraft, setInferenceBearerDraft] = useState('');
+    const [inferenceBearerSaved, setInferenceBearerSaved] = useState(false);
+    const [inferenceBearerStatus, setInferenceBearerStatus] = useState<'idle' | 'saving' | 'ok' | 'error'>('idle');
 
-    interface OllamaDiagnostic {
+    interface InferenceDiagnostic {
         ok: boolean;
         url: string;
         endpoint: string;
@@ -105,7 +105,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
     const ttsStrategy = useStore(state => state.ttsStrategy);
     const setTtsStrategy = useStore(state => state.setTtsStrategy);
 
-    const syncOllamaEndpoint = useStore(state => state.syncOllamaEndpoint);
+    const syncInferenceEndpoint = useStore(state => state.syncInferenceEndpoint);
 
 
     // AI Avatar Characters
@@ -137,7 +137,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
         alibaba: '',
         nvidia: '',
         elevenlabs: '',
-        ollama: '',
+        localBearer: '',
         openai_base_url: '',
         anthropic_base_url: '',
         google_base_url: '',
@@ -199,7 +199,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         alibaba: (keys as any).alibaba? '********' + String((keys as any).alibaba).slice(-4): '',
                         nvidia: (keys as any).nvidia? '********' + String((keys as any).nvidia).slice(-4): '',
                         elevenlabs: (keys as any).elevenlabs_api_key? '••••••••' + ((keys as any).elevenlabs_api_key.slice(-4)): '',
-                        ollama: (keys as any).ollama? '••••••••' + String((keys as any).ollama).slice(-4): '',
+                        localBearer: (keys as any).localBearer? '••••••••' + String((keys as any).localBearer).slice(-4): '',
                         openai_base_url: (keys as any).openai_base_url || '',
                         anthropic_base_url: (keys as any).anthropic_base_url || '',
                         google_base_url: (keys as any).google_base_url || '',
@@ -219,8 +219,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                 // Load saved ElevenLabs voice ID
                 const savedVoiceId = (keys as any).elevenlabs_voice_id;
 
-                if ((keys as any).ollama && String((keys as any).ollama).length > 0) {
-                    setOllamaBearerSaved(true);
+                if ((keys as any).localBearer && String((keys as any).localBearer).length > 0) {
+                    setInferenceBearerSaved(true);
                 }
 
                 if (savedVoiceId) {
@@ -387,7 +387,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         }}>
                             <i className="codicon codicon-sparkle" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '32px', color: 'var(--vscode-editor-foreground, #fff)' }}></i>
                         </div>
-                        {ollamaStatus === 'running' && (
+                        {inferenceStatus === 'running' && (
                             <div style={{
                                 position: 'absolute', bottom: '-4px', right: '-4px',
                                 width: '16px', height: '16px', borderRadius: '50%',
@@ -406,7 +406,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             fontSize: '9px',
                             fontWeight: 700,
                             border: '1px solid rgba(255,255,255,0.1)',
-                            color: ollamaStatus === 'running'? '#4ade80': 'rgba(255,255,255,0.6)'
+                            color: inferenceStatus === 'running'? '#4ade80': 'rgba(255,255,255,0.6)'
                         }}>
                             {(agentModel.split('|').pop() || '').split(':')[0].toUpperCase()}
                         </div>
@@ -902,22 +902,22 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         </select>
 
                         {/* ── Hybrid deep-reasoning planner ── */}
-                        <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--vscode-dropdown-border)', opacity: ollamaServerMode === 'local'? 0.55: 1 }}>
-                            <label style={{ fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', cursor: ollamaServerMode === 'local'? 'not-allowed': 'pointer' }}>
+                        <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--vscode-dropdown-border)', opacity: inferenceServerMode === 'local'? 0.55: 1 }}>
+                            <label style={{ fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', cursor: inferenceServerMode === 'local'? 'not-allowed': 'pointer' }}>
                                 <input
                                     type="checkbox"
-                                    checked={plannerEnabled && ollamaServerMode !== 'local'}
-                                    disabled={ollamaServerMode === 'local'}
+                                    checked={plannerEnabled && inferenceServerMode !== 'local'}
+                                    disabled={inferenceServerMode === 'local'}
                                     onChange={(e) => setPlannerEnabled(e.target.checked)}
                                 />
                                 Hybrid planner (deep reasoning)
                             </label>
                             <div style={{ fontSize: '10px', opacity: 0.6, margin: '4px 0 8px 22px' }}>
-                                {ollamaServerMode === 'local'
-? 'Off for Local Ollama — single-model agent on your picked 4b–14b model (fastest on a desk PC). Enable Cloud or Self-Hosted GPU for hybrid plan→act.'
+                                {inferenceServerMode === 'local'
+? 'Off for a local single-model backend — single-model agent on your picked 4b–14b model (fastest on a desk PC). Enable Cloud or Self-Hosted GPU for hybrid plan→act.'
 : 'A stronger model plans & reasons (iteration 0), then the executor above carries out the plan and self-verifies with cargo check / typecheck.'}
                             </div>
-                            {plannerEnabled && ollamaServerMode !== 'local' && (
+                            {plannerEnabled && inferenceServerMode !== 'local' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginLeft: '22px' }}>
                                     <label style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                                         <input type="checkbox" checked={hybridAuto} onChange={(e) => setHybridAuto(e.target.checked)} />
@@ -927,7 +927,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                         <div style={{ fontSize: '10px', opacity: 0.7 }}>
                                             {(() => {
                                                 const pick = classifyModels(availableModels as any);
-                                                if (!pick.planner) return 'No models available — add a key or pull an Ollama model.';
+                                                if (!pick.planner) return 'No models available — add a key or load a local model.';
                                                 const plan = pick.planner.id;
                                                 const exec = pick.executor? pick.executor.id: agentModel.split('|').pop();
                                                 return `Auto: planner → ${plan}  ·  executor → ${exec}`;

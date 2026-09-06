@@ -13,12 +13,12 @@
 - **Local-First AI Development**— Run qwen3.5:12b (7B-12B models) entirely offline
 - **ANE Acceleration**— 2.5-3x faster token generation via Apple Neural Engine
 - **Memory Offload**— Fit 12b models in 8GB RAM by smart SSD caching
-- **Dynamic Model Selection**— Switch between Ollama models seamlessly
+- **Dynamic Model Selection**— Switch between local models seamlessly
 - **Native zsh Integration**— Use system terminal directly (no bundled shell)
 - **Fast Search**— ripgrep integration for instant codebase search
 
 ### AI Capabilities
-- **Chat & Code Generation**— Local Ollama-powered inference
+- **Chat & Code Generation**— Local llama.cpp-powered inference
 - **APEX Security Tools**— Red-team scanning, binary analysis, vulnerability detection
 - **Git Integration**— Stage, commit, push directly from IDE
 - **Code Patching**— Surgical SEARCH/REPLACE edits via shadow workspace
@@ -37,7 +37,7 @@
 ### Tech Stack
 - **Frontend:**React 19 + TypeScript + Vite + Monaco Editor
 - **Backend:**Rust + Tauri v2
-- **AI:**Local Ollama (qwen3.5:12b, mistral:7b, etc.)
+- **AI:**Local models (qwen3.5:12b, mistral:7b, etc.)
 - **Acceleration:**ANE (Apple Neural Engine)
 - **Search:**ripgrep + tree-sitter
 - **Memory:**memmap2 + SSD offloading
@@ -50,7 +50,7 @@
 - macOS 11+ on Apple Silicon (M1, M2, M3, M4)
 - 8GB RAM minimum (tested on 8GB)
 - 256GB SSD (for model cache)
-- Ollama running locally
+- A local model server running locally
 
 ### Installation
 
@@ -65,7 +65,7 @@
    - Launch from Applications
 
 3. **Setup**
-   - Pull models: `ollama pull qwen3.5:12b`
+   - Load models into your local server (e.g. qwen3.5:12b)
    - Open IDE → Settings → Model Selection → Auto-Detect
    - Enable ANE: Settings → ANE Acceleration → Enable
 

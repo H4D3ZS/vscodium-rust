@@ -86,7 +86,7 @@ const SpecsGenerator: React.FC = () => {
     const [projectName, setProjectName] = useState("");
     const [specs, setSpecs] = useState("// Define your project requirements here...\n\n# Project: \n\n## Core Logic\n- \n\n## Data Structures\n- \n");
     const [preferredProvider, setPreferredProvider] = useState('API Cloud');
-    const [ollamaModel, setOllamaModel] = useState('');
+    const [localModel, setLocalModel] = useState('');
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const setSpecsWizardStep = useStore(state => state.setSpecsWizardStep);
     const setCurrentSpecProjectId = useStore(state => state.setCurrentSpecProjectId);
@@ -98,11 +98,11 @@ const SpecsGenerator: React.FC = () => {
                 try {
                     const models = await invoke<string[]>("list_provider_models", { provider: 'lemonade' });
                     setAvailableModels(models);
-                    if (models.length > 0 && !ollamaModel) {
-                        setOllamaModel(models[0]);
+                    if (models.length > 0 && !localModel) {
+                        setLocalModel(models[0]);
                     }
                 } catch (e) {
-                    console.error("Failed to fetch Ollama models:", e);
+                    console.error("Failed to fetch local models:", e);
                 }
             };
             fetchModels();
@@ -120,7 +120,7 @@ const SpecsGenerator: React.FC = () => {
         setGuiding(true);
         const isLocal = preferredProvider.toLowerCase().includes('lemonade');
         const provider = isLocal? 'lemonade': 'google';
-        const model = isLocal? (ollamaModel || ''): 'gemini-2.0-flash';
+        const model = isLocal? (localModel || ''): 'gemini-2.0-flash';
         const ask = async (sys: string, user: string): Promise<string> => {
             const r = await invoke<string>('ai_chat_fast', {
                 request: {
@@ -158,7 +158,7 @@ const SpecsGenerator: React.FC = () => {
             const id = await invoke<number>("cmd_specs_create_project", {
                 name: projectName,
                 specs,
-                provider: preferredProvider.toLowerCase().includes('lemonade')? `lemonade:${ollamaModel}`: 'google'
+                provider: preferredProvider.toLowerCase().includes('lemonade')? `lemonade:${localModel}`: 'google'
             });
             setCurrentSpecProjectId(id);
             setSpecsWizardStep('status');
@@ -238,8 +238,8 @@ const SpecsGenerator: React.FC = () => {
                 {preferredProvider === 'Lemonade' && (
                     <div style={{ marginTop: '8px' }}>
                         <select
-                            value={ollamaModel}
-                            onChange={(e) => setOllamaModel(e.target.value)}
+                            value={localModel}
+                            onChange={(e) => setLocalModel(e.target.value)}
                             style={{
                                 width: '100%',
                                 padding: '8px 12px',

@@ -23,7 +23,7 @@ pub struct AttachmentManager {
     pub gist_injector: GistInjector,
     pub processing_lock: Mutex<()>,
     /// Base URL for the inference backend (local backends). Defaults to
-    /// `http://127.0.0.1:11434`; updated via `set_inference_url`.
+    /// `http://127.0.0.1:13305`; updated via `set_inference_url`.
     pub inference_url: Mutex<String>,
 }
 
@@ -32,7 +32,7 @@ impl AttachmentManager {
         Self {
             gist_injector: GistInjector::new(),
             processing_lock: Mutex::new(()),
-            inference_url: Mutex::new("http://127.0.0.1:11434".to_string()),
+            inference_url: Mutex::new("http://127.0.0.1:13305".to_string()),
         }
     }
 

@@ -381,7 +381,7 @@ const Workbench: React.FC = () => {
                     </div>
                 )}
 
-            {/* Ollama Progress Bar */}
+            {/* Inference Progress Bar */}
             
             <Suspense fallback={<PanelFallback />}><ComposerOverlay /></Suspense>
             <ToastManager />

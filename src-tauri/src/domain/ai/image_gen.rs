@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde_json::{json, Value};
 use std::path::Path;
 
-const DEFAULT_IMAGE_HOST: &str = "http://127.0.0.1:11434";
+const DEFAULT_IMAGE_HOST: &str = "http://127.0.0.1:13305";
 const DEFAULT_VISION_MODEL: &str = "llava";
 const DEFAULT_IMAGE_MODEL: &str = "x/flux2-klein";
 
@@ -19,21 +19,20 @@ fn env_any(names: &[&str], fallback: &str) -> String {
     fallback.to_string()
 }
 
-/// Resolve the image/vision backend URL. Set `KORTEX_IMAGE_HOST`
-/// (legacy `OLLAMA_HOST` / `OLLAMA_BASE_URL` still honoured), else the default.
+/// Resolve the image/vision backend URL. Set `KORTEX_IMAGE_HOST`, else the default.
 fn image_backend_base() -> String {
     env_any(
-        &["KORTEX_IMAGE_HOST", "OLLAMA_HOST", "OLLAMA_BASE_URL"],
+        &["KORTEX_IMAGE_HOST"],
         DEFAULT_IMAGE_HOST,
     )
 }
 
 fn vision_model() -> String {
-    env_any(&["KORTEX_VISION_MODEL", "OLLAMA_VISION_MODEL"], DEFAULT_VISION_MODEL)
+    env_any(&["KORTEX_VISION_MODEL"], DEFAULT_VISION_MODEL)
 }
 
 fn image_gen_model() -> String {
-    env_any(&["KORTEX_IMAGE_MODEL", "OLLAMA_IMAGE_MODEL"], DEFAULT_IMAGE_MODEL)
+    env_any(&["KORTEX_IMAGE_MODEL"], DEFAULT_IMAGE_MODEL)
 }
 
 /// Analyze an image with a local vision model (llava, moondream, etc.) over the

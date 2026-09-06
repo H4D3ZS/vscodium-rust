@@ -92,9 +92,9 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
         if (typeof localStorage === 'undefined') return '';
         const saved = localStorage.getItem('agentModel') || '';
         const oldDefaults = new Set([
-            'Ollama|airi-fast:latest', 'Ollama|qwen3:35b', 'qwen3:35b',
+            'lemonade|airi-fast:latest', 'lemonade|qwen3:35b', 'qwen3:35b',
             'cyberifrit|qwen3:35b', 'cyberifrit|cyberifrit/qwen3:35b',
-            'huihui_ai/qwen2.5-coder-abliterate:7b', 'Ollama|huihui_ai/qwen2.5-coder-abliterate:7b',
+            'huihui_ai/qwen2.5-coder-abliterate:7b', 'lemonade|huihui_ai/qwen2.5-coder-abliterate:7b',
             // Legacy fake model — Antigravity is a workflow layer, not an LLM id.
             'Antigravity|antigravity-sentient', 'antigravity|antigravity-sentient',
         ]);
@@ -153,7 +153,7 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
         try { localStorage.setItem('agent.mode', agentMode); } catch { }
         set({ agentMode });
         onAgentModeChanged(agentMode);
-        // Bug-bounty / offensive mode auto-drives the dedicated local Ollama model
+        // Bug-bounty / offensive mode auto-drives the dedicated local the local backend model
         // `claude-bug-bounty` when it's installed — zero manual switching.
         const offensive = agentMode === 'BugBounty' || agentMode === 'Bug Bounty'
             || agentMode === 'RedTeam' || agentMode === 'Red Team';
@@ -172,7 +172,7 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
     setAgentModel: (agentModel) => {
         const stale = new Set(['antigravity|antigravity-sentient', 'Antigravity|antigravity-sentient']);
         if (stale.has(agentModel)) {
-            console.warn('[agent] antigravity-sentient is not a real model — pick Ollama/Cyber-Ifrit from the toolbar.');
+            console.warn('[agent] antigravity-sentient is not a real model — pick a local or Cyber-Ifrit model from the toolbar.');
             agentModel = '';
         }
         try { localStorage.setItem('agentModel', agentModel); } catch { }
@@ -188,13 +188,13 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
                 if (provider === 'lemonade' && g.inferenceBackend !== 'lemonade') setBackend('lemonade');
                 else if (provider === 'huggingface' && g.inferenceBackend !== 'huggingface') setBackend('huggingface');
                 else if (provider === 'openmodel' && g.inferenceBackend !== 'openmodel') setBackend('openmodel');
-                else if ((provider === 'ollama' || provider === 'antigravity') && g.inferenceBackend !== 'ollama') setBackend('ollama');
+                else if (provider === 'antigravity' && g.inferenceBackend !== 'lemonade') setBackend('lemonade');
             }
         } catch { /* non-fatal */ }
     },
     setPlannerModel: (plannerModel) => { try { localStorage.setItem('agent.plannerModel', plannerModel); } catch { } set({ plannerModel }); },
     setPlannerEnabled: (plannerEnabled) => {
-        if (get().ollamaServerMode === 'local') plannerEnabled = false;
+        if (get().inferenceServerMode === 'local') plannerEnabled = false;
         try { localStorage.setItem('agent.plannerEnabled', plannerEnabled ? '1' : '0'); } catch { }
         set({ plannerEnabled });
     },

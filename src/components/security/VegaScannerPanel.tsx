@@ -178,7 +178,7 @@ const VegaScannerPanel: React.FC = () => {
                         onChange={(e) => setAiTriage(e.target.checked)}
                     />
                     <span>
-                        Local-LLM triage — flag likely false positives (needs Ollama)
+                        Local-LLM triage — flag likely false positives (needs a local model)
                     </span>
                 </label>
 

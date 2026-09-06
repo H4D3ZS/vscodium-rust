@@ -399,15 +399,15 @@ pub async fn vision_sidecar_process_attachments(
 /// Fallback local inference URL used when the primary endpoint has no vision
 /// model. This is intentionally `127.0.0.1` (not `localhost`) to avoid DNS
 /// resolution delays on some systems.
-const LOCAL_OLLAMA: &str = "http://127.0.0.1:11434";
+const LOCAL_FALLBACK_HOST: &str = "http://127.0.0.1:13305";
 
 async fn resolve_vision_endpoint(primary: &str, bearer: &str) -> (Option<String>, String) {
     if let Some(m) = discover_best_vision_model(primary, bearer).await {
         return (Some(m), normalize_local_base(primary));
     }
-    let local = normalize_local_base(LOCAL_OLLAMA);
+    let local = normalize_local_base(LOCAL_FALLBACK_HOST);
     if normalize_local_base(primary) != local {
-        if let Some(m) = discover_best_vision_model(LOCAL_OLLAMA, "").await {
+        if let Some(m) = discover_best_vision_model(LOCAL_FALLBACK_HOST, "").await {
             return (Some(m), local);
         }
     }

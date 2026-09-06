@@ -16,7 +16,7 @@ export const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fiel
     { id: 'deepseek', label: 'DeepSeek', fields: ['apiKey'], keyUrl: 'https://platform.deepseek.com/api_keys', hint: 'DeepSeek V4-Pro — 1M ctx, ~120x cheaper cache hits, strong agent/coder' },
     { id: 'mimo', label: 'Xiaomi MiMo', fields: ['apiKey'], keyUrl: 'https://platform.xiaomimimo.com/', hint: 'MiMo v2.5-Pro — flat-rate Token Plan coding sub (3rd-party allowed)', baseUrlKey: 'mimo_base_url', baseUrlPlaceholder: 'https://api.xiaomimimo.com/v1' },
     { id: 'highwayapi', label: 'JieKou AI — Claude Opus 4.8', fields: ['apiKey'], keyUrl: 'https://jiekou.ai/', hint: 'Claude Opus 4.8 via JieKou AI / Highway API. Defaults to the documented OpenAI-compatible base when Base URL is blank.', baseUrlKey: 'highwayapi_base_url', baseUrlPlaceholder: 'https://api.highwayapi.ai/openai' },
-    { id: 'cyberifrit', label: 'Cyber-Ifrit Cloud', fields: ['apiKey', 'endpoint'], hint: 'Our hosted AMD MI300X Ollama. Auto-connects to ai.cyberifrit.xyz with your subscription — no key needed when signed in. OpenAI-compatible; type any model name you pulled (e.g. qwen2.5-coder:32b).', baseUrlKey: 'cyberifrit_base_url', baseUrlPlaceholder: 'https://ai.cyberifrit.xyz (default)' },
+    { id: 'cyberifrit', label: 'Cyber-Ifrit Cloud', fields: ['apiKey', 'endpoint'], hint: 'Our hosted AMD MI300X inference gateway. Auto-connects to ai.cyberifrit.xyz with your subscription — no key needed when signed in. OpenAI-compatible; type any model name you pulled (e.g. qwen2.5-coder:32b).', baseUrlKey: 'cyberifrit_base_url', baseUrlPlaceholder: 'https://ai.cyberifrit.xyz (default)' },
     { id: 'xAI', label: 'xAI / Grok', fields: ['apiKey'], keyUrl: 'https://console.x.ai/', hint: 'Grok 3 with 128K context' },
     { id: 'mistral', label: 'Mistral', fields: ['apiKey'], keyUrl: 'https://console.mistral.ai/api-keys/', hint: 'Codestral / Devstral — best local coding models' },
     { id: 'huggingface', label: 'Hugging Face (Free GLM-5.2)', fields: ['apiKey'], keyUrl: 'https://huggingface.co/settings/tokens', hint: 'Free GLM-5.2 via HF Router — OpenAI-compatible API', baseUrlKey: 'huggingface_base_url', baseUrlPlaceholder: 'https://router.huggingface.co/v1' },
@@ -278,7 +278,7 @@ export function ModelsPanel() {
                                         const [prov, ...rest] = v.split('|');
                                         setModelSel(feat, { providerName: prov as ProviderName, modelName: rest.join('|') });
 
-                                        // Auto-downgrade APEX models when Ollama (local) is selected
+                                        // Auto-downgrade APEX models when the local backend (local) is selected
                                         if (prov === 'lemonade') {
                                             try {
                                                 const { invoke } = await import('../../tauri_bridge');
@@ -504,8 +504,7 @@ export function ProvidersPanel() {
                         className="settings-input"
                         style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: 12 }}
                         placeholder={
-                            p.id === 'ollama'? 'http://127.0.0.1:13305' :
-                            p.id === 'lemonade'? 'http://127.0.0.1:13305' :
+                                                        p.id === 'lemonade'? 'http://127.0.0.1:13305' :
                             p.id === 'lmStudio'? 'http://127.0.0.1:1234' :
                             p.id === 'vLLM'? 'http://127.0.0.1:8000': 'http://127.0.0.1:4000'
                         }
@@ -580,7 +579,7 @@ export function CustomModesManager() {
             )}
             <input style={inputStyle} placeholder="Mode name (e.g. Architect)" value={label} onChange={e => setLabel(e.target.value)} />
             <textarea style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} placeholder="System prompt / persona for this mode…" value={prompt} onChange={e => setPrompt(e.target.value)} />
-            <input style={inputStyle} placeholder="Model override (optional, e.g. Ollama|qwen2.5-coder:7b)" value={model} onChange={e => setModel(e.target.value)} />
+            <input style={inputStyle} placeholder="Model override (optional, e.g. lemonade|qwen2.5-coder:7b)" value={model} onChange={e => setModel(e.target.value)} />
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, opacity: 0.8, marginTop: 8 }}>
                 <input type="checkbox" checked={readOnly} onChange={e => setReadOnly(e.target.checked)} />
                 Read-only (conversational, no file writes / single round-trip)
@@ -794,7 +793,7 @@ export function PrivacyPanel() {
                     <div>
                         <div style={{ fontSize: 13, fontWeight: 600, color: '#4ade80', marginBottom: 4 }}>100% Local by Default</div>
                         <div className="settings-row-description">
-                            All AI inference runs on your Ollama instance or direct API calls. No proxy servers. Your code stays on your machine. Cloud providers (Anthropic, OpenAI, etc.) only see what you explicitly send them via API calls.
+                            All AI inference runs on your local server or direct API calls. No proxy servers. Your code stays on your machine. Cloud providers (Anthropic, OpenAI, etc.) only see what you explicitly send them via API calls.
                         </div>
                     </div>
                 </div>

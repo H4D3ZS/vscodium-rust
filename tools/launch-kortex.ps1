@@ -1,7 +1,7 @@
 # Launch llama-server with Kortex GAC scheduling.
 #
 # Without arguments, this script:
-#   1. Locates the model under -ModelPath (defaults to C:\models\ollama-model.gguf).
+#   1. Locates the model under -ModelPath (defaults to C:\models\model.gguf).
 #   2. Looks for a `<model>.geometry.aim` profile next to it, or generates one
 #      via the IDE's Tauri kortex_gac_profile command.
 #   3. Plans tiers against the user's VRAM budget (-VramMb, default 8192 for
@@ -20,7 +20,7 @@
 # bytes that actually need it.
 
 param(
-    [string]$ModelPath = "C:\models\ollama-model.gguf",
+    [string]$ModelPath = "C:\models\model.gguf",
     [string]$ServerBinary = "llama-server.exe",
     [int]$VramMb = 8192,
     [double]$Theta = 0.85,

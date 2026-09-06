@@ -8,7 +8,7 @@ import { useStore } from '../store';
  */
 const LemonadeHealthDashboard: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const inferenceBackend = useStore(s => s.inferenceBackend);
-    const ollamaStatus = useStore(s => s.ollamaStatus);
+    const inferenceStatus = useStore(s => s.inferenceStatus);
     const lemonadeStatus = useStore(s => s.lemonadeStatus);
     const llamaCppStatus = useStore(s => s.llamaCppStatus);
     const availableModels = useStore(s => s.availableModels);

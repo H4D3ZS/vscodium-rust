@@ -17,7 +17,7 @@ pub async fn web_fetch(url: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn embed_text(text: String, model: Option<String>) -> Result<Vec<f32>, String> {
     // Delegates to the shared embedding client rather than calling the local backend
-    // directly. This used to POST to :11434 with the local backend's payload shape, which
+    // directly. This used to POST directly with a raw payload shape, which
     // on a Lemonade-only machine failed every call — taking AIRI's semantic
     // memory down with it, silently, since callers treat an error as "no match".
     crate::embeddings::embed_text_async(&text, model.as_deref()).await

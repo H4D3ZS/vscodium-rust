@@ -11,7 +11,7 @@ When analyzing this codebase:
 
 ## Project Structure
 - `kortex/` - Main Rust workspace with AI-interactive memory system
-  - `aim-proxy/` - Ollama MITM proxy (port 1536)
+  - `aim-proxy/` - local-inference MITM proxy (port 1536)
   - `neuraldrive/` - Tauri desktop app for 3D code visualization
   - `daemon/` - Memory management daemon
   - `vfs_layer/` - Virtual filesystem integration
@@ -19,12 +19,12 @@ When analyzing this codebase:
 
 ## Development Guidelines
 - Always build with `cargo build --release` from kortex root
-- The aim-proxy intercepts Ollama requests and injects compressed context
+- The aim-proxy intercepts local inference requests and injects compressed context
 - NeuralDrive mounts projects and generates .aim memory tokens
 - Token cost optimization: ~1 token per 50MB of project state via prefix caching
 
 ## Quick Start
-1. Start Ollama: `ollama serve`
+1. Start your local model server (Lemonade / llama-server)
 2. Start AIM-Proxy: `cd kortex && .\target\release\aim-proxy.exe`
 3. Configure AI client to use http://127.0.0.1:1536
 4. Launch NeuralDrive: `.\target\release\neuraldrive.exe`

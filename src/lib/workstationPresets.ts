@@ -1,5 +1,5 @@
 /**
- * One-click workstation presets — Composer-style "pick stack and go" for local Ollama.
+ * One-click workstation presets — Composer-style "pick stack and go" for local the local backend.
  */
 
 import { useStore } from '../store';
@@ -8,8 +8,8 @@ export interface WorkstationPreset {
   id: string;
   label: string;
   desc: string;
-  /** Ollama server mode */
-  ollamaMode: 'local' | 'remote';
+  /** the local backend server mode */
+  inferenceMode: 'local' | 'remote';
   /** When remote — host or full URL (port 13305 appended if missing) */
   remoteHost?: string;
   planner: string;
@@ -21,34 +21,34 @@ export const WORKSTATION_PRESETS: WorkstationPreset[] = [
   {
     id: 'amd-192',
     label: 'AMD 192 GB — Kimi + MiniMax',
-    desc: 'Remote Ollama on your GPU server. Planner: Kimi K2.6 · Executor: MiniMax M2.7',
-    ollamaMode: 'remote',
+    desc: 'Remote local backend on your GPU server. Planner: Kimi K2.6 · Executor: MiniMax M2.7',
+    inferenceMode: 'remote',
     remoteHost: '192.168.1.50',
-    planner: 'ollama|batiai/kimi-k2.6:iq3',
-    executor: 'ollama|batiai/minimax-m2.7:iq3',
+    planner: 'lemonade|batiai/kimi-k2.6:iq3',
+    executor: 'lemonade|batiai/minimax-m2.7:iq3',
     enableHybrid: true,
   },
   {
     id: 'laptop-16',
     label: 'Laptop 16 GB — Qwen Coder',
-    desc: 'Local Ollama. Single-model agent on qwen2.5-coder:14b',
-    ollamaMode: 'local',
+    desc: 'Local server. Single-model agent on qwen2.5-coder:14b',
+    inferenceMode: 'local',
     planner: '',
-    executor: 'ollama|qwen2.5-coder:14b',
+    executor: 'lemonade|qwen2.5-coder:14b',
     enableHybrid: false,
   },
   {
     id: 'mac-128',
     label: 'Mac 128 GB — MiniMax agent',
     desc: 'Local or remote. MiniMax M2.7 as primary agent',
-    ollamaMode: 'local',
+    inferenceMode: 'local',
     planner: '',
-    executor: 'ollama|batiai/minimax-m2.7:iq3',
+    executor: 'lemonade|batiai/minimax-m2.7:iq3',
     enableHybrid: false,
   },
 ];
 
-function normalizeRemoteOllamaUrl(hostOrUrl: string): string {
+function normalizeRemoteInferenceUrl(hostOrUrl: string): string {
   const raw = hostOrUrl.trim();
   if (!raw) return 'http://127.0.0.1:13305';
   if (raw.startsWith('http://') || raw.startsWith('https://')) return raw.replace(/\/$/, '');
@@ -61,16 +61,16 @@ export async function applyWorkstationPreset(
 ): Promise<void> {
   const st = useStore.getState();
 
-  if (preset.ollamaMode === 'remote') {
+  if (preset.inferenceMode === 'remote') {
     const host = remoteHostOverride?.trim() || preset.remoteHost || '';
     if (!host) throw new Error('Enter your server IP or URL first');
-    st.setCustomOllamaUrl?.(normalizeRemoteOllamaUrl(host));
-    await st.setOllamaServerMode?.('remote');
+    st.setCustomInferenceUrl?.(normalizeRemoteInferenceUrl(host));
+    await st.setInferenceServerMode?.('remote');
   } else {
-    await st.setOllamaServerMode?.('local');
+    await st.setInferenceServerMode?.('local');
   }
 
-  await st.syncOllamaEndpoint?.();
+  await st.syncInferenceEndpoint?.();
   st.setInferenceBackend?.('lemonade');
 
   st.setHybridAuto?.(preset.enableHybrid);

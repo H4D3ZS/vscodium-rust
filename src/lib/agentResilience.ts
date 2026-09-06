@@ -2,7 +2,7 @@
  * Agent Resilience — auto-reconnect, message queuing, and backend health
  * monitoring for bulletproof 24/7 offline AI agent operation.
  *
- * When the inference backend (Ollama/Lemonade) goes down, this module:
+ * When the inference backend (the local backend/Lemonade) goes down, this module:
  *  1. Queues outgoing messages for later delivery
  *  2. Probes the backend on an exponential-backoff schedule
  *  3. Replays queued messages when the backend recovers

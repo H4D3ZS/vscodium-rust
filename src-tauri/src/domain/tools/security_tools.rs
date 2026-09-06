@@ -237,10 +237,9 @@ impl AiTools {
     /// Best-effort list of locally-installed model tags (the local backend-style `/api/tags`).
     pub(crate) async fn list_local_model_tags(&self) -> Vec<String> {
         let base = std::env::var("KORTEX_IMAGE_HOST")
-            .or_else(|_| std::env::var("OLLAMA_HOST"))
             .ok()
             .map(|h| if h.starts_with("http") { h } else { format!("http://{}", h) })
-            .unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
+            .unwrap_or_else(|| "http://127.0.0.1:13305".to_string());
         let url = format!("{}/api/tags", base.trim_end_matches('/'));
         let client = match reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(4))

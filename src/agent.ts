@@ -1,6 +1,6 @@
 import { invoke, listen } from './tauri_bridge.ts';
 import { browserOpen, browserNavigate, browserScreenshot, browserClose } from './browser.ts';
-import { useStore, normalizeOllamaUrl } from './store.ts';
+import { useStore, normalizeInferenceUrl } from './store.ts';
 import { TaskManager, SubAgentManager } from './task_manager.ts';
 import type { PendingChange } from './store.ts';
 import {
@@ -22,7 +22,7 @@ import {
 } from './system_prompt.ts';
 import { getAimTrustManifest, queryAimSpans } from './kortex/aim-vfs';
 import { extractSearchReplaceBlocks, classifyModels, modelKey, isHeavyLocalModel } from './model_capabilities';
-import { hybridPlannerAllowed } from './lib/localOllamaAgentDefaults';
+import { hybridPlannerAllowed } from './lib/localAgentDefaults';
 import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentContent';
 // AIRI "sentient entity" layer removed. `Sentient` agent mode and its
 // consciousness/self-learning hooks are gone; these stubs keep the (now
@@ -46,16 +46,16 @@ let currentAgentMode = "Planning";
 const isHighwayApiModel = (model: unknown): boolean =>
     String(model || '').toLowerCase().includes('claude-opus-4-8');
 
-function isLocalOllamaHost(url: string): boolean {
+function isLocalInferenceHost(url: string): boolean {
     try {
-        const u = new URL(normalizeOllamaUrl(url));
+        const u = new URL(normalizeInferenceUrl(url));
         return u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '0.0.0.0';
     } catch {
         return true;
     }
 }
 
-function isManagedCloudOllama(url: string, serverMode?: string): boolean {
+function isManagedCloudInference(url: string, serverMode?: string): boolean {
     return serverMode === 'cloud' || /cyberifrit\.xyz/i.test(url);
 }
 
@@ -63,13 +63,13 @@ function isTauriDesktop(): boolean {
     return !!(window as any).__TAURI__;
 }
 
-/**Local Ollama: Rust probe in Tauri (Ollama blocks webview CORS). Browser dev: fetch. */
-async function probeOllamaEndpoint(
-    ollamaBase: string,
+/**Local the local backend: Rust probe in Tauri (the local backend blocks webview CORS). Browser dev: fetch. */
+async function probeInferenceEndpoint(
+    inferenceBase: string,
     serverMode?: string,
 ): Promise<{ ok: boolean; error: string }> {
-    const base = normalizeOllamaUrl(ollamaBase);
-    const isLocal = isLocalOllamaHost(base) && !isManagedCloudOllama(base, serverMode);
+    const base = normalizeInferenceUrl(inferenceBase);
+    const isLocal = isLocalInferenceHost(base) && !isManagedCloudInference(base, serverMode);
 
     if (isLocal && isTauriDesktop()) {
         try {
@@ -78,7 +78,7 @@ async function probeOllamaEndpoint(
             if (ok) return { ok: true, error: '' };
             return {
                 ok: false,
-                error: 'Ollama is not running — start Ollama Desktop or run `ollama serve` in a terminal.',
+                error: 'The local model server is not running — start Lemonade or your llama-server.',
             };
         } catch (e: any) {
             return { ok: false, error: e?.message || String(e) };
@@ -328,16 +328,16 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
                     label: `${m.id} (${providerLabel})`,
                     value: `${providerLabel}|${m.id}`,
                     desc: isLocal
-? (providerKey === 'antigravity'? 'Local AIM proxy (:1536)': 'Local Ollama')
+? (providerKey === 'antigravity'? 'Local AIM proxy (:1536)': 'Local model')
 : providerLabel,
                 });
             });
         });
     }
 
-    // Add local Ollama manual check if no models found (fallback)
+    // Add local the local backend manual check if no models found (fallback)
     if (!items.find(i => i.value.startsWith("Lemonade"))) {
-        items.push({ label: "Check Ollama", value: "action|check_ollama", desc: "Re-scan models on the configured Ollama URL (Settings → AI Agent Settings)" });
+        items.push({ label: "Check local models", value: "action|check_local_models", desc: "Re-scan models on the configured inference URL (Settings → AI Agent Settings)" });
     }
 
 
@@ -394,7 +394,7 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
             }
             return;
         }
-        if (val === "action|check_ollama") {
+        if (val === "action|check_local_models") {
             const store = (window as any).useStore;
             if (store) store.getState().refreshAvailableModels("lemonade");
             return;
@@ -962,7 +962,7 @@ async function buildWebUiAgentPrompt(userPrompt: string, provider: string): Prom
 }
 
 /**True when the active inference backend is a local OpenAI-compatible server
- *  (Ollama or llama-server/KDKVC) — use smaller history windows and stricter
+ *  (the local backend or llama-server/KDKVC) — use smaller history windows and stricter
  *  attachment limits. */
 function isLocalInferenceRoute(store: { getState: () => any }): boolean {
     const b = store.getState().inferenceBackend;
@@ -1079,12 +1079,12 @@ async function runConversationalFastChat(opts: {
     userPrompt: string;
     routingProvider: string;
     routingModel: string;
-    routingOllamaUrl: string;
+    routingInferenceUrl: string;
     inferenceBackend: string;
     context?: any[];
     onUpdate?: (msg: string) => void;
 }): Promise<boolean> {
-    const { store, userPrompt, routingProvider, routingModel, routingOllamaUrl, inferenceBackend, context = [], onUpdate } = opts;
+    const { store, userPrompt, routingProvider, routingModel, routingInferenceUrl, inferenceBackend, context = [], onUpdate } = opts;
     const storeState = store.getState();
     if (shouldForceFullAgentLoop(userPrompt, storeState, routingModel || storeState.agentModel || '')) return false;
     if (!isConversationalFastPathEligible(userPrompt, storeState)) return false;
@@ -1153,17 +1153,17 @@ async function runConversationalFastChat(opts: {
 
     console.log('[Agent] Fast single round-trip (early path)', { provider: routingProvider, model: chatModel });
 
-    let fastOllamaUrl = routingOllamaUrl;
-    // Composer-2 hybrid only rewrites the *Ollama* fast endpoint. Never apply it
-    // to non-Ollama servers (Lemonade/HF) — that would silently redirect the
-    // chat to a local Ollama and mutate the global Ollama URL.
+    let fastInferenceUrl = routingInferenceUrl;
+    // Composer-2 hybrid only rewrites the *the local backend* fast endpoint. Never apply it
+    // to non-the local backend servers (Lemonade/HF) — that would silently redirect the
+    // chat to a local the local backend and mutate the global the local backend URL.
     try {
         if (routingProvider === 'lemonade') {
-        const { getComposer2FastOllamaUrl } = await import('./lib/composer2Stack');
-        fastOllamaUrl = getComposer2FastOllamaUrl(routingOllamaUrl);
-        if (fastOllamaUrl !== routingOllamaUrl) {
-            await invoke('set_lemonade_url', { url: fastOllamaUrl }).catch(() => { });
-            console.log('[Agent] Composer 2 Fast chat → local Ollama', fastOllamaUrl);
+        const { getComposer2FastInferenceUrl } = await import('./lib/composer2Stack');
+        fastInferenceUrl = getComposer2FastInferenceUrl(routingInferenceUrl);
+        if (fastInferenceUrl !== routingInferenceUrl) {
+            await invoke('set_lemonade_url', { url: fastInferenceUrl }).catch(() => { });
+            console.log('[Agent] Composer 2 Fast chat → local server', fastInferenceUrl);
         }
         }
     } catch { /* optional */ }
@@ -1194,7 +1194,7 @@ async function runConversationalFastChat(opts: {
                 temperature: 0.7,
                 autonomous: false,
                 mode: 'Chat',
-                ollama_url: fastOllamaUrl,
+                inference_url: fastInferenceUrl,
                 tools: [],
                 feature: 'Chat',
                 reasoning_enabled: false,
@@ -1235,10 +1235,10 @@ async function runConversationalFastChat(opts: {
         return true;
     } finally {
         if (streamTimer) clearInterval(streamTimer);
-        if (fastOllamaUrl !== routingOllamaUrl) {
+        if (fastInferenceUrl !== routingInferenceUrl) {
             const restore =
-                routingOllamaUrl
-                || store.getState().ollamaUrl
+                routingInferenceUrl
+                || store.getState().inferenceUrl
                 || '';
             if (restore) {
                 await invoke('set_lemonade_url', { url: restore.replace(/\/$/, '') }).catch(() => { });
@@ -1327,7 +1327,7 @@ async function runLocalAgentBootstrap(params: {
     userPrompt: string;
     provider: string;
     model: string;
-    ollamaUrl: string;
+    inferenceUrl: string;
     onUpdate?: (msg: string) => void;
 }): Promise<boolean> {
     const { store, userPrompt, provider, onUpdate } = params;
@@ -1437,7 +1437,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const store = (window as any).useStore;
     if (!store) throw new Error("Store not found");
 
-    let preflightOllamaUrlOverride = '';
+    let preflightInferenceUrlOverride = '';
 
     // Handle Slash Commands
     if (userPrompt.startsWith('/')) {
@@ -1469,7 +1469,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     }
 
     // OSS community build: no subscription quota and no managed-cloud paywall.
-    // Local Ollama, BYO API keys, and any cloud endpoint the user configures all
+    // Local the local backend, BYO API keys, and any cloud endpoint the user configures all
     // run free and unmetered.
 
     // ── Auto-open the live activity terminal (once) ────────────────────────
@@ -1585,56 +1585,56 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         } catch { /* non-fatal */ }
     }
 
-    // === Legacy Backend Flow (Ollama, llama.cpp/Kortex, OpenAI, Google, Anthropic, etc.) ===
+    // === Legacy Backend Flow (the local backend, llama.cpp/Kortex, OpenAI, Google, Anthropic, etc.) ===
     // Local inference uses Rust `ai_chat` with full tools — never bypass via HTTP-only helpers.
     const { agentMessages, setAiStatus, availableModels, agentModel, inferenceBackend } = store.getState();
 
-    // === Pre-flight Ollama health check =======================================
-    // If we're using Ollama, verify inference actually works before committing
-    // to a 60-120s timeout. Ollama sometimes enters a "zombie" state where it
+    // === Pre-flight the local backend health check =======================================
+    // If we're using the local backend, verify inference actually works before committing
+    // to a 60-120s timeout. the local backend sometimes enters a "zombie" state where it
     // accepts connections and lists models but hangs on actual inference.
     const selectedModelLower = String(agentModel || '').toLowerCase();
     const selectedWebUiModel = selectedModelLower.includes('webui') && !selectedModelLower.includes('openwebui');
-    // Skip Ollama pre-flight for cloud providers selected by the user.
+    // Skip the local backend pre-flight for cloud providers selected by the user.
     // The agentModel string uses the format "Provider|modelId" for cloud models.
     const selectedProviderPrefix = agentModel?.includes('|')? agentModel.split('|')[0].toLowerCase(): '';
     const CLOUD_PROVIDER_PREFIXES = new Set([
         'google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
         'cyberifrit', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
         'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
-        // Non-Ollama local servers — skip the Ollama pre-flight probe so a
-        // Lemonade/HF turn isn't aborted just because Ollama isn't running.
+        // Non-the local backend local servers — skip the the local backend pre-flight probe so a
+        // Lemonade/HF turn isn't aborted just because the local backend isn't running.
         'lemonade', 'huggingface',
     ]);
     const selectedIsCloudModel = CLOUD_PROVIDER_PREFIXES.has(selectedProviderPrefix)
-        || selectedProviderPrefix.startsWith('webchat') // headless web-chat shim, not Ollama
+        || selectedProviderPrefix.startsWith('webchat') // headless web-chat shim, not a local model
         || isHighwayApiModel(selectedModelLower)
         || selectedModelLower.includes('gemini') || selectedModelLower.includes('claude')
         || selectedModelLower.includes('gpt-') || selectedModelLower.includes('o1-')
         || selectedModelLower.includes('o3-');
     if (inferenceBackend === 'lemonade' && !selectedWebUiModel && !selectedIsCloudModel) {
         const st = store.getState();
-        const ollamaBase = st.ollamaUrl?.trim() || 'http://localhost:13305';
-        const managedCloud = isManagedCloudOllama(ollamaBase, st.ollamaServerMode);
+        const inferenceBase = st.inferenceUrl?.trim() || 'http://localhost:13305';
+        const managedCloud = isManagedCloudInference(inferenceBase, st.inferenceServerMode);
         let probeOk = false;
         let lastErrorMsg = '';
 
         if (managedCloud) {
-            try { await st.syncOllamaEndpoint?.(); } catch { /* non-fatal */ }
+            try { await st.syncInferenceEndpoint?.(); } catch { /* non-fatal */ }
         }
 
-        const probeUrl = store.getState().ollamaUrl || ollamaBase;
-        const probe = await probeOllamaEndpoint(probeUrl, store.getState().ollamaServerMode);
+        const probeUrl = store.getState().inferenceUrl || inferenceBase;
+        const probe = await probeInferenceEndpoint(probeUrl, store.getState().inferenceServerMode);
         probeOk = probe.ok;
         lastErrorMsg = probe.error;
 
-        if (!probeOk && isLocalOllamaHost(ollamaBase) && ollamaBase.includes(':1536')) {
-            const fallbackBase = ollamaBase.replace(':1536', ':13305');
+        if (!probeOk && isLocalInferenceHost(inferenceBase) && inferenceBase.includes(':1536')) {
+            const fallbackBase = inferenceBase.replace(':1536', ':13305');
             console.warn(`[Agent] Proxy port 1536 unreachable, trying direct port 13305: ${fallbackBase}`);
-            const fallbackProbe = await probeOllamaEndpoint(fallbackBase, store.getState().ollamaServerMode);
+            const fallbackProbe = await probeInferenceEndpoint(fallbackBase, store.getState().inferenceServerMode);
             if (fallbackProbe.ok) {
                 probeOk = true;
-                preflightOllamaUrlOverride = fallbackBase;
+                preflightInferenceUrlOverride = fallbackBase;
                 console.log(`[Agent] Direct port 13305 is active! Proceeding with direct routing.`);
             } else {
                 lastErrorMsg = `Proxy down (${lastErrorMsg}) and direct port also down (${fallbackProbe.error})`;
@@ -1642,17 +1642,17 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         }
 
         if (!probeOk) {
- console.error('[Agent] Ollama pre-flight check FAILED:', lastErrorMsg);
+ console.error('[Agent] local model pre-flight check FAILED:', lastErrorMsg);
             store.getState().setIsAgentThinking?.(false);
             const tryHint = managedCloud
-? '**Try:**Settings → Ollama → **Cloud Model**→ **Reconnect**. Confirm you are signed in with an active subscription.'
-: isLocalOllamaHost(ollamaBase)
-? '**Try:**Start **Ollama Desktop**(or run `ollama serve`), then pull your model: `ollama pull gemma4:12b`. Settings → Ollama → **Test connection**.'
-: '**Try:**Check your self-hosted Ollama URL and bearer token in Settings → Ollama.';
+? '**Try:**Settings → Inference Backend → **Cloud Model**→ **Reconnect**. Confirm you are signed in with an active subscription.'
+: isLocalInferenceHost(inferenceBase)
+? '**Try:**Start your local model server (Lemonade / llama-server), load a model, then Settings → Inference Backend → **Test connection**.'
+: '**Try:**Check your self-hosted inference URL and bearer token in Settings → Inference Backend.';
             const fallbackNote = managedCloud? '': ' (or direct fallback port 13305).';
             store.getState().updateLastAgentMessage?.(
-                `**Ollama is not responding**\n\n` +
-                `Could not reach Ollama at \`${store.getState().ollamaUrl || ollamaBase}\`${fallbackNote}\n\n` +
+                `**The local model is not responding**\n\n` +
+                `Could not reach the local model server at \`${store.getState().inferenceUrl || inferenceBase}\`${fallbackNote}\n\n` +
                 `${tryHint}\n\n` +
                 `_Error: ${lastErrorMsg}_`
             );
@@ -1726,11 +1726,11 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                     : (fastModel || 'local');
             }
 
-            // ── Resolve the model against the live Ollama install ────────
-            // The user previously had a remote Ollama with a different
-            // model catalog. After switching to local Ollama, the
+            // ── Resolve the model against the live the local backend install ────────
+            // The user previously had a remote the local backend with a different
+            // model catalog. After switching to local the local backend, the
             // persisted `agentModel` (e.g. `qwen3:35b`) often doesn't
-            // exist locally — `ai_chat_fast` then sends a 404 to Ollama
+            // exist locally — `ai_chat_fast` then sends a 404 to the local backend
             // and the chat hangs with no visible error. Fix it before we
             // make the call by swapping in whatever the user actually
             // has installed.
@@ -1744,7 +1744,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                         // Persist the working choice so the picker reflects
                         // reality and the next turn doesn't pay the same swap.
                         try {
-                            store.getState().setAgentModel?.(`Ollama|${resolved}`);
+                            store.getState().setAgentModel?.(`lemonade|${resolved}`);
                         } catch { /* non-fatal */ }
                     }
                 } catch (_) { /* leave fastModel as-is and let the call fail loudly */ }
@@ -1755,21 +1755,21 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             // the spinner spins forever with no error in the chat. 60s
             // is long enough for a slow first-token on a cold local model
             // but short enough that the user gets actionable feedback.
-            let fastOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
-            // Non-Ollama local servers carry their base in `ollama_url` too
+            let fastInferenceUrl = preflightInferenceUrlOverride || store.getState().inferenceUrl;
+            // Non-the local backend local servers carry their base in `inference_url` too
             // (see get_endpoint("lemonade"/"huggingface")). Point them at the
-            // right server so the trivial-chat round-trip doesn't hit Ollama.
+            // right server so the trivial-chat round-trip doesn't hit the local backend.
             if (fastLlamaCpp) {
-                fastOllamaUrl = store.getState().llamaCppUrl || 'http://localhost:8081';
+                fastInferenceUrl = store.getState().llamaCppUrl || 'http://localhost:8081';
             } else if (fastProvider.toLowerCase() === 'lemonade') {
-                fastOllamaUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
+                fastInferenceUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
             } else if (fastProvider.toLowerCase() === 'huggingface') {
-                fastOllamaUrl = 'https://router.huggingface.co/v1';
+                fastInferenceUrl = 'https://router.huggingface.co/v1';
             }
             console.log('[Agent] Fast-path attempt:', {
                 provider: fastProvider,
                 model: fastModel,
-                ollama_url: fastOllamaUrl,
+                inference_url: fastInferenceUrl,
             });
             const fastCall = invoke<string>('ai_chat_fast', {
                 request: {
@@ -1785,7 +1785,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                     temperature: 0.7,
                     autonomous: false,
                     mode: 'Chat',
-                    ollama_url: fastOllamaUrl,
+                    inference_url: fastInferenceUrl,
                     tools: [],
                 },
             });
@@ -1813,7 +1813,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         } catch (e: any) {
             // If the fast path fails for any reason, show a benign message
             // and fall through to the full agent loop. A timeout usually just
-            // means Ollama is taking >8s to load the model into VRAM.
+            // means the local backend is taking >8s to load the model into VRAM.
             const msg = (e?.message ?? String(e)).slice(0, 300);
             console.warn('[agent] fast-path failed, falling back to full loop:', msg);
             // Do NOT leave a status string as the agent message — it leaks into
@@ -1831,10 +1831,10 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // ── Void: per-feature model routing ──────────────────────────────────────
     // If the user has configured a dedicated Chat model, use it.
     // EXCEPTION: if the global agentModel is already a cloud provider (Google,
-    // Anthropic, OpenAI…), the per-feature local-Ollama override must NOT win —
+    // Anthropic, OpenAI…), the per-feature local-the local backend override must NOT win —
     // that was causing Gemini to silently swap to airi-fast:latest.
     // Toolbar model wins over Settings → Chat feature default. The old override
-    // sent gemini-2.5-pro to the Ollama gateway when users picked e.g. BugTraceAI.
+    // sent gemini-2.5-pro to the the local backend gateway when users picked e.g. BugTraceAI.
     const toolbarModelChosen = !!(agentModel?.trim());
     const chatModelSel = (store.getState() as any).modelSelectionOfFeature?.['Chat'];
     const _agentModelCloudCheck = (() => {
@@ -1867,11 +1867,11 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     if (found) {
         provider = found.provider;
         model = found.id;
-        const ollamaBase = store.getState().ollamaUrl || '';
+        const inferenceBase = store.getState().inferenceUrl || '';
         if (
             found.provider.toLowerCase() === 'lemonade'
             && /^cyberifrit\//i.test(found.id)
-            && isManagedCloudOllama(ollamaBase, store.getState().ollamaServerMode)
+            && isManagedCloudInference(inferenceBase, store.getState().inferenceServerMode)
         ) {
             provider = 'Cyberifrit';
         }
@@ -1985,19 +1985,19 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     }
 
     // Route full Kortex (llama-server + KDKVC) through the same OpenAI-compatible
-    // stack in `ai_engine` that Ollama uses: `get_endpoint("ollama")` →
+    // stack in `ai_engine` that the local backend uses: `get_endpoint("the local backend")` →
     // `{base}/v1/chat/completions`.  The only difference is which base URL we
-    // pass — Ollama Desktop vs llama.cpp URL from settings.
+    // pass — the local backend Desktop vs llama.cpp URL from settings.
     let routingProvider = normalizedProvider;
     let routingModel = model;
-    let routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
-    // Set when a branch has already pinned routingOllamaUrl to an explicit
+    let routingInferenceUrl = preflightInferenceUrlOverride || store.getState().inferenceUrl;
+    // Set when a branch has already pinned routingInferenceUrl to an explicit
     // server (e.g. the llama.cpp / Kortex proxy URL) so the provider-keyed
     // override below doesn't stomp it back to the Lemonade port.
     let routingUrlLocked = false;
     if (inferenceBackend === 'llama-cpp') {
         routingProvider = 'lemonade';
-        routingOllamaUrl = store.getState().llamaCppUrl || 'http://localhost:8081';
+        routingInferenceUrl = store.getState().llamaCppUrl || 'http://localhost:8081';
         routingUrlLocked = true;
         const gguf = store.getState().llamaCppModelPath?.trim();
         if (gguf) {
@@ -2018,10 +2018,10 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         if (CLOUD_PROVIDERS_LEMONADE.has(providerFromModel)) {
             // Cloud model — use its own provider, not Lemonade
             routingProvider = providerFromModel;
-            routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
+            routingInferenceUrl = preflightInferenceUrlOverride || store.getState().inferenceUrl;
         } else {
             routingProvider = 'lemonade';
-            routingOllamaUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
+            routingInferenceUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
         }
     } else if (inferenceBackend === 'openmodel') {
         // Only force-route LOCAL models through OpenModel.
@@ -2036,36 +2036,36 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         const provOM = normalizedProvider;
         if (CLOUD_PROVIDERS_OPENMODEL.has(provOM)) {
             routingProvider = provOM;
-            routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
+            routingInferenceUrl = preflightInferenceUrlOverride || store.getState().inferenceUrl;
         } else {
             routingProvider = 'openmodel';
-            routingOllamaUrl = 'https://api.openmodel.ai';
+            routingInferenceUrl = 'https://api.openmodel.ai';
         }
     } else if (inferenceBackend === 'huggingface') {
         routingProvider = 'huggingface';
-        routingOllamaUrl = 'https://router.huggingface.co/v1';
+        routingInferenceUrl = 'https://router.huggingface.co/v1';
     } else if (inferenceBackend === 'lemonade') {
         // Only force-route locally when the selected model is actually a local
         // model. Cloud providers (Google, Anthropic, OpenAI, …) must
-        // pass through their own provider even if the local backend is Ollama.
+        // pass through their own provider even if the local backend is the local backend.
         const CLOUD_PROVIDERS = new Set([
             'google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
             'cyberifrit', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
             'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
             // lemonade + huggingface are local/OpenAI-compat servers with their own
             // base URL — they must keep their provider even when the global backend
-            // is Ollama (e.g. user picks a Lemonade model straight from the picker).
+            // is the local backend (e.g. user picks a Lemonade model straight from the picker).
             'lemonade', 'huggingface', 'openmodel',
         ]);
         // webchat-* are headless web-chat "models" fronted by the local OpenAI shim
-        // (:1539) — they are NOT Ollama and must keep their own provider even when
-        // the local inference backend is Ollama.
+        // (:1539) — they are NOT the local backend and must keep their own provider even when
+        // the local inference backend is the local backend.
         if (!CLOUD_PROVIDERS.has(normalizedProvider)
             && !normalizedProvider.startsWith('webchat')
             && !isHighwayApiModel(routingModel)) {
             routingProvider = 'lemonade';
         }
-        routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl || '';
+        routingInferenceUrl = preflightInferenceUrlOverride || store.getState().inferenceUrl || '';
         const am = store.getState().agentModel || '';
         if (am.includes('|')) {
             const [prov, id] = am.split('|');
@@ -2079,17 +2079,17 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // Lemonade/HF base URL when the *global* inferenceBackend is flipped to
     // them. But the user usually just picks a Lemonade model from the model
     // picker (provider resolved from availableModels) while inferenceBackend
-    // stays 'lemonade'. Without this, routingOllamaUrl would still point at the
-    // Ollama base and the backend's get_endpoint("lemonade") would POST the
-    // Lemonade model to the Ollama port → 404 / silent no-op. Force the right
+    // stays 'lemonade'. Without this, routingInferenceUrl would still point at the
+    // the local backend base and the backend's get_endpoint("lemonade") would POST the
+    // Lemonade model to the the local backend port → 404 / silent no-op. Force the right
     // server URL by the resolved provider regardless of inferenceBackend.
     if (routingProvider === 'lemonade' && !routingUrlLocked) {
-        routingOllamaUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
+        routingInferenceUrl = store.getState().lemonadeUrl || 'http://localhost:13305';
     } else if (routingProvider === 'huggingface') {
-        routingOllamaUrl = 'https://router.huggingface.co/v1';
+        routingInferenceUrl = 'https://router.huggingface.co/v1';
     }
 
-    // Cloud subscription gate. Local backends (lemonade/ollama/…) are always free.
+    // Cloud subscription gate. Local backends (lemonade/the local backend/…) are always free.
     // Cloud subscription models (cyberifrit gateway: GLM-5.2, Qwen3.6-35B-MoE, …)
     // require an active sign-in — otherwise prompt login and stop the turn.
     {
@@ -2098,7 +2098,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             store.getState().setIsAgentThinking?.(false);
             store.getState().updateLastAgentMessage?.(
                 '**Sign in to use cloud models**\n\nThis is a subscription cloud model. ' +
-                'Sign in to unlock it — or pick a local **Lemonade**/ **Ollama**model (free, runs on your machine).'
+                'Sign in to unlock it — or pick a local **Lemonade** model (free, runs on your machine).'
             );
             store.getState().openLoginModal?.();
             setAiStatus('idle');
@@ -2109,16 +2109,16 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     if (routingProvider === 'lemonade' && !String(routingModel || '').trim()) {
         store.getState().setIsAgentThinking?.(false);
         store.getState().updateLastAgentMessage?.(
-            '**No local model selected**\n\nOpen Settings and choose an Ollama model before starting a local agent run. I will not auto-load `qwen3:35b`, a vision model, or any fallback model silently.'
+            '**No local model selected**\n\nOpen Settings and choose a local model before starting a local agent run. I will not auto-load `qwen3:35b`, a vision model, or any fallback model silently.'
         );
         setAiStatus('idle');
         return;
     }
 
     if (routingProvider === 'lemonade') {
-        const raw = store.getState().ollamaUrl?.trim() || 'http://localhost:13305';
+        const raw = store.getState().inferenceUrl?.trim() || 'http://localhost:13305';
         try {
-            const base = normalizeOllamaUrl(raw);
+            const base = normalizeInferenceUrl(raw);
             await invoke('set_lemonade_url', { url: base }).catch(() => { });
         } catch { /* fast path may still fail loudly below */ }
     }
@@ -2139,7 +2139,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         userPrompt,
         routingProvider,
         routingModel,
-        routingOllamaUrl,
+        routingInferenceUrl,
         inferenceBackend,
         context: contextWithInline,
         onUpdate,
@@ -2163,7 +2163,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             attachmentContext,
             routingModel,
             userPrompt,
-            routingOllamaUrl,
+            routingInferenceUrl,
         );
         if (sidecar.analyzed_count > 0) {
             attachmentContext = sidecar.attachments;
@@ -2290,7 +2290,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     }
 
     // Cap history sent to model — keeps UI display full but limits context window.
-    // Local servers (Ollama + llama.cpp/Kortex) get a smaller default to fit small
+    // Local servers (the local backend + llama.cpp/Kortex) get a smaller default to fit small
     // context windows, BUT autonomous action modes need real working memory across
     // many tool calls — so we bump it for Agent / BugBounty / Sentient / Fast.
     const isLocalRoute =
@@ -2419,14 +2419,14 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     setAiStatus('alive');
 
     if (routingProvider === 'lemonade') {
-        const raw = store.getState().ollamaUrl?.trim() || 'http://localhost:13305';
+        const raw = store.getState().inferenceUrl?.trim() || 'http://localhost:13305';
         let base: string;
         try {
-            base = normalizeOllamaUrl(raw);
+            base = normalizeInferenceUrl(raw);
         } catch {
             store.getState().setIsAgentThinking(false);
             store.getState().updateLastAgentMessage(
-                '**Inference endpoint offline**\n\nInvalid Ollama URL in **Settings → Ollama Integration**.',
+                '**Inference endpoint offline**\n\nInvalid inference URL in **Settings → Inference Backend**.',
             );
             setAiStatus('dead');
             return;
@@ -2441,7 +2441,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             if (!models || models.length === 0) {
                 store.getState().setIsAgentThinking(false);
                 store.getState().updateLastAgentMessage(
-                    `**Inference endpoint offline**\n\nOllama at ${base} returned no models. Pull a model or check your proxy.`,
+                    `**Inference endpoint offline**\n\nInference at ${base} returned no models. Pull a model or check your proxy.`,
                 );
                 setAiStatus('dead');
                 return;
@@ -2450,13 +2450,13 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             const msg = e instanceof Error? e.message: String(e);
             store.getState().setIsAgentThinking(false);
             store.getState().updateLastAgentMessage(
-                `**Inference endpoint offline**\n\nCannot reach Ollama at ${base} (${msg}). Start **Ollama Desktop**, fix the URL under **Settings → Ollama Integration**, or set an **Ollama API key**if your proxy requires Bearer auth.`,
+                `**Inference endpoint offline**\n\nCannot reach the local model at ${base} (${msg}). Start your local server, fix the URL under **Settings → Inference Backend**, or set a **bearer key** if your proxy requires it.`,
             );
             setAiStatus('dead');
             return;
         }
     } else if (inferenceBackend === 'llama-cpp') {
-        const base = (routingOllamaUrl || '').replace(/\/$/, '');
+        const base = (routingInferenceUrl || '').replace(/\/$/, '');
         if (base) {
             const probes = [`${base}/health`, `${base}/v1/models`];
             let ok = false;
@@ -2481,14 +2481,14 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         }
     }
 
-    // ── Resolve the Ollama model against the live install ──────────────
+    // ── Resolve the the local backend model against the live install ──────────────
     // Same protection as the trivial fast path: if the user's stored
-    // `agentModel` references a tag that isn't on the current Ollama
+    // `agentModel` references a tag that isn't on the current the local backend
     // server, swap it in for one that is so the full agent loop doesn't
     // hang on a model_not_found from the backend.
     // Never "swap" a recognizable CLOUD model to a local tag — the user picked
     // it on purpose (e.g. claude-opus-4-8 via Interface AI). Only resolve tags
-    // for genuine local/ollama models.
+    // for genuine local/the local backend models.
     const looksCloud = /^(claude|gpt|o1|o3|gemini|mimo|grok|deepseek-(chat|reasoner|v\d))/i.test(routingModel || '');
     if (routingProvider === 'lemonade' && routingModel && !looksCloud) {
         try {
@@ -2497,7 +2497,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             if (resolved && resolved !== routingModel) {
                 console.warn(`[agent] Full-loop model "${routingModel}" not installed — swapping to "${resolved}".`);
                 routingModel = resolved;
-                try { store.getState().setAgentModel?.(`Ollama|${resolved}`); } catch { /* non-fatal */ }
+                try { store.getState().setAgentModel?.(`lemonade|${resolved}`); } catch { /* non-fatal */ }
             }
         } catch (_) { /* fall through and let the call fail loudly */ }
     }
@@ -2508,7 +2508,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             userPrompt,
             provider: routingProvider,
             model: routingModel,
-            ollamaUrl: routingOllamaUrl,
+            inferenceUrl: routingInferenceUrl,
             onUpdate,
         });
         if (bootstrapped) {
@@ -2626,7 +2626,7 @@ ${preview? preview + '\n': ''}Call aim_pack_context for the full semantic map.`;
         console.log('[Agent] Invoking full ai_chat loop...', {
             provider: routingProvider,
             model: routingModel,
-            ollama_url: routingOllamaUrl
+            inference_url: routingInferenceUrl
         });
 
         if (routingProvider === 'lemonade') {
@@ -2640,7 +2640,7 @@ ${preview? preview + '\n': ''}Call aim_pack_context for the full semantic map.`;
         beginAgentRun();
 
         // Activity-aware watchdog: only stops after 20 min *idle* (no tools/tokens),
-        // not a fixed 600s wall clock — local Ollama agent runs can legitimately take 30+ min.
+        // not a fixed 600s wall clock — local the local backend agent runs can legitimately take 30+ min.
         const storeSnapshot = store.getState() as any;
 
         // Claude Code keeps its own conversation state and replays it via
@@ -2695,7 +2695,7 @@ ${preview? preview + '\n': ''}Call aim_pack_context for the full semantic map.`;
                 autonomous: true,
                 root_access: true,
                 mode: storeSnapshot.agentMode,
-                ollama_url: routingOllamaUrl,
+                inference_url: routingInferenceUrl,
                 tools: toolSchemas,
                 feature: 'Chat',
                 reasoning_enabled: storeSnapshot.isReasoningEnabled ?? false,
@@ -2792,14 +2792,14 @@ ${preview? preview + '\n': ''}Call aim_pack_context for the full semantic map.`;
                       `If you were editing vscodium-rust, a Rust rebuild may have killed the backend mid-run.\n\n` +
                       `Raw: \`${msg}\``
 : `**Agent loop error:**${msg}\n\n` +
-                      `Provider: \`${routingProvider}\`  ·  Model: \`${routingModel}\`  ·  URL: \`${routingOllamaUrl || '(default)'}\``
+                      `Provider: \`${routingProvider}\`  ·  Model: \`${routingModel}\`  ·  URL: \`${routingInferenceUrl || '(default)'}\``
             );
         } catch { /* non-fatal */ }
         setAiStatus('dead');
     } finally {
         // Always clear thinking state — prevents infinite spinner
         try { store.getState().setIsAgentThinking?.(false); } catch { /* non-fatal */ }
-        // Local-first trust UX: surface diff review after Ollama agent edits
+        // Local-first trust UX: surface diff review after the local backend agent edits
         try {
             const st = store.getState();
             const verifyOn = localStorage.getItem('localVerifyMode') === '1';

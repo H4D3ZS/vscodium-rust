@@ -102,9 +102,7 @@ pub struct AiRequest {
     pub cyber_mode: Option<bool>,
     pub root_access: Option<bool>,
     /// Base URL of the local inference server (Lemonade / llama-server / the
-    /// Kortex proxy). `local backend_url` is still accepted on the wire for back-compat
-    /// with any persisted request payloads.
-    #[serde(alias = "ollama_url")]
+    /// Kortex proxy).
     pub inference_url: Option<String>,
     pub tools: Option<Vec<Value>>,
     /// Anthropic/Gemini extended thinking: budget_tokens (e.g. 8000)
@@ -188,7 +186,7 @@ pub(crate) fn split_leading_system_messages(messages: &[ChatMessage]) -> (String
 pub fn normalize_local_base_url(raw: &str) -> String {
     let s = raw.trim().trim_end_matches('/');
     if s.is_empty() {
-        return "http://127.0.0.1:11434".to_string();
+        return "http://127.0.0.1:13305".to_string();
     }
     if s.starts_with("http://") || s.starts_with("https://") {
         return s.to_string();

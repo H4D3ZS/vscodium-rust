@@ -3,7 +3,7 @@ import type { AttachedContext } from '../../store/types';
 /**
  * Value object: one user turn sent to the agent engine.
  * WHY a typed request? Presentation (RightSidebar) maps UI state → this shape;
- * application layer validates; infrastructure sends to Rust/Ollama.
+ * application layer validates; infrastructure sends to Rust/the local backend.
  */
 export interface AgentTurnRequest {
     prompt: string;

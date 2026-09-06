@@ -26,6 +26,5 @@
   "exclude": [
     "tools/deepseek-ane",
     "tools/ios-simulator",
-    "tools/vps-ollama-proxy"
   ]
 }

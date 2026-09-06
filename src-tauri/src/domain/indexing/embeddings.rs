@@ -1,7 +1,7 @@
 //! Text embeddings — shared by the vector indexer, semantic search, AIRI memory.
 //!
 //! Served by **Lemonade**. This machine runs Lemonade on :13305 and has
-//! no raw server; pointing at :11434 meant every embed call failed, which silently took
+//! no raw :11434 server; pointing there meant every embed call failed, which silently took
 //! `@codebase`, `semantic_search` and `search_codebase` with it. Those features
 //! reported "done" while returning nothing, because a failed embed degrades to an
 //! empty result rather than an error the user ever sees.
@@ -52,7 +52,7 @@ pub async fn embed_text_at(
 
     // An the local backend base URL keeps its own endpoint and payload shape, so an existing
     // the local backend install still works if configured explicitly.
-    let is_native_api = base_url.contains("11434");
+    let is_native_api = base_url.contains(":11434");
     let (url, payload) = if is_native_api {
         (
             format!("{}/api/embeddings", base_url.trim_end_matches('/')),
@@ -191,7 +191,7 @@ mod embeddings_tests {
     #[test]
     fn default_backend_is_lemonade_not_native() {
         let url = default_embed_base_url();
-        assert!(!url.contains("11434"), "default must not be a raw :11434 server, got {url}");
+        assert!(!url.contains(":11434"), "default must not be a raw :11434 server, got {url}");
         assert!(url.contains("13305"), "expected the Lemonade port, got {url}");
     }
 

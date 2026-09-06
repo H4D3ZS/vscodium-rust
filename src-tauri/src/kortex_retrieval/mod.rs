@@ -4,7 +4,7 @@
 //!
 //! On start the module binds `127.0.0.1:1536`, loads the `.aim` catalog from
 //! the workspace, and forwards every AI request through the retrieval-augmented
-//! proxy to Lemonade (`:13305`); a raw `:11434` server is a fallback.
+//! proxy to Lemonade (`:13305`).
 //! Retrieval degrades safely (missing catalog / conversational query / latency
 //! budget → forward unchanged).
 
@@ -90,8 +90,7 @@ pub async fn kortex_retrieval_start(app: AppHandle) -> Result<u16, String> {
     let lemonade = std::env::var("KORTEX_UPSTREAM_OPENAI")
         .unwrap_or_else(|_| "http://localhost:13305".into());
     let native_api = std::env::var("KORTEX_UPSTREAM_NATIVE_API")
-        .or_else(|_| std::env::var("KORTEX_UPSTREAM_OLLAMA")) // legacy name
-        .unwrap_or_else(|_| "http://127.0.0.1:11434".into());
+        .unwrap_or_else(|_| "http://127.0.0.1:13305".into());
 
     println!("[kortex-retrieval] listening on http://127.0.0.1:{port}");
     println!("[kortex-retrieval] {catalog_status}");

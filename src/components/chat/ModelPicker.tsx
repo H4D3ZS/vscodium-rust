@@ -21,10 +21,10 @@ interface ModelPickerProps {
     selectedModel: string;
     onSelect: (modelId: string) => void;
     onClose: () => void;
-    /** Re-fetch installed Ollama models (manual retry / refresh-on-open). */
+    /** Re-fetch installed the local backend models (manual retry / refresh-on-open). */
     onRefresh?: () => void;
     isRefreshing?: boolean;
-    ollamaStatus?: 'idle' | 'checking' | 'running' | 'error';
+    inferenceStatus?: 'idle' | 'checking' | 'running' | 'error';
 }
 
 const SPEED_COLORS: Record<string, string> = {
@@ -39,7 +39,7 @@ const SPEED_LABELS: Record<string, string> = {
     powerful: 'Powerful',
 };
 
-const ModelPicker: React.FC<ModelPickerProps> = ({ models, selectedModel, onSelect, onClose, onRefresh, isRefreshing, ollamaStatus }) => {
+const ModelPicker: React.FC<ModelPickerProps> = ({ models, selectedModel, onSelect, onClose, onRefresh, isRefreshing, inferenceStatus }) => {
     const [search, setSearch] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const searchRef = useRef<HTMLInputElement>(null);
@@ -118,7 +118,7 @@ const ModelPicker: React.FC<ModelPickerProps> = ({ models, selectedModel, onSele
                         <i
                             className={`codicon codicon-refresh${isRefreshing ? ' codicon-modifier-spin' : ''}`}
                             onClick={() => onRefresh()}
-                            title="Refresh Ollama models"
+                            title="Refresh local models"
                             style={{
                                 fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px',
                                 cursor: 'pointer', opacity: 0.6,
@@ -136,15 +136,15 @@ const ModelPicker: React.FC<ModelPickerProps> = ({ models, selectedModel, onSele
                             <span><i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: 6 }} />Loading models…</span>
                         ) : search ? (
                             <>No model matches “{search}”.</>
-                        ) : ollamaStatus === 'error' ? (
+                        ) : inferenceStatus === 'error' ? (
                             <>
-                                <div style={{ color: '#f87171', fontWeight: 600, marginBottom: 4 }}>Ollama not reachable</div>
-                                <div style={{ fontSize: 11, opacity: 0.7 }}>Run <code style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 4px', borderRadius: 3 }}>ollama serve</code>, then refresh.</div>
+                                <div style={{ color: '#f87171', fontWeight: 600, marginBottom: 4 }}>Local backend not reachable</div>
+                                <div style={{ fontSize: 11, opacity: 0.7 }}>Run <code style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 4px', borderRadius: 3 }}>start your local server</code>, then refresh.</div>
                             </>
                         ) : (
                             <>
-                                <div style={{ marginBottom: 4 }}>No Ollama models installed.</div>
-                                <div style={{ fontSize: 11, opacity: 0.7 }}>Pull one, e.g. <code style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 4px', borderRadius: 3 }}>ollama pull qwen2.5-coder:7b</code></div>
+                                <div style={{ marginBottom: 4 }}>No local models installed.</div>
+                                <div style={{ fontSize: 11, opacity: 0.7 }}>Pull one, e.g. <code style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 4px', borderRadius: 3 }}>your model into the local server</code></div>
                             </>
                         )}
                         {onRefresh && !isRefreshing && (

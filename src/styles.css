@@ -4713,8 +4713,8 @@ button, input, textarea, select,
     font-family: var(--font-mono);
 }
 
-/* ── Ollama first-run wizard ── */
-.ollama-wizard-overlay {
+/* ── the local backend first-run wizard ── */
+.agent-wizard-overlay {
     position: fixed;
     inset: 0;
     z-index: 120000;
@@ -4726,7 +4726,7 @@ button, input, textarea, select,
     backdrop-filter: blur(8px);
 }
 
-.ollama-wizard-card {
+.agent-wizard-card {
     width: min(560px, 100%);
     max-height: min(90vh, 720px);
     overflow: auto;
@@ -4737,14 +4737,14 @@ button, input, textarea, select,
     padding: 28px;
 }
 
-.ollama-wizard-header h2 {
+.agent-wizard-header h2 {
     margin: 8px 0 6px;
     font-size: 1.35rem;
     font-weight: 700;
     color: var(--foreground, #fff);
 }
 
-.ollama-wizard-badge {
+.agent-wizard-badge {
     display: inline-block;
     font-size: 10px;
     font-weight: 700;
@@ -4756,18 +4756,18 @@ button, input, textarea, select,
     padding: 4px 10px;
 }
 
-.ollama-wizard-sub {
+.agent-wizard-sub {
     font-size: 13px;
     line-height: 1.55;
     color: rgba(255, 255, 255, 0.62);
     margin: 0;
 }
 
-.ollama-wizard-body {
+.agent-wizard-body {
     margin-top: 20px;
 }
 
-.ollama-wizard-list {
+.agent-wizard-list {
     margin: 0 0 20px;
     padding-left: 1.1rem;
     font-size: 13px;
@@ -4775,13 +4775,13 @@ button, input, textarea, select,
     color: rgba(255, 255, 255, 0.78);
 }
 
-.ollama-wizard-actions {
+.agent-wizard-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
 }
 
-.ollama-wizard-primary {
+.agent-wizard-primary {
     flex: 1 1 auto;
     min-width: 160px;
     padding: 10px 16px;
@@ -4794,12 +4794,12 @@ button, input, textarea, select,
     cursor: pointer;
 }
 
-.ollama-wizard-primary:disabled {
+.agent-wizard-primary:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
 
-.ollama-wizard-ghost {
+.agent-wizard-ghost {
     padding: 10px 14px;
     border-radius: 10px;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -4809,26 +4809,26 @@ button, input, textarea, select,
     cursor: pointer;
 }
 
-.ollama-wizard-center {
+.agent-wizard-center {
     text-align: center;
     padding: 24px 0;
 }
 
-.ollama-wizard-spinner {
+.agent-wizard-spinner {
     width: 32px;
     height: 32px;
     margin: 0 auto 12px;
     border: 3px solid rgba(249, 115, 22, 0.2);
     border-top-color: #f97316;
     border-radius: 50%;
-    animation: ollama-wizard-spin 0.8s linear infinite;
+    animation: agent-wizard-spin 0.8s linear infinite;
 }
 
-@keyframes ollama-wizard-spin {
+@keyframes agent-wizard-spin {
     to { transform: rotate(360deg); }
 }
 
-.ollama-wizard-warn {
+.agent-wizard-warn {
     font-size: 12px;
     padding: 10px 12px;
     border-radius: 8px;
@@ -4838,15 +4838,15 @@ button, input, textarea, select,
     margin-bottom: 14px;
 }
 
-.ollama-wizard-warn a {
+.agent-wizard-warn a {
     color: #fbbf24;
 }
 
-.ollama-wizard-row {
+.agent-wizard-row {
     margin-bottom: 14px;
 }
 
-.ollama-wizard-label {
+.agent-wizard-label {
     display: block;
     font-size: 11px;
     font-weight: 600;
@@ -4856,13 +4856,13 @@ button, input, textarea, select,
     margin-bottom: 6px;
 }
 
-.ollama-wizard-chips {
+.agent-wizard-chips {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
 }
 
-.ollama-wizard-chip {
+.agent-wizard-chip {
     padding: 6px 12px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -4872,13 +4872,13 @@ button, input, textarea, select,
     cursor: pointer;
 }
 
-.ollama-wizard-chip.is-active {
+.agent-wizard-chip.is-active {
     border-color: rgba(249, 115, 22, 0.55);
     background: rgba(249, 115, 22, 0.15);
     color: #fdba74;
 }
 
-.ollama-wizard-input {
+.agent-wizard-input {
     width: 100%;
     padding: 8px 12px;
     border-radius: 8px;
@@ -4888,7 +4888,7 @@ button, input, textarea, select,
     font-size: 13px;
 }
 
-.ollama-wizard-models {
+.agent-wizard-models {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -4897,7 +4897,7 @@ button, input, textarea, select,
     margin-bottom: 14px;
 }
 
-.ollama-wizard-model {
+.agent-wizard-model {
     text-align: left;
     padding: 10px 12px;
     border-radius: 10px;
@@ -4906,12 +4906,12 @@ button, input, textarea, select,
     cursor: pointer;
 }
 
-.ollama-wizard-model.is-selected {
+.agent-wizard-model.is-selected {
     border-color: rgba(249, 115, 22, 0.55);
     background: rgba(249, 115, 22, 0.1);
 }
 
-.ollama-wizard-model-name {
+.agent-wizard-model-name {
     display: block;
     font-family: var(--font-mono);
     font-size: 12px;
@@ -4919,14 +4919,14 @@ button, input, textarea, select,
     color: #fff;
 }
 
-.ollama-wizard-model-meta {
+.agent-wizard-model-meta {
     display: block;
     font-size: 10px;
     color: rgba(255, 255, 255, 0.45);
     margin-top: 2px;
 }
 
-.ollama-wizard-model-desc {
+.agent-wizard-model-desc {
     display: block;
     font-size: 11px;
     color: rgba(255, 255, 255, 0.55);
@@ -4934,13 +4934,13 @@ button, input, textarea, select,
     line-height: 1.4;
 }
 
-.ollama-wizard-error {
+.agent-wizard-error {
     font-size: 12px;
     color: #f7768e;
     margin-bottom: 10px;
 }
 
-.ollama-wizard-success {
+.agent-wizard-success {
     font-size: 15px;
     font-weight: 600;
     color: #9ece6a;

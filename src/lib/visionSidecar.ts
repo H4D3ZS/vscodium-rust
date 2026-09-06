@@ -33,7 +33,7 @@ export async function applyVisionSidecar(
     attachments: any[],
     agentModel: string,
     userPrompt: string,
-    ollamaUrl?: string,
+    inferenceUrl?: string,
 ): Promise<VisionSidecarResult> {
     if (!attachments.length || !hasImageAttachment(attachments) || isVisionCapableModel(agentModel)) {
         return { attachments, skipped: true, analyzed_count: 0 };
@@ -44,7 +44,7 @@ export async function applyVisionSidecar(
             agentModel,
             attachments,
             userPrompt,
-            ollamaUrl: ollamaUrl?.trim() || null,
+            inferenceUrl: inferenceUrl?.trim() || null,
         });
     } catch (e) {
         console.warn('[vision-sidecar]', e);

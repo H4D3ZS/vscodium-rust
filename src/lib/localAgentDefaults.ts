@@ -1,5 +1,5 @@
 /**
- * Local Ollama rigs (4b–14b on a desk/laptop) should use a single fast executor.
+ * Local the local backend rigs (4b–14b on a desk/laptop) should use a single fast executor.
  * Hybrid planner (iter-0 on a second / heavier model) is for remote GPU or cloud stacks.
  */
 
@@ -9,27 +9,27 @@ type AgentDefaultsStore = {
     setPlannerEnabled?: (v: boolean) => void;
     setPlannerModel?: (v: string) => void;
     setHybridAuto?: (v: boolean) => void;
-    ollamaServerMode?: string;
+    inferenceServerMode?: string;
     plannerEnabled?: boolean;
     plannerModel?: string;
 };
 
-export function isLocalOllamaServerMode(mode: string | undefined): boolean {
+export function isLocalInferenceServerMode(mode: string | undefined): boolean {
     return String(mode || '').toLowerCase() === 'local';
 }
 
-/** Hybrid planner is only meaningful on remote/cloud GPU — not localhost Ollama. */
+/** Hybrid planner is only meaningful on remote/cloud GPU — not localhost the local backend. */
 export function hybridPlannerAllowed(state: {
     plannerEnabled?: boolean;
-    ollamaServerMode?: string;
+    inferenceServerMode?: string;
 }): boolean {
     if (!state.plannerEnabled) return false;
-    if (isLocalOllamaServerMode(state.ollamaServerMode)) return false;
+    if (isLocalInferenceServerMode(state.inferenceServerMode)) return false;
     return true;
 }
 
-/** Apply when user picks Local Ollama in Settings — single-model agent, no 40B planner pass. */
-export function applyLocalOllamaAgentDefaults(store: AgentDefaultsStore): void {
+/** Apply when user picks Local the local backend in Settings — single-model agent, no 40B planner pass. */
+export function applyLocalAgentDefaults(store: AgentDefaultsStore): void {
     store.setPlannerEnabled?.(false);
     store.setPlannerModel?.('');
     try {
@@ -38,9 +38,9 @@ export function applyLocalOllamaAgentDefaults(store: AgentDefaultsStore): void {
     } catch { /* ignore */ }
 }
 
-/** One-time cleanup for profiles that had hybrid enabled while on local Ollama. */
-export function migrateLocalOllamaPlannerSettings(store: AgentDefaultsStore): void {
-    if (!isLocalOllamaServerMode(store.ollamaServerMode)) return;
+/** One-time cleanup for profiles that had hybrid enabled while on local the local backend. */
+export function migrateLocalPlannerSettings(store: AgentDefaultsStore): void {
+    if (!isLocalInferenceServerMode(store.inferenceServerMode)) return;
     const storedOn = (() => {
         try { return localStorage.getItem('agent.plannerEnabled') === '1'; } catch { return false; }
     })();
@@ -51,6 +51,6 @@ export function migrateLocalOllamaPlannerSettings(store: AgentDefaultsStore): vo
         ? storedPlanner.split('|').slice(1).join('|')
         : storedPlanner;
     if (storedOn || store.plannerEnabled || isHeavyLocalModel(plannerId)) {
-        applyLocalOllamaAgentDefaults(store);
+        applyLocalAgentDefaults(store);
     }
 }

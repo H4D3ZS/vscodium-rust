@@ -19,7 +19,7 @@ impl Default for AiAssistConfig {
             // Default to the standard local local backend endpoint. Vega reads this
             // from EditorState at runtime, so the default is only used when
             // VegaAiAssist is constructed outside the normal boot flow.
-            inference_url: "http://127.0.0.1:11434".into(),
+            inference_url: "http://127.0.0.1:13305".into(),
             // Default to a small model so triage runs on modest hardware and
             // fully offline. 2b–4b class models are the design target; anything
             // larger is a user upgrade, not a requirement.

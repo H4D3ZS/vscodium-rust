@@ -351,7 +351,7 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
     updateLastAgentThought: (thought) => set((state) => {
         const messages = [...state.agentMessages];
         const last = messages[messages.length - 1];
-        // The backend emits `ai-thinking` BOTH as per-token deltas (Ollama native
+        // The backend emits `ai-thinking` BOTH as per-token deltas (the local backend native
         // streaming) and, in a few places, as a full accumulated snapshot. Replacing
         // blindly showed "one word at a time". Merge intelligently: if the incoming
         // text already contains everything we have, it's a snapshot → replace; if it's

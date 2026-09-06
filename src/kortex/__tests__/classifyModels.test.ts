@@ -9,7 +9,7 @@ describe('classifyModels — hybrid planner/executor auto-detect', () => {
     });
 
     it('collapses both roles to the only model when one is installed', () => {
-        const only = { id: 'qwen2.5-coder:7b', provider: 'Ollama' };
+        const only = { id: 'qwen2.5-coder:7b', provider: 'Lemonade' };
         const pick = classifyModels([only]);
         expect(pick.planner).toEqual(only);
         expect(pick.executor).toEqual(only);
@@ -17,7 +17,7 @@ describe('classifyModels — hybrid planner/executor auto-detect', () => {
 
     it('picks a frontier cloud planner + a fast coder executor', () => {
         const pick = classifyModels([
-            { id: 'qwen2.5-coder:7b', provider: 'Ollama' },
+            { id: 'qwen2.5-coder:7b', provider: 'Lemonade' },
             { id: 'claude-opus-4-0', provider: 'Anthropic' },
         ]);
         expect(pick.planner?.id).toBe('claude-opus-4-0');
@@ -27,17 +27,17 @@ describe('classifyModels — hybrid planner/executor auto-detect', () => {
     it('prefers Gemini Pro to plan and a small local model to execute', () => {
         const pick = classifyModels([
             { id: 'gemini-2.5-pro', provider: 'Google' },
-            { id: 'llama3.2:3b', provider: 'Ollama' },
+            { id: 'llama3.2:3b', provider: 'Lemonade' },
         ]);
         expect(pick.planner?.id).toBe('gemini-2.5-pro');
         expect(pick.executor?.id).toBe('llama3.2:3b');
     });
 
-    it('never uses a 30B+ local model as planner on all-Ollama rigs', () => {
+    it('never uses a 30B+ local model as planner on all-local rigs', () => {
         const pick = classifyModels([
-            { id: 'aware/qwen3.6-40b-deck-opus-neo-code:latest', provider: 'Ollama' },
-            { id: 'gemma4:12b', provider: 'Ollama' },
-            { id: 'qwen2.5-coder:7b', provider: 'Ollama' },
+            { id: 'aware/qwen3.6-40b-deck-opus-neo-code:latest', provider: 'Lemonade' },
+            { id: 'gemma4:12b', provider: 'Lemonade' },
+            { id: 'qwen2.5-coder:7b', provider: 'Lemonade' },
         ]);
         expect(pick.planner?.id).toBe('qwen2.5-coder:7b');
         expect(pick.executor?.id).toBe('qwen2.5-coder:7b');
@@ -45,8 +45,8 @@ describe('classifyModels — hybrid planner/executor auto-detect', () => {
 
     it('prefers a small local model over a large one when all models are local', () => {
         const pick = classifyModels([
-            { id: 'qwen2.5:32b', provider: 'Ollama' },
-            { id: 'qwen2.5-coder:7b', provider: 'Ollama' },
+            { id: 'qwen2.5:32b', provider: 'Lemonade' },
+            { id: 'qwen2.5-coder:7b', provider: 'Lemonade' },
         ]);
         expect(pick.planner?.id).toBe('qwen2.5-coder:7b');
         expect(pick.executor?.id).toBe('qwen2.5-coder:7b');

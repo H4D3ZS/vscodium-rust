@@ -1,7 +1,7 @@
 /**
  * Llama.cpp Backend Integration for VSCodium-Rust
  * 
- * Provides direct llama.cpp inference as an alternative to Ollama.
+ * Provides direct llama.cpp inference as an alternative to the local backend.
  * Integrates with HADES Bridge for 8GB VRAM optimization.
  */
 

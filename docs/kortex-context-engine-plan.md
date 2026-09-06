@@ -77,9 +77,9 @@ things a coding session can't produce on its own:
 - **§3.3 Tier 0 residency** — for Lemonade and the ROCmFPX server, residency is
   already **process-lifetime** (the server holds the model until the IDE window
   closes), and `gpu_offload::keep_alive()` is correctly scoped to genuine
-  Ollama payloads only (guards at `autonomous.rs`, `streaming.rs`,
+  native `/api` payloads only (guards at `autonomous.rs`, `streaming.rs`,
   `providers.rs`). A TTL/idle-unload policy for the ROCmFPX server is the only
-  real remaining work here, and it belongs with the broader Ollama removal —
+  real remaining work here —
   which is a separate transport-layer effort (~100 files, live `/api/chat`
   streaming + payload builders), not part of this plan.
 - **Milestone 6 tier badge / env-toggle UI** — stats are surfaced
@@ -372,15 +372,15 @@ error, and `recall` on an old turn returns its full content.
   provider/URL — acceptable while the whole kortex stack targets local lemonade.
 - **v1 gaps:** no read-only tool subset yet (child gets the full catalog, just
   no root); no streaming of child progress to the UI; `task` not added to
-  `OLLAMA_ESSENTIAL_TOOLS` (matches how `expand`/`recall`/`skill` are surfaced).
+  `LOCAL_ESSENTIAL_TOOLS` (matches how `expand`/`recall`/`skill` are surfaced).
 - Files: `domain/tools/workflow_tools.rs`, `domain/tools/dispatch.rs` (route
   `"task" | "subagent"`), `domain/tools/schemas.rs` (`td("task", …)`),
   `domain/ai/engine/autonomous.rs` (depth guard + `max_iterations` branch).
 
 ### 3.3 Tier 0 residency (provider-agnostic)
-- `ollama_offload.rs` is Ollama-coupled. Generalise `keep_alive` /
+- `gpu_offload.rs::keep_alive` is native-`/api`-coupled. Generalise it /
   max-loaded-models policy to also cover Lemonade-llamacpp and the ROCmFPX
-  server. Low priority; goes with the broader Ollama removal.
+  server. Low priority.
 
 ---
 

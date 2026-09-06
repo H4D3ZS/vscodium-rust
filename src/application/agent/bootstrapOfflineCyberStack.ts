@@ -1,6 +1,6 @@
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
-import { applyLocalOllamaAgentDefaults } from '../../lib/localOllamaAgentDefaults';
+import { applyLocalAgentDefaults } from '../../lib/localAgentDefaults';
 
 const MIGRATION_KEY = 'ide.offline-cyber-boot-v1';
 
@@ -12,8 +12,8 @@ export function applyOfflineCyberDefaults(): void {
     if (localStorage.getItem(MIGRATION_KEY)) return;
 
     const cloudOnboarded = localStorage.getItem('cyberifrit.cloudOnboarded') === '1';
-    if (!cloudOnboarded && localStorage.getItem('ollamaServerMode') !== 'cloud') {
-        localStorage.setItem('ollamaServerMode', 'local');
+    if (!cloudOnboarded && localStorage.getItem('inferenceServerMode') !== 'cloud') {
+        localStorage.setItem('inferenceServerMode', 'local');
         localStorage.setItem('inferenceBackend', 'lemonade');
     }
 
@@ -21,7 +21,7 @@ export function applyOfflineCyberDefaults(): void {
     localStorage.setItem('kvcache.enabled', '1');
     localStorage.setItem('ccet.enabled', '1');
     localStorage.setItem('indexing.enabled', '1');
-    localStorage.setItem('ollamaConnectionMode', 'proxy');
+    localStorage.setItem('inferenceConnectionMode', 'proxy');
 
     if (!localStorage.getItem('kortex.backend')) {
         localStorage.setItem('kortex.backend', isMac ? 'metal' : 'vulkan');
@@ -79,12 +79,12 @@ async function probeAimProxy(): Promise<void> {
         const direct = await fetch('http://127.0.0.1:13305/api/v1/models', { signal: AbortSignal.timeout(2500) });
         if (direct.ok) {
             console.warn(
-                '[offline-cyber] Ollama direct (:13305) OK but AIM proxy (:1536) offline. '
+                '[offline-cyber] local backend direct (:13305) OK but AIM proxy (:1536) offline. '
                 + 'Run `kortex/target/release/aim-proxy` for .aim context injection and KV prefix caching.',
             );
         }
     } catch {
-        console.warn('[offline-cyber] Ollama not reachable — start `ollama serve` for offline inference');
+        console.warn('[offline-cyber] local model server not reachable — start your local model server for offline inference');
     }
 }
 
@@ -95,9 +95,9 @@ async function probeAimProxy(): Promise<void> {
 function syncStoreFromOfflineDefaults(): void {
     const store = useStore.getState();
     try {
-        const mode = localStorage.getItem('ollamaServerMode') as 'local' | 'cloud' | 'remote' | null;
-        if (mode && store.ollamaServerMode !== mode) {
-            store.setOllamaServerMode?.(mode);
+        const mode = localStorage.getItem('inferenceServerMode') as 'local' | 'cloud' | 'remote' | null;
+        if (mode && store.inferenceServerMode !== mode) {
+            store.setInferenceServerMode?.(mode);
         }
         store.setKvCacheEnabled?.(localStorage.getItem('kvcache.enabled') !== '0');
         store.setKortexGacEnabled?.(localStorage.getItem('kortex.gacEnabled') !== '0');
@@ -118,8 +118,8 @@ export async function bootstrapOfflineCyberStack(opts?: { heavy?: boolean }): Pr
 
     const store = useStore.getState();
 
-    if (store.ollamaServerMode === 'local') {
-        applyLocalOllamaAgentDefaults(store);
+    if (store.inferenceServerMode === 'local') {
+        applyLocalAgentDefaults(store);
     }
 
     const mode = (() => {
@@ -131,8 +131,8 @@ export async function bootstrapOfflineCyberStack(opts?: { heavy?: boolean }): Pr
 
     if (!opts?.heavy) return;
 
-    if (store.ollamaServerMode === 'local') {
-        void store.syncOllamaEndpoint?.();
+    if (store.inferenceServerMode === 'local') {
+        void store.syncInferenceEndpoint?.();
     }
 
     if (isMac) {
@@ -171,6 +171,6 @@ export async function bootstrapOfflineCyberStack(opts?: { heavy?: boolean }): Pr
                 store.setAgentModel?.(tag);
                 try { localStorage.setItem('agentModel', tag); } catch { /* */ }
             }
-        } catch { /* Ollama offline */ }
+        } catch { /* local backend offline */ }
     }
 }

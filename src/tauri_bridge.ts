@@ -25,7 +25,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     if (cmd === 'get_config_path') return Promise.resolve('/mock/config.json' as any);
     if (cmd === 'ai_chat' || cmd === 'ai_chat_fast') {
         return Promise.reject(
-            new Error('Rust backend not connected — run `npm run dev:tauri` (Vite-only dev cannot call Ollama).'),
+            new Error('Rust backend not connected — run `npm run dev:tauri` (Vite-only dev cannot call the Rust backend).'),
         ) as any;
     }
 

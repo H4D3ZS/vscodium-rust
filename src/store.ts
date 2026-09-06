@@ -4,7 +4,7 @@
 
 export { useStore } from './store/index';
 export type { AppState } from './store/index';
-export { normalizeOllamaUrl } from './store/utils';
+export { normalizeInferenceUrl } from './store/utils';
 
 export type {
     EditorTab,

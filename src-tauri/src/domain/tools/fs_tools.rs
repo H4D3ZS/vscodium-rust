@@ -1070,7 +1070,7 @@ impl AiTools {
                 // inference endpoint. This path is rare (tool invoked before
                 // state initialization) and the URL is cosmetic here since
                 // `explore_repository` uses it only for model discovery.
-                "http://127.0.0.1:11434".to_string()
+                "http://127.0.0.1:13305".to_string()
             }
         };
 

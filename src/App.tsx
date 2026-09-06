@@ -117,10 +117,10 @@ const App: React.FC = () => {
             import('./lib/agentAutonomy').then(({ ensureAgenticAutonomy }) => {
                 void ensureAgenticAutonomy(st.agentMode);
             });
-            import('./lib/localOllamaAgentDefaults').then(({ migrateLocalOllamaPlannerSettings }) => {
-                migrateLocalOllamaPlannerSettings(useStore.getState());
+            import('./lib/localAgentDefaults').then(({ migrateLocalPlannerSettings }) => {
+                migrateLocalPlannerSettings(useStore.getState());
             });
-            void st.syncOllamaEndpoint?.()
+            void st.syncInferenceEndpoint?.()
                 .then(() => st.refreshAvailableModels())
                 .catch(() => st.refreshAvailableModels());
             // Push the configured Lemonade server URL into the Rust engine on

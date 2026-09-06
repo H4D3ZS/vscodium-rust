@@ -5,7 +5,7 @@ import type { AppState } from './index';
 // ─────────────────────────────────────────────────────────────────────────────
 //  Auth / subscription slice.
 //
-//  Local inference (Lemonade / Ollama) is ALWAYS free and needs no login. Signing
+//  Local inference (Lemonade / the local backend) is ALWAYS free and needs no login. Signing
 //  in unlocks the powerful cloud models (GLM-5.2, Qwen3.6-35B-MoE, …) served via
 //  the Cyber-Ifrit cloud gateway — for users whose GPU can't run them locally.
 //

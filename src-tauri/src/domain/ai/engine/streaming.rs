@@ -409,7 +409,7 @@ impl Sentient {
             } else if provider_lc == "anthropic" {
                 "https://api.anthropic.com/v1/messages".to_string()
             } else {
-                endpoint.replace(":1536", ":11434")
+                endpoint.replace(":1536", ":13305")
             };
 
             println!("[AI] Proxy port 1536 unreachable in single_shot_completion, retrying directly on fallback: {}", fallback_endpoint);

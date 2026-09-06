@@ -1,17 +1,17 @@
 /**
- * HADES-Ollama Integration Service
+ * HADES-the local backend Integration Service
  * 
- * Wraps Ollama API with HADES intelligence layer:
+ * Wraps the local backend API with HADES intelligence layer:
  * - .aim VFS context injection
  * - Thermal governor monitoring
  * - JIT decompression triggers
  * - Semantic gist enhancement
  */
 
-import { useStore, normalizeOllamaUrl } from './store';
+import { useStore, normalizeInferenceUrl } from './store';
 import { invoke } from './tauri_bridge';
 
-export interface HadesOllamaConfig {
+export interface HadesInferenceConfig {
   baseUrl: string;
   model: string;
   aimVfsEnabled: boolean;
@@ -20,7 +20,7 @@ export interface HadesOllamaConfig {
   jitThreshold: number;
 }
 
-export interface OllamaResponse {
+export interface NativeApiResponse {
   model: string;
   response?: string;  // For /api/generate
   message?: {         // For /api/chat
@@ -34,8 +34,8 @@ export interface OllamaResponse {
   eval_duration: number;
 }
 
-class HadesOllamaService {
-  private config: HadesOllamaConfig = {
+class HadesInferenceService {
+  private config: HadesInferenceConfig = {
     baseUrl: 'http://localhost:13305',
     model: '',
     aimVfsEnabled: true,
@@ -51,7 +51,7 @@ class HadesOllamaService {
   private loadConfig() {
     const s = useStore.getState();
     this.config = {
-      baseUrl: s.ollamaUrl || 'http://localhost:13305',
+      baseUrl: s.inferenceUrl || 'http://localhost:13305',
       model: s.agentModel?.split('|')[1] || s.agentModel || '',
       aimVfsEnabled: (s as { aimVfsEnabled?: boolean }).aimVfsEnabled ?? true,
       thermalGovernorEnabled: (s as { thermalGovernorEnabled?: boolean }).thermalGovernorEnabled ?? true,
@@ -60,14 +60,14 @@ class HadesOllamaService {
     };
   }
 
-  private async postOllama(path: '/api/generate' | '/api/chat', body: Record<string, unknown>): Promise<OllamaResponse> {
+  private async postNativeApi(path: '/api/generate' | '/api/chat', body: Record<string, unknown>): Promise<NativeApiResponse> {
     if (!this.config.model.trim()) {
-      throw new Error('No Ollama model selected. Choose a local model in Settings before starting local inference.');
+      throw new Error('No local model selected. Choose one in Settings before starting local inference.');
     }
     const raw = (this.config.baseUrl || '').trim() || 'http://localhost:13305';
     let base: string;
     try {
-      base = normalizeOllamaUrl(raw);
+      base = normalizeInferenceUrl(raw);
     } catch {
       base = 'http://localhost:13305';
     }
@@ -82,7 +82,7 @@ class HadesOllamaService {
       /* no Tauri / no keys */
     }
     // Same-origin dev proxy (see vite.config.ts) when running in a browser surface.
-    // Falls through to the configured base URL only for fully-local Ollama (matches origin).
+    // Falls through to the configured base URL only for fully-local the local backend (matches origin).
     let url = `${base}${path}`;
     if (typeof window !== 'undefined') {
       try {
@@ -100,9 +100,9 @@ class HadesOllamaService {
       body: JSON.stringify(body),
     });
     if (!response.ok) {
-      throw new Error(`Ollama error: ${response.statusText}`);
+      throw new Error(`Local inference error: ${response.statusText}`);
     }
-    return (await response.json()) as OllamaResponse;
+    return (await response.json()) as NativeApiResponse;
   }
 
   /**
@@ -111,7 +111,7 @@ class HadesOllamaService {
   async generate(prompt: string, options?: {
     stream?: boolean;
     context?: string[];
-  }): Promise<OllamaResponse> {
+  }): Promise<NativeApiResponse> {
     this.loadConfig();
 
     // Step 1: Check thermal state (RX 580 protection)
@@ -146,7 +146,7 @@ class HadesOllamaService {
       }
     }
 
-    const data = await this.postOllama('/api/generate', {
+    const data = await this.postNativeApi('/api/generate', {
       model: this.config.model,
       prompt: enhancedPrompt,
       stream: options?.stream ?? false,
@@ -171,7 +171,7 @@ class HadesOllamaService {
    */
   async chat(messages: Array<{ role: string; content: string }>, options?: {
     stream?: boolean;
-  }): Promise<OllamaResponse> {
+  }): Promise<NativeApiResponse> {
     this.loadConfig();
 
     // Thermal check
@@ -202,7 +202,7 @@ class HadesOllamaService {
       }
     }
 
-    const data = await this.postOllama('/api/chat', {
+    const data = await this.postNativeApi('/api/chat', {
       model: this.config.model,
       messages: enhancedMessages,
       stream: options?.stream ?? false,
@@ -284,4 +284,4 @@ class HadesOllamaService {
   }
 }
 
-export const hadesOllama = new HadesOllamaService();
+export const hadesInference = new HadesInferenceService();

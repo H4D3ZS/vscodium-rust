@@ -44,10 +44,10 @@ export const CURSOR_PARITY_GROUPS: CursorParityGroup[] = [
         title: 'Codebase & @context',
         cursorRef: 'cursor-retrieval',
         features: [
-            { id: 'codebase-index', name: '@codebase semantic index', description: 'Chunk + symbol index with Ollama embeddings', cursorRef: 'cursor-retrieval', status: 'done', hadesPath: 'vector_indexer.rs, embeddings.rs' },
+            { id: 'codebase-index', name: '@codebase semantic index', description: 'Chunk + symbol index with local embeddings', cursorRef: 'cursor-retrieval', status: 'done', hadesPath: 'vector_indexer.rs, embeddings.rs' },
             { id: 'semantic-search-tool', name: 'semantic_search agent tool', description: 'AIM + vector merged search with cosine similarity', cursorRef: 'semantic_search', status: 'done', hadesPath: 'ai_tools.rs, vector_indexer.rs' },
             { id: 'search-codebase-tool', name: 'search_codebase tool', description: 'Grep + symbols + vector chunks', cursorRef: 'grepClient', status: 'done', hadesPath: 'ai_tools.rs' },
-            { id: 'embeddings', name: 'Vector embeddings (Ollama)', description: 'Cosine similarity via nomic-embed-text during index + search', cursorRef: 'retrieval embeddings', status: 'done', hadesPath: 'embeddings.rs, vector_indexer.rs' },
+            { id: 'embeddings', name: 'Vector embeddings (local)', description: 'Cosine similarity via nomic-embed-text during index + search', cursorRef: 'retrieval embeddings', status: 'done', hadesPath: 'embeddings.rs, vector_indexer.rs' },
             { id: 'cursorignore', name: '.cursorignore / indexing ignore', description: 'Respect Cursor ignore files', cursorRef: '.cursorignore', status: 'done', hadesPath: 'cursor_compat.rs, ai_tools.rs' },
             { id: 'github-augment', name: 'GitHub-augmented retrieval', description: 'Login to enrich index from GitHub', cursorRef: 'cursor-retrieval.canAttemptGithubLogin', status: 'na' },
         ],
@@ -68,7 +68,7 @@ export const CURSOR_PARITY_GROUPS: CursorParityGroup[] = [
         title: 'Inline edit & Tab',
         cursorRef: 'Tab model, Quick Edit',
         features: [
-            { id: 'tab-autocomplete', name: 'Tab autocomplete (FIM)', description: 'Ollama native /api/generate FIM for coder models', cursorRef: 'Autocomplete feature', status: 'done', hadesPath: 'ai_commands.rs ai_inline_complete' },
+            { id: 'tab-autocomplete', name: 'Tab autocomplete (FIM)', description: 'Local /api/generate FIM for coder models', cursorRef: 'Autocomplete feature', status: 'done', hadesPath: 'ai_commands.rs ai_inline_complete' },
             { id: 'quick-edit', name: 'Ctrl+K quick edit', description: 'Selection-scoped inline edit', cursorRef: 'QuickEdit', status: 'done', hadesPath: 'Editor.tsx, QuickEdit model slot' },
             { id: 'next-edit', name: 'Next-edit prediction', description: 'Jump to predicted next edit site', cursorRef: 'Tab prediction', status: 'done', hadesPath: 'PredictiveEditOverlay.tsx, predict_next_edit' },
             { id: 'inline-diff', name: 'Inline diff decorations', description: 'Monaco diff for pending agent edits', cursorRef: 'composer diff UI', status: 'done', hadesPath: 'pendingChanges store, Editor.tsx' },
@@ -98,8 +98,8 @@ export const CURSOR_PARITY_GROUPS: CursorParityGroup[] = [
         title: 'Models & inference',
         cursorRef: 'Cursor model routing',
         features: [
-            { id: 'multi-provider', name: 'Multi-provider routing', description: 'Anthropic, OpenAI, Ollama, etc.', cursorRef: 'model picker', status: 'done', hadesPath: 'inferenceSlice.ts, ai_engine.rs' },
-            { id: 'local-lemonade', name: 'Local Lemonade (no cloud)', description: 'Unlimited local agentic inference on real llama.cpp', cursorRef: 'Ollama', status: 'done', hadesPath: 'application/commands/ai.rs' },
+            { id: 'multi-provider', name: 'Multi-provider routing', description: 'Anthropic, OpenAI, Lemonade, etc.', cursorRef: 'model picker', status: 'done', hadesPath: 'inferenceSlice.ts, ai_engine.rs' },
+            { id: 'local-lemonade', name: 'Local Lemonade (no cloud)', description: 'Unlimited local agentic inference on real llama.cpp', cursorRef: 'local inference', status: 'done', hadesPath: 'application/commands/ai.rs' },
             { id: 'feature-models', name: 'Per-feature model slots', description: 'Chat / Apply / Tab / SCM models', cursorRef: 'FEATURES', status: 'done', hadesPath: 'model_capabilities.ts' },
             { id: 'composer-2-amd3900', name: 'Composer 2 AMD 3900 hybrid', description: 'Local fast chat + remote MiniMax M2.7 agent with failover', cursorRef: 'Composer 2', status: 'done', hadesPath: 'composer2Stack.ts' },
             { id: 'composer-2', name: 'Composer 2 stack presets', description: 'Kimi K2.6-class hybrid + Composer 2 Fast chat routing', cursorRef: 'Composer 2', status: 'done', hadesPath: 'src/lib/composer2Stack.ts' },

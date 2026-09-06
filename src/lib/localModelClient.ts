@@ -2,16 +2,14 @@
  * Shared local-LLM client for every AIRI subsystem.
  *
  * Lemonade is the only local backend (real llama.cpp) and it exposes an
- * Ollama-compatible surface at `/api/generate` and `/api/chat`, which
- * is what the `ollama` npm client speaks. It also sends
+ * the local backend-compatible surface at `/api/generate` and `/api/chat`, which
+ * is what the `the local backend` npm client speaks. It also sends
  * `Access-Control-Allow-Origin: *`, so the webview can call it directly — the
- * old Rust CORS-bypass bridge (`ollama_native_get`/`_post`) is gone.
+ * old Rust CORS-bypass bridge (`native_api_get`/`_post`) is gone.
  *
  * Host + optional `Authorization: Bearer …` come from Settings → Inference
  * Backend and API Keys; `refreshLocalModelConfig` keeps them in sync.
  */
-import type { Ollama } from 'ollama';
-import { Ollama as OllamaClient } from 'ollama';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
 
@@ -23,7 +21,7 @@ let bootstrapped = false;
 let bootstrapPromise: Promise<void> | null = null;
 
 /**
- * Lemonade's Ollama-compatible `/api/tags` mimics Ollama's tag format and
+ * Lemonade's the local backend-compatible `/api/tags` mimics the local backend's tag format and
  * appends `:latest` to every id. Its native `/api/v1/models` — and the
  * Anthropic endpoint the agent actually calls — use the bare id. Strip the
  * synthetic tag so one canonical name flows everywhere; a persisted
@@ -43,53 +41,19 @@ function normalizeHost(raw: string): string {
 function readStoredHost(): string {
     try {
         if (typeof localStorage === 'undefined') return 'http://localhost:13305';
-        const v = localStorage.getItem('lemonadeUrl') ?? localStorage.getItem('ollamaUrl');
+        const v = localStorage.getItem('lemonadeUrl') ?? localStorage.getItem('inferenceUrl');
         return normalizeHost(v || 'http://localhost:13305');
     } catch {
         return 'http://localhost:13305';
     }
 }
 
-function isTauri(): boolean {
-    return typeof window !== 'undefined' && !!(window as any).__TAURI__;
-}
-
 /**
  * When the renderer is the Vite dev server (or any non-Tauri browser surface
  * served from the same host as the IDE bundle), we cannot send the configured
- * remote Ollama URL directly — nginx CORS will reject it. Instead we route
+ * remote the local backend URL directly — nginx CORS will reject it. Instead we route
  * Tauri builds never take this path because they use Rust IPC.
  */
-function browserOllamaBase(): string {
-    // Lemonade answers with `Access-Control-Allow-Origin: *`, so the page can
-    // call it cross-origin directly. The old `/__ollama` dev proxy pointed at a
-    // remote host and is gone — it broke the local-only guarantee and spammed
-    // ECONNREFUSED when that host was unreachable.
-    return getLocalModelHost();
-}
-
-async function bootstrap(): Promise<void> {
-    if (bootstrapped) return;
-    if (bootstrapPromise) return bootstrapPromise;
-    bootstrapPromise = (async () => {
-        try {
-            cachedHost = readStoredHost();
-            if (isTauri()) {
-                try {
-                    const keys = await invoke<Record<string, string>>('get_api_keys');
-                    const tok = keys?.ollama?.trim();
-                    if (tok) cachedHeaders = { Authorization: `Bearer ${tok}` };
-                } catch {
-                    /* no keys yet */
-                }
-            }
-        } finally {
-            bootstrapped = true;
-        }
-    })();
-    return bootstrapPromise;
-}
-
 /**
  * Force a fresh host/headers snapshot. Call from the agent bridge once the
  * store + API keys are loaded, and again whenever settings change.
@@ -112,16 +76,16 @@ export function getLocalModelHeaders(): Headers | undefined {
 // ─── Concurrency gate + 503 retry ──────────────────────────────────────────
 // AIRI fires many background generate/chat calls in parallel (consciousness,
 // vision, continuous-improvement, self-learning, social, …). A single VPS
-// behind nginx with `limit_conn ollama_conn 20` will reject the burst with
+// behind nginx with `limit_conn inference_conn 20` will reject the burst with
 // 503. This gate serializes traffic to a small concurrency cap and applies
-// exponential backoff when nginx (or Ollama) signals pressure.
+// exponential backoff when nginx (or the local backend) signals pressure.
 
-const MAX_CONCURRENT_OLLAMA = 3;
+const MAX_CONCURRENT_LOCAL = 3;
 let inflight = 0;
 const waiters: Array<() => void> = [];
 
 async function acquireSlot(): Promise<() => void> {
-    if (inflight < MAX_CONCURRENT_OLLAMA) {
+    if (inflight < MAX_CONCURRENT_LOCAL) {
         inflight++;
         let released = false;
         return () => {
@@ -136,7 +100,7 @@ async function acquireSlot(): Promise<() => void> {
     return acquireSlot();
 }
 
-function isRetryableOllamaError(err: unknown): { retry: boolean; backoffMs: number } {
+function isRetryableInferenceError(err: unknown): { retry: boolean; backoffMs: number } {
     const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
     if (msg.includes('503') || msg.includes('service temporarily unavailable')) {
         return { retry: true, backoffMs: 1500 };
@@ -152,7 +116,7 @@ function isRetryableOllamaError(err: unknown): { retry: boolean; backoffMs: numb
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function withOllamaConcurrency<T>(label: string, fn: () => Promise<T>): Promise<T> {
+async function withInferenceConcurrency<T>(label: string, fn: () => Promise<T>): Promise<T> {
     const MAX_ATTEMPTS = 4;
     let attempt = 0;
     let release = await acquireSlot();
@@ -162,12 +126,12 @@ async function withOllamaConcurrency<T>(label: string, fn: () => Promise<T>): Pr
             try {
                 return await fn();
             } catch (err) {
-                const { retry, backoffMs } = isRetryableOllamaError(err);
+                const { retry, backoffMs } = isRetryableInferenceError(err);
                 if (!retry || attempt >= MAX_ATTEMPTS) throw err;
                 const jitter = Math.floor(Math.random() * 250);
                 const wait = backoffMs * Math.pow(2, attempt - 1) + jitter;
                 console.warn(
-                    `[AIRI Ollama] ${label} hit upstream throttle (attempt ${attempt}/${MAX_ATTEMPTS}); retrying in ${wait}ms.`,
+                    `[local-inference] ${label} hit upstream throttle (attempt ${attempt}/${MAX_ATTEMPTS}); retrying in ${wait}ms.`,
                 );
                 await sleep(wait);
             }
@@ -180,7 +144,7 @@ async function withOllamaConcurrency<T>(label: string, fn: () => Promise<T>): Pr
 // ─── Installed-model cache + auto-fallback ──────────────────────────────────
 // AIRI subsystems still ship hardcoded model tags (`gemma3:12b`,
 // `qwen3.6:32b-q4_K_M`, …) that almost certainly aren't on a paying
-// customer's remote VPS. The browser-side ollama-guard handles this by
+// customer's remote VPS. The browser-side the local backend-guard handles this by
 // rewriting the `fetch` body, but that interceptor never sees the Tauri IPC
 // path. We replicate the same substitution here so AIRI uses whatever the
 // user actually has installed (preferring their selected agent model).
@@ -190,7 +154,7 @@ let refreshingInstalled: Promise<void> | null = null;
 let lastInstalledRefresh = 0;
 const INSTALLED_TTL_MS = 60_000;
 const FALLBACK_STORAGE_KEYS = [
-    'agentModel', // persisted by store.setAgentModel — "Ollama|namespace/tag"
+    'agentModel', // persisted by store.setAgentModel — "lemonade|namespace/tag"
     'airi.consciousness.model',
     'airi.vision.model',
 ];
@@ -205,7 +169,7 @@ function maybeWarnSubstitution(requested: string, fallback: string): void {
     lastSubstWarnKey = key;
     lastSubstWarnAt = now;
     console.warn(
-        `[AIRI Ollama] Model "${requested}" not installed on this server — substituting "${fallback}".`,
+        `[local-inference] Model "${requested}" not installed on this server — substituting "${fallback}".`,
     );
 }
 
@@ -311,19 +275,6 @@ async function refreshInstalled(force = false): Promise<void> {
     return refreshingInstalled;
 }
 
-async function substituteUnknownModel(req: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const requested = typeof req.model === 'string' ? req.model.trim() : '';
-    if (!requested) return req;
-    await refreshInstalled();
-    if (!installedModels || installedModels.size === 0) return req;
-    const direct = resolveInstalledOrNull(requested);
-    if (direct) return { ...req, model: direct };
-    const fallback = chooseFallback();
-    if (!fallback || fallback === requested) return req;
-    maybeWarnSubstitution(requested, fallback);
-    return { ...req, model: fallback };
-}
-
 /**
  * Public helper: pick a tag that exists on the configured server (exact,
  * fuzzy match on defaults, then user preference order).
@@ -352,7 +303,7 @@ export async function resolveLocalModelTag(requested: string): Promise<string> {
 /**
  * List local models from Lemonade's **native** catalog.
  *
- * Deliberately NOT `/api/tags`: that is Lemonade's Ollama-compatibility shim,
+ * Deliberately NOT `/api/tags`: that is Lemonade's the local backend-compatibility shim,
  * and it appends a synthetic `:latest` to every id, which then fails validation
  * against the native id everywhere else. `lemonade-claude.sh` reads
  * `/api/v1/models` and keys on `m.id` for exactly this reason — mirror it.
@@ -361,7 +312,7 @@ export async function resolveLocalModelTag(requested: string): Promise<string> {
  * so image/speech recipes (sd-cpp, whispercpp, kokoro) never reach a chat picker.
  */
 async function tauriListRaw(): Promise<{ models: Array<{ name: string;[k: string]: unknown }> }> {
-    return withOllamaConcurrency('list', async () => {
+    return withInferenceConcurrency('list', async () => {
         const res = await fetch(`${getLocalModelHost()}/api/v1/models`, { headers: getLocalModelHeaders() });
         const data = (await res.json()) as Record<string, unknown>;
         const rows: any[] = Array.isArray((data as any)?.data)
@@ -386,102 +337,4 @@ async function tauriList(): Promise<{ models: Array<{ name: string;[k: string]: 
     return data;
 }
 
-async function tauriGenerate(request: Record<string, any>): Promise<any | AsyncIterable<any>> {
-    if (request.stream === true) {
-        // Bypass the IPC bridge for streaming if it is a local host
-        const host = getLocalModelHost();
-        const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
-        if (isLocal) {
-            const client = buildClient();
-            return client.generate(request as any);
-        }
-        throw new Error(
-            'AIRI: streaming Ollama generate is only supported for local hosts (localhost/127.0.0.1) via browser direct-fetch; for remote hosts, use stream: false.',
-        );
-    }
-    const finalReq = await substituteUnknownModel(request);
-    return withOllamaConcurrency('generate', async () => {
-        const res = await fetch(`${getLocalModelHost()}/api/generate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(getLocalModelHeaders() ?? {}) },
-            body: JSON.stringify(finalReq),
-        });
-        return (await res.json()) as Record<string, unknown>;
-    });
-}
-
-async function tauriChat(request: Record<string, any>): Promise<any | AsyncIterable<any>> {
-    if (request.stream === true) {
-        // Bypass the IPC bridge for streaming if it is a local host
-        const host = getLocalModelHost();
-        const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
-        if (isLocal) {
-            const client = buildClient();
-            return client.chat(request as any);
-        }
-        throw new Error(
-            'AIRI: streaming Ollama chat is only supported for local hosts (localhost/127.0.0.1) via browser direct-fetch; for remote hosts, use stream: false.',
-        );
-    }
-    const finalReq = await substituteUnknownModel(request);
-    return withOllamaConcurrency('chat', async () => {
-        const res = await fetch(`${getLocalModelHost()}/api/chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(getLocalModelHeaders() ?? {}) },
-            body: JSON.stringify(finalReq),
-        });
-        return (await res.json()) as Record<string, unknown>;
-    });
-}
-
 /** Drop the cached model list; next request will refresh from `/api/v1/models`. */
-export function invalidateInstalledModelCache(): void {
-    installedModels = null;
-    lastInstalledRefresh = 0;
-}
-
-function buildClient(): Ollama {
-    const host = isTauri() ? getLocalModelHost() : browserOllamaBase();
-    const headers = getLocalModelHeaders();
-    return new OllamaClient({ host, ...(headers ? { headers } : {}) } as any);
-}
-
-/**
- * Proxy-wrapped Ollama client. Under Tauri, `list` / `generate` / `chat` use IPC
- * (no CORS). Other methods fall back to the browser client (may still hit CORS
- * on exotic remote-only setups).
- */
-export function createLocalModelClient(): Ollama {
-    void bootstrap();
-    if (isTauri()) {
-        return new Proxy({} as Record<string, unknown>, {
-            get(_target, prop) {
-                if (prop === 'list') return tauriList.bind(null);
-                if (prop === 'generate') return (req: Record<string, unknown>) => tauriGenerate(req);
-                if (prop === 'chat') return (req: Record<string, unknown>) => tauriChat(req);
-                const client = buildClient();
-                const value = (client as any)[prop];
-                return typeof value === 'function' ? (value as Function).bind(client) : value;
-            },
-        }) as unknown as Ollama;
-    }
-    const handler: ProxyHandler<Record<string, unknown>> = {
-        get(_target, prop) {
-            const client = buildClient();
-            const value = (client as any)[prop];
-            return typeof value === 'function' ? (value as Function).bind(client) : value;
-        },
-    };
-    return new Proxy({} as any, handler) as Ollama;
-}
-
-export async function fetchLocalModel(path: string, init?: RequestInit): Promise<Response> {
-    void bootstrap();
-    const host = browserOllamaBase();
-    const headers: Record<string, string> = {
-        ...(init?.headers as Record<string, string> | undefined),
-        ...(cachedHeaders ?? {}),
-    };
-    const url = `${host}${path.startsWith('/') ? path : `/${path}`}`;
-    return fetch(url, { ...init, headers });
-}

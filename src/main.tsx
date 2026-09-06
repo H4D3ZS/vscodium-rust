@@ -27,14 +27,14 @@ initMonaco();
 void hydrateUiSettings();
 
 // Warm up the selected inference backend — keeps the main model in GPU/VRAM
-// so the first agent turn is fast. Backend-aware: only hits Ollama (:13305)
-// when Ollama is the active backend; otherwise targets Lemonade (:13305) or
+// so the first agent turn is fast. Backend-aware: only hits the local backend (:13305)
+// when the local backend is the active backend; otherwise targets Lemonade (:13305) or
 // whichever custom URL the user configured. Avoids the old hardcoded
 // `:13305/api/generate` 404 that fired at boot no matter which backend was
 // selected.
 scheduleDeferredInit(() => {
     const backend = (() => {
-        try { return localStorage.getItem('inferenceBackend') || 'ollama'; } catch { return 'ollama'; }
+        try { return localStorage.getItem('inferenceBackend') || 'lemonade'; } catch { return 'lemonade'; }
     })();
     const trim = (s: string) => (s || '').trim().replace(/\/+$/, '');
 
@@ -55,9 +55,9 @@ scheduleDeferredInit(() => {
         return;
     }
 
-    // Ollama (default) — keep the original keep-alive warmup.
+    // the local backend (default) — keep the original keep-alive warmup.
     let base = 'http://localhost:13305';
-    try { base = trim(localStorage.getItem('ollamaUrl')) || base; } catch { /* ignore */ }
+    try { base = trim(localStorage.getItem('inferenceUrl')) || base; } catch { /* ignore */ }
     fetch(`${base}/api/v1/models`).catch(() => {});
     const agentModel = localStorage.getItem('agentModel') || '';
     const modelTag = agentModel.includes('|') ? agentModel.split('|').slice(1).join('|') : agentModel;

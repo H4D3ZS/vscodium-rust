@@ -63,8 +63,8 @@ const AneAccelerationPanel: React.FC = () => {
     const modeLabel = aneActive
 ? 'ANE Aux Offload (search on NPU)'
 : status.available
-? 'Ollama / Metal GPU (ANE idle)'
-: 'Ollama (no ANE on this hardware)';
+? 'Local GPU / Metal (ANE idle)'
+: 'local backend (no ANE on this hardware)';
 
     return (
         <div style={{ maxWidth: 680 }}>
@@ -110,7 +110,7 @@ const AneAccelerationPanel: React.FC = () => {
                     <div>
                         <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>Token Generation</div>
                         <div style={{ fontSize: 13, fontWeight: 500 }}>
-                            Ollama / Metal GPU
+                            Local GPU / Metal
                         </div>
                     </div>
                     <div>
@@ -146,7 +146,7 @@ const AneAccelerationPanel: React.FC = () => {
                 {status.available && aneActive && (
                     <div style={{ fontSize: 11, color: '#9ece6a', padding: 8, background: 'rgba(158, 206, 106, 0.1)', borderRadius: 4 }}>
                          ANE is active: semantic search &amp; vector-index scoring run on the Neural Engine,
-                        keeping CPU/GPU free for Ollama token generation
+                        keeping CPU/GPU free for token generation
                     </div>
                 )}
 
@@ -160,7 +160,7 @@ const AneAccelerationPanel: React.FC = () => {
             <div className="settings-card">
                 <div className="settings-card-title">Performance Notes</div>
                 <p style={{ fontSize: 11, opacity: 0.7, margin: '0 0 8px 0', lineHeight: 1.5 }}>
-                    • Token generation runs in Ollama on the Metal GPU and is memory-bandwidth bound
+                    • Token generation runs on the Metal GPU and is memory-bandwidth bound
                     (~45 tok/s for a 2b Q4 model on M1) — no software can raise that ceiling
                 </p>
                 <p style={{ fontSize: 11, opacity: 0.7, margin: '0 0 8px 0', lineHeight: 1.5 }}>

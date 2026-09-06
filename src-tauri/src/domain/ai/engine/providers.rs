@@ -39,7 +39,7 @@ impl Sentient {
     /// tool call diversity and reduce repetition loops.
     pub(crate) fn local_sampling(model: &str, is_chat_mode: bool, req_temp: Option<f32>) -> (f32, f32, u32) {
         if Self::is_gemma4_model(model) {
-            // https://ollama.com/library/gemma4:12b — temp=1.0, top_p=0.95, top_k=64
+            // gemma4:12b publisher defaults — temp=1.0, top_p=0.95, top_k=64
             return (req_temp.unwrap_or(1.0), 0.95, 64);
         }
         let is_small = Self::is_small_model_name(model);
