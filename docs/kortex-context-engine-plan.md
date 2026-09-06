@@ -48,6 +48,61 @@ Physics that bound this (do not plan around targets they rule out):
 `MASTER_LEAN_PROMPT` rewritten tight/CC-style; `claude_code.rs` uses a valid
 model alias + probes real `/props` `n_ctx` + refuses below 24k.
 
+### Landed since (branch `chore/remove-airi-vrm`)
+
+| Piece | Commit | State |
+|---|---|---|
+| §2.1 `expand()` handler | `70d89e73` | **done** — `kortex_harness/stash.rs` (model-keyed schema stash, FIFO 8 models, sticky set), wired into `compress_openai_request`; `expand` tool + `handle_expand` + dispatch. 20 tests. |
+| §2.2 GBNF probe | `699a38fe` | **done** — `capability::probe_grammar`; `constrain_grammar` ANDed with the probe so a non-supporting upstream can't be broken. Probe only when `KORTEX_HARNESS_GRAMMAR=1`. |
+| §2.5 recallable compaction | `9f9434c4` | **done (v1)** — `kortex_harness/turn_stash.rs` (id→text, 2 MB budget); `compress_old_tool_results` stashes the full result + leaves `recall({"id"})` when `KORTEX_HARNESS=1`; `recall` tool. |
+| §3.1 skills runtime | `3b62e6c0` | **done** — `domain/skills/mod.rs` (`.claude/skills` + `.agent/skills` scan, frontmatter, dedup); `use_skill`/`search_skills` are real; `skill`/`list_skills` aliases. |
+| Remote agent bridge | `40b7b4a0` | **done** — `remote_bridge.rs`: 127.0.0.1 WebSocket → `Sentient::autonomous_loop`, token auth, `KORTEX_REMOTE=1` autostart, `remote_bridge_{start,stop,status}`. |
+
+### Still open
+
+- **§2.3 `/v1/messages`** — needs Anthropic↔OpenAI translation + fixtures from a
+  real Claude Code capture. Supervised.
+- **§2.4 Tier 2 response cache** — the plan's main deliverable; touches the hot
+  proxy path. Supervised.
+- **§3.2 sub-agent nesting**, **§3.3 Tier 0 residency** — orthogonal.
+- **§2.6 (new, from FreeToken)** — see below.
+
+## 2.6 Semantic-anchor KV checkpoints (FreeToken-inspired)
+
+FreeToken (Nvidia-only, can't run on RDNA4) has one idea in kortex's lane:
+*"semantic anchor checkpoints for recurrent state and KV caches, allowing
+agentic context edits (tool calls, thinking blocks) to avoid redundant context
+recomputation."*
+
+KDKVC today saves a slot only at completion and matches by **longest token
+prefix**. That's optimal when turn N+1 = turn N + more, but weak when the agent
+**edits mid-context** (retries a tool, prunes a `<think>` block, a tool result
+changed) — longest-prefix then matches only up to the first divergence, which
+can be early.
+
+**Design.** Save extra slots at **message boundaries** (after each `tool` result
+and each `assistant` turn), not just at completion:
+
+- On save, in addition to the tail slot, checkpoint at the end of the second-to-last
+  and third-to-last message boundaries → `<sha>.a1.slotbin`, `<sha>.a2.slotbin`.
+- On lookup, if the longest token-prefix match ends well before the request's
+  last stable message boundary, fall back to the nearest **anchor** whose token
+  prefix *is* a prefix of the request → restore that instead. Message boundaries
+  are far more stable than raw BPE offsets across small edits.
+- Bounded: at most 2–3 anchors per index entry; they share the entry's LRU/byte
+  budget and model-identity gate.
+
+**Files.** `kortex_kvcache/store.rs` (anchor entries), `proxy.rs` (anchor-aware
+lookup in `handle_intercepted`), `types.rs` (`PrefixMatch` carries which anchor).
+
+**Done when.** An agent turn that re-runs its last tool call (identical prompt
+except the final tool block) still gets a KV-slot HIT covering everything up to
+that tool block, where longest-prefix-only would have missed most of it. Add a
+fixture that reproduces the mid-edit.
+
+**Not adopting** from FreeToken: expert-offload / PCIe streaming / FTW weight
+format — those are serving-engine (ROCmFPX/llama.cpp) concerns, not the proxy's.
+
 ---
 
 ## 2. The gap — five pieces, in build order
