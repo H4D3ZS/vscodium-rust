@@ -57,15 +57,33 @@ model alias + probes real `/props` `n_ctx` + refuses below 24k.
 | §2.5 recallable compaction | `9f9434c4` | **done (v1)** — `kortex_harness/turn_stash.rs` (id→text, 2 MB budget); `compress_old_tool_results` stashes the full result + leaves `recall({"id"})` when `KORTEX_HARNESS=1`; `recall` tool. |
 | §3.1 skills runtime | `3b62e6c0` | **done** — `domain/skills/mod.rs` (`.claude/skills` + `.agent/skills` scan, frontmatter, dedup); `use_skill`/`search_skills` are real; `skill`/`list_skills` aliases. |
 | Remote agent bridge | `40b7b4a0` | **done** — `remote_bridge.rs`: 127.0.0.1 WebSocket → `Sentient::autonomous_loop`, token auth, `KORTEX_REMOTE=1` autostart, `remote_bridge_{start,stop,status}`. |
+| §2.4 Tier 2 response cache | `b5ebd522` | **done (v1)** — `kortex_kvcache/response_cache.rs` (exact-key LRU, determinism gate, `validate` rejects failures/truncated streams); `tier2_around` wraps the chat/completions handlers, replays byte-for-byte with `x-kortex-cache: hit`, tees misses on clean stream end. Off unless `KORTEX_TIER2=1`. 11 tests. |
+| §3.2 sub-agent nesting | `47635dff` | **done (v1)** — `task` tool → `handle_subagent_task`: bounded (`KORTEX_SUBAGENT_MAX_ITERS`, default 15, via a `"Subagent"` mode branch), isolated (fresh 1-message `AiRequest`, no root), one level deep (`SubagentDepthGuard`). Runs the child `autonomous_loop` on its own thread+runtime (its future is `!Send`); returns only final text. |
+| §2.6 semantic-anchor KV checkpoints | `76d672ef` | **done (v1)** — `anchors.rs` (`tail_boundary_offsets` + `AnchorConfig`), `proxy.rs::write_boundary_anchors`, `store.rs::put_anchors` + family-aware eviction. Anchors alias the tail `.slotbin`; `longest_prefix` unchanged. Off unless `KORTEX_KV_ANCHORS=1`. Store-level tests; live mid-edit validation pending. |
+| §2.3 `/v1/messages` | `121f84b4` | **done (v1)** — `anthropic.rs` (request + non-stream response + SSE-synthesis translation), `proxy.rs::handle_messages` route. Runs through the same KV/harness/Tier 2 path (forced non-stream upstream); streaming clients get the finished message rendered as a well-formed Anthropic SSE burst. 9 tests against **synthetic** fixtures. |
+| Claude Code route choice | `8b16bc71` | **done** — `ai.rs::resolve_claude_anthropic_base` + `running_proxy_urls()`; `route` param on `claude_code_chat`/`spawn_claude_terminal`; `localStorage['claudeCode.route']` (`auto`\|`kortex`\|`lemonade`) + a selector in InferenceBackendPanel. `CLAUDE_CODE_ANTHROPIC_BASE_URL` overrides. |
+| Tier 2 / anchor stats surface | _this branch_ | **done** — `KvCacheStats` gains `tier2_*` + `anchor_saves`; `kortex_kvcache_stats` folds in `ResponseCache::stats()`; `summarizeKvCache` shows both. |
 
 ### Still open
 
-- **§2.3 `/v1/messages`** — needs Anthropic↔OpenAI translation + fixtures from a
-  real Claude Code capture. Supervised.
-- **§2.4 Tier 2 response cache** — the plan's main deliverable; touches the hot
-  proxy path. Supervised.
-- **§3.2 sub-agent nesting**, **§3.3 Tier 0 residency** — orthogonal.
-- **§2.6 (new, from FreeToken)** — see below.
+Every buildable item in this plan is landed (v1). What remains is gated on
+things a coding session can't produce on its own:
+
+- **§2.3 fixtures** — the tests use synthetic bodies shaped from the public
+  Messages API docs, not a real Claude Code capture. Swap in a capture and
+  verify a live multi-tool `claude` turn against Escha (plan's "Done when").
+- **§2.6 live check** — the store-level round-trip is unit-tested; the on-path
+  restore win needs a real mid-edit against a running llama-server.
+- **§3.3 Tier 0 residency** — for Lemonade and the ROCmFPX server, residency is
+  already **process-lifetime** (the server holds the model until the IDE window
+  closes), and `gpu_offload::keep_alive()` is correctly scoped to genuine
+  Ollama payloads only (guards at `autonomous.rs`, `streaming.rs`,
+  `providers.rs`). A TTL/idle-unload policy for the ROCmFPX server is the only
+  real remaining work here, and it belongs with the broader Ollama removal —
+  which is a separate transport-layer effort (~100 files, live `/api/chat`
+  streaming + payload builders), not part of this plan.
+- **Milestone 6 tier badge / env-toggle UI** — stats are surfaced
+  (`summarizeKvCache`); a dedicated panel widget is cosmetic and still todo.
 
 ## 2.6 Semantic-anchor KV checkpoints (FreeToken-inspired)
 
@@ -99,6 +117,34 @@ lookup in `handle_intercepted`), `types.rs` (`PrefixMatch` carries which anchor)
 except the final tool block) still gets a KV-slot HIT covering everything up to
 that tool block, where longest-prefix-only would have missed most of it. Add a
 fixture that reproduces the mid-edit.
+
+**Implemented (v1, `KORTEX_KV_ANCHORS=1`).**
+
+- `kortex_kvcache/anchors.rs` — `AnchorConfig::from_env()`
+  (`KORTEX_KV_ANCHORS`, `KORTEX_KV_ANCHORS_MAX` default 3,
+  `KORTEX_KV_ANCHORS_MIN_GAP` default 64) + `tail_boundary_offsets(render, max)`
+  (pure: byte offsets just past the last `max` message-boundary newlines,
+  tail-first, always a char boundary). 5 tests.
+- `proxy.rs::write_boundary_anchors` — after a successful tail save, tokenises
+  each tail boundary offset, keeps those that are a true token-prefix of the
+  saved stream, `>= min_tokens`, and `+ min_gap < save_count`, and writes them
+  via `store.put_anchors`.
+- **No retroactive short save.** An anchor entry *aliases the tail's
+  `<sha>.slotbin`* — llama-server can't snapshot a shorter state after the fact,
+  but on restore it loads the full slot and trims its KV to the common prefix
+  with the request, so an anchor keyed at boundary N restores everything up to
+  N. `longest_prefix` needs **no change** — the anchor is just another (shorter)
+  prefix it already searches.
+- `store.rs` — `put_anchors` (forces `slotbin_size = 0`, `SaveReason::Anchor`,
+  skips `saves`/`total_bytes`/eviction, bumps `stats.anchor_saves`);
+  `evict_to_budget` is now family-aware: anchors don't drive LRU order, and
+  evicting a tail entry deletes its slot file *and* drops every anchor that was
+  aliasing it (a `slotbin_refcount` guards the unlink). `types.rs` —
+  `SaveReason::Anchor`, `KvCacheStats.anchor_saves`.
+- **v1 gaps:** costs ≤ `max_anchors` extra `/tokenize` calls per save (only when
+  the flag is on); the on-path restore win is unit-tested at the store level but
+  not yet validated against a live llama-server with a real mid-edit capture
+  (the plan's "Done when" fixture).
 
 **Not adopting** from FreeToken: expert-offload / PCIe streaming / FTW weight
 format — those are serving-engine (ROCmFPX/llama.cpp) concerns, not the proxy's.
@@ -187,6 +233,31 @@ harness compressor nor the KV cache reach that path.
 **Done when.** `claude` (CLI) pointed at `:1537` completes a multi-tool turn
 against Escha, and the KV-cache `hits` counter increments on turn 2.
 
+**Implemented (v1).**
+
+- `kortex_kvcache/anthropic.rs`:
+  - `anthropic_to_openai` — `system` (string or text blocks) → a `system`
+    message; per-message content blocks → text / `tool_calls` (from `tool_use`)
+    / a `role:"tool"` message (from `tool_result`, `is_error` prefixed);
+    `tools[].input_schema` → `function.parameters`; `tool_choice`
+    `auto|any|tool` → `"auto"|"required"|{function}`; `stop_sequences` → `stop`;
+    `temperature/top_p/top_k/max_tokens/stream` + `metadata.user_id` → `user`.
+    `thinking` blocks pass through as text; `image` blocks become a marker.
+  - `openai_response_to_anthropic` — `message` → `content` blocks (text +
+    `tool_use`), `finish_reason` → `stop_reason`, `usage` mapped.
+  - `anthropic_message_to_sse` — renders the finished message as the ordered
+    event sequence (`message_start` → per-block `content_block_start` /
+    `_delta` (`text_delta` or `input_json_delta`) / `_stop` → `message_delta`
+    → `message_stop`). Emitted whole, not token-timed.
+- `proxy.rs::handle_messages` (`POST /v1/messages`): translate → force
+  `stream:false` upstream → run through `tier2_around` (so KV cache + harness +
+  Tier 2 all apply) → `axum::body::to_bytes` the JSON → translate back →
+  return JSON, or the SSE burst when the client asked to stream.
+- **v1 gaps:** tests use **synthetic** fixtures (public API docs shape), not a
+  real Claude Code capture; no true token-by-token streaming; image blocks and
+  prompt-caching hints (`cache_control`) are dropped; `count_tokens` endpoint
+  not implemented.
+
 ### 2.4 Tier 2 — response cache (the "past `n_ctx`" mechanism for repeats)
 
 Follow `docs/kortex-cache.md` §6 verbatim. Summary:
@@ -210,6 +281,31 @@ and *also* as a fast pre-check when tier == Kv).
 **Done when.** Re-running the exact same `temperature=0` agent prompt returns in
 <50 ms with `calls_avoided` incremented and byte-identical output (including
 stream framing).
+
+**Implemented (v1, `KORTEX_TIER2=1`).** `kortex_kvcache/response_cache.rs`:
+
+- `ResponseCache` — in-memory `HashMap` + LRU `VecDeque`, byte budget
+  `KORTEX_TIER2_MAX_MB` (default 128), hit/miss/store counters via `stats()`.
+- `key_for(body, model_id)` — `SHA-256("kortex-tier2\0" ‖ model_id ‖ each
+  keyed field's canonical JSON)`. `serde_json::Value` maps are `BTreeMap`-backed
+  here (no `preserve_order`), so the render is canonical and client JSON key
+  order doesn't matter. `stream` flag is in the key (SSE vs JSON replay differ).
+- Determinism gate in `key_for`: returns `None` unless `temperature == 0` or a
+  non-null `seed` is present; `KORTEX_TIER2_NONDETERMINISTIC=1` lifts it.
+- `validate(status, is_sse, body)` — rejects non-200, `{"error":…}`, empty
+  completions, and SSE that never reached `[DONE]`.
+- Wiring: `proxy.rs::tier2_around` wraps `handle_chat_completions` /
+  `handle_completions` (no changes to `handle_intercepted`, `forward_raw*`, or
+  the slot path). Hit → `replay_cached` (byte-for-byte + `x-kortex-cache: hit`,
+  `cache-control: no-cache` for SSE). Miss → `capture_for_tier2` tees the
+  response body via `Body::into_data_stream()` (capped at `MAX_ENTRY_BYTES`,
+  8 MiB) and stores on clean stream end.
+- **v1 gaps vs the spec above:** in-memory only (no disk table in `store.rs`, no
+  atomic index writes); SSE is stored as raw bytes and replayed as one chunk
+  (clients parse SSE regardless of chunk boundaries) rather than a re-timed
+  ordered chunk list; no `calls_avoided` surfaced in `KvCacheStats` yet;
+  `ModelIdentity::accepts` policy is collapsed to "model_id|tokenizer_hash is in
+  the key" (a mismatch simply misses).
 
 ### 2.5 Semantic history compaction (the actual "big window")
 
@@ -254,14 +350,32 @@ error, and `recall` on an old turn returns its full content.
 - Done when: a skill dropped in `.claude/skills/foo/SKILL.md` shows in the
   catalog and its body loads on `skill({"name":"foo"})`.
 
-### 3.2 Sub-agent nesting
-- `task` tool spawns a nested `Sentient::autonomous_loop` with its **own**
-  message list (fresh system prompt + the task text + read-only tool subset),
-  a step cap, and returns only its final text to the parent.
-- Files: `domain/tools/dispatch.rs` (or wherever `task` lives), `autonomous.rs`
-  (re-entrancy — the loop must be callable with an isolated `Vec<ChatMessage>`).
-- Done when: `task("summarize domain/ai/")` runs a bounded child loop and the
-  parent sees one clean summary, not the child's tool chatter.
+### 3.2 Sub-agent nesting — **done (v1)**
+- `task` tool → `handle_subagent_task` (`domain/tools/workflow_tools.rs`):
+  spawns a nested `Sentient::autonomous_loop` with a fresh 1-message
+  `AiRequest` (`mode: "Subagent"`, `temperature: 0`, `root_access: false`,
+  `feature: "subagent"`), returns only `result` (the final text).
+- **Bounded.** `autonomous.rs` `max_iterations` gains a `"Subagent"` branch
+  (`KORTEX_SUBAGENT_MAX_ITERS`, default 15), checked *before* `yolo_start` so an
+  outer YOLO run can't lift the cap.
+- **One level deep.** `SUBAGENT_DEPTH: AtomicUsize` + `SubagentDepthGuard` (RAII)
+  in `autonomous.rs`; `handle_subagent_task` rejects when `subagent_depth() >= 1`.
+  Process-global — fine because the IDE runs one top-level agent at a time.
+- **Threading.** The child loop's future is `!Send` (std guards held across
+  awaits) *and* calling it inline is a static recursion cycle
+  (loop → tool dispatch → here → loop). So it runs on a dedicated
+  `std::thread` + `new_current_thread` runtime (same trick as `spawn_subagent`),
+  result returned over a `oneshot`. `handle_subagent_task` `.await`s the
+  receiver, so from the parent's view it's synchronous.
+- **Model.** `KORTEX_SUBAGENT_MODEL` or the live `current_model`; provider is
+  `lemonade` (engine resolves its own base). v1 doesn't inherit a non-lemonade
+  provider/URL — acceptable while the whole kortex stack targets local lemonade.
+- **v1 gaps:** no read-only tool subset yet (child gets the full catalog, just
+  no root); no streaming of child progress to the UI; `task` not added to
+  `OLLAMA_ESSENTIAL_TOOLS` (matches how `expand`/`recall`/`skill` are surfaced).
+- Files: `domain/tools/workflow_tools.rs`, `domain/tools/dispatch.rs` (route
+  `"task" | "subagent"`), `domain/tools/schemas.rs` (`td("task", …)`),
+  `domain/ai/engine/autonomous.rs` (depth guard + `max_iterations` branch).
 
 ### 3.3 Tier 0 residency (provider-agnostic)
 - `ollama_offload.rs` is Ollama-coupled. Generalise `keep_alive` /

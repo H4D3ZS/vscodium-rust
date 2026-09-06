@@ -220,6 +220,41 @@ impl CacheStore {
         self.put(entry)
     }
 
+    /// How many resident entries point at `slotbin_path`.
+    fn slotbin_refcount(&self, slotbin_path: &str) -> usize {
+        self.entries
+            .values()
+            .filter(|e| e.slotbin_path == slotbin_path)
+            .count()
+    }
+
+    /// Persist message-boundary **anchor** entries (plan §2.6). Each aliases an
+    /// already-saved entry's `.slotbin` file, so:
+    ///   - it is stamped `SaveReason::Anchor` and its `slotbin_size` is forced
+    ///     to 0 (the bytes are already counted against the tail entry),
+    ///   - it does **not** bump `saves` or `total_bytes` and does **not**
+    ///     trigger eviction.
+    /// An anchor whose target slot file is missing, or whose sha already
+    /// exists, is skipped.
+    pub fn put_anchors(&mut self, anchors: Vec<KvCacheEntry>) -> Result<()> {
+        for mut a in anchors {
+            if self.entries.contains_key(&a.sha) {
+                continue;
+            }
+            if !Path::new(&a.slotbin_path).exists() {
+                continue;
+            }
+            a.save_reason = SaveReason::Anchor;
+            a.slotbin_size = 0;
+            let path = self.opts.index_dir.join(format!("{}.kkv", a.sha));
+            write_index_file(&path, &a)?;
+            self.entries.insert(a.sha.clone(), a);
+            self.stats.anchor_saves = self.stats.anchor_saves.saturating_add(1);
+        }
+        self.stats.entries = self.entries.len() as u32;
+        Ok(())
+    }
+
     pub fn contains(&self, sha: &str) -> bool {
         self.entries.contains_key(sha)
     }
@@ -237,9 +272,12 @@ impl CacheStore {
         if self.stats.total_bytes <= self.opts.max_bytes {
             return Ok(());
         }
+        // Only real (non-anchor, byte-carrying) entries drive eviction order;
+        // anchors are freeloaders on another entry's slot file.
         let mut shas: Vec<(String, u64, u64)> = self
             .entries
             .values()
+            .filter(|e| e.save_reason != SaveReason::Anchor)
             .map(|e| (e.sha.clone(), e.last_used_at, e.slotbin_size))
             .collect();
         shas.sort_by(|a, b| a.1.cmp(&b.1));
@@ -250,7 +288,25 @@ impl CacheStore {
             }
             let _ = fs::remove_file(self.opts.index_dir.join(format!("{}.kkv", sha)));
             if let Some(e) = self.entries.remove(&sha) {
-                let _ = fs::remove_file(&e.slotbin_path);
+                // Delete the slot file only once nothing else references it, then
+                // drop every anchor that was aliasing it (their slot is gone).
+                if self.slotbin_refcount(&e.slotbin_path) == 0 {
+                    let _ = fs::remove_file(&e.slotbin_path);
+                } else {
+                    let orphans: Vec<String> = self
+                        .entries
+                        .values()
+                        .filter(|o| o.slotbin_path == e.slotbin_path)
+                        .map(|o| o.sha.clone())
+                        .collect();
+                    for osha in orphans {
+                        let _ = fs::remove_file(
+                            self.opts.index_dir.join(format!("{}.kkv", osha)),
+                        );
+                        self.entries.remove(&osha);
+                    }
+                    let _ = fs::remove_file(&e.slotbin_path);
+                }
             }
             self.stats.total_bytes = self.stats.total_bytes.saturating_sub(size);
             self.stats.evictions = self.stats.evictions.saturating_add(1);
@@ -967,5 +1023,102 @@ mod tests {
             store.longest_prefix(&tokens).is_none(),
             "v1 entries with empty identity must not be served under SameModel policy"
         );
+    }
+
+    // ── Message-boundary anchors (plan §2.6) ────────────────────────────
+
+    #[test]
+    fn anchor_aliases_tail_slot_and_is_found_after_a_mid_edit() {
+        let base = tempdir("anchor_midedit");
+        let opts = opts_at(&base, 1 << 20);
+        let mut store = CacheStore::open(opts.clone()).unwrap();
+
+        // Tail save covers 1..=40; a message boundary sits at token 20.
+        let tail: Vec<u32> = (1u32..=40).collect();
+        let save_count = plan_save_count(&opts, tail.len() as u32, true).unwrap();
+        let tail_entry = make_entry(&opts, &tail[..save_count as usize], 4096);
+        let tail_slot = tail_entry.slotbin_path.clone();
+        store.put(tail_entry).unwrap();
+
+        let anchor_toks: Vec<u32> = (1u32..=20).collect();
+        let anchor_sha = sha256_tokens_hex(&anchor_toks);
+        store
+            .put_anchors(vec![KvCacheEntry {
+                sha: anchor_sha.clone(),
+                prefix_token_count: 20,
+                ctx_size: 0,
+                created_at: KvCacheEntry::now_unix(),
+                last_used_at: KvCacheEntry::now_unix(),
+                hit_count: 0,
+                slotbin_path: tail_slot.clone(),
+                slotbin_size: 999, // must be forced to 0 by put_anchors
+                rendered_text: String::new(),
+                model: opts.model.clone(),
+                save_reason: super::super::types::SaveReason::Cold,
+            }])
+            .unwrap();
+
+        // The anchor didn't add bytes and isn't counted as a save.
+        let st = store.stats();
+        assert_eq!(st.total_bytes, 4096);
+        assert_eq!(st.anchor_saves, 1);
+
+        // A mid-edited next turn: same first 20 tokens, then it diverges (a tool
+        // block was rewritten) before the tail's token 40.
+        let mut edited = anchor_toks.clone();
+        edited.extend_from_slice(&[900, 901, 902, 903, 904, 905, 906, 907]);
+        let hit = store
+            .longest_prefix(&edited)
+            .expect("anchor must cover the pre-edit boundary");
+        assert_eq!(hit.sha, anchor_sha);
+        assert_eq!(hit.prefix_token_count, 20);
+        assert_eq!(hit.slotbin_path, tail_slot, "anchor restores the tail's slot file");
+    }
+
+    #[test]
+    fn evicting_the_tail_takes_its_anchors_and_frees_the_shared_slot() {
+        let base = tempdir("anchor_evict");
+        // Budget only fits one 4 KB slot.
+        let opts = opts_at(&base, 5_000);
+        let mut store = CacheStore::open(opts.clone()).unwrap();
+
+        let a: Vec<u32> = (1u32..=40).collect();
+        let a_entry = make_entry(&opts, &a[..plan_save_count(&opts, 40, true).unwrap() as usize], 4096);
+        let a_slot = a_entry.slotbin_path.clone();
+        store.put(a_entry).unwrap();
+        store
+            .put_anchors(vec![KvCacheEntry {
+                sha: sha256_tokens_hex(&a[..20]),
+                prefix_token_count: 20,
+                ctx_size: 0,
+                created_at: KvCacheEntry::now_unix(),
+                last_used_at: KvCacheEntry::now_unix(),
+                hit_count: 0,
+                slotbin_path: a_slot.clone(),
+                slotbin_size: 0,
+                rendered_text: String::new(),
+                model: opts.model.clone(),
+                save_reason: super::super::types::SaveReason::Anchor,
+            }])
+            .unwrap();
+        assert_eq!(store.entries_iter().count(), 2);
+
+        // A second real entry blows the budget → LRU evicts entry A (older).
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let b: Vec<u32> = (500u32..=540).collect();
+        let b_entry = make_entry(&opts, &b[..plan_save_count(&opts, 41, true).unwrap() as usize], 4096);
+        store.put(b_entry).unwrap();
+
+        // A and its anchor are both gone; the shared slot file is deleted.
+        assert!(store.longest_prefix(&a).is_none(), "tail A evicted");
+        assert!(
+            store.longest_prefix(&{
+                let mut v = a[..20].to_vec();
+                v.extend_from_slice(&[9, 9, 9, 9]);
+                v
+            }).is_none(),
+            "orphaned anchor must be dropped with its tail"
+        );
+        assert!(!Path::new(&a_slot).exists(), "shared slot file freed on eviction");
     }
 }

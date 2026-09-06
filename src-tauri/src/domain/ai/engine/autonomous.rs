@@ -2,10 +2,39 @@
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use serde_json::{json, Value};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use super::types::*;
 use super::sentient::{Sentient, OLLAMA_ESSENTIAL_TOOLS};
+
+/// Depth of nested [`Sentient::autonomous_loop`] calls started by the `task`
+/// tool. Process-global on purpose: the IDE runs one top-level agent at a time,
+/// and this only has to be conservative enough to stop a runaway
+/// `task` → `task` → … recursion. See
+/// `domain/tools/workflow_tools.rs::handle_subagent_task` (plan §3.2).
+static SUBAGENT_DEPTH: AtomicUsize = AtomicUsize::new(0);
+
+/// Current sub-agent nesting depth (0 at the top level).
+pub fn subagent_depth() -> usize {
+    SUBAGENT_DEPTH.load(Ordering::SeqCst)
+}
+
+/// RAII bump of [`subagent_depth`]; decrements on drop even if the child loop
+/// errors or panics.
+pub struct SubagentDepthGuard(());
+
+impl SubagentDepthGuard {
+    pub fn enter() -> Self {
+        SUBAGENT_DEPTH.fetch_add(1, Ordering::SeqCst);
+        Self(())
+    }
+}
+
+impl Drop for SubagentDepthGuard {
+    fn drop(&mut self) {
+        SUBAGENT_DEPTH.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 /// Domain-specific tool allowlists. Keywords → tool names.
 /// Replaces the if/else-if chain that was copy-pasted per domain.
@@ -1137,6 +1166,15 @@ impl Sentient {
 
         let max_iterations = if is_chat_mode {
             1 // Chat mode — single turn, no autonomous looping
+        } else if mode_str == "Subagent" {
+            // Nested `task`-tool loop — kept tight so a sub-agent can't burn the
+            // parent's budget. Checked before `yolo_start` so an outer YOLO run
+            // can't lift the cap. Plan §3.2.
+            std::env::var("KORTEX_SUBAGENT_MAX_ITERS")
+                .ok()
+                .and_then(|s| s.trim().parse::<usize>().ok())
+                .filter(|n| *n > 0)
+                .unwrap_or(15)
         } else if mode_str == "Harness" {
             200
         } else if yolo_start {
@@ -4463,4 +4501,24 @@ impl Sentient {
         Ok(SlashResult::Continue)
     }
 
+}
+
+#[cfg(test)]
+mod subagent_depth_tests {
+    use super::{subagent_depth, SubagentDepthGuard};
+
+    #[test]
+    fn guard_brackets_depth() {
+        let base = subagent_depth();
+        {
+            let _g = SubagentDepthGuard::enter();
+            assert_eq!(subagent_depth(), base + 1);
+            {
+                let _g2 = SubagentDepthGuard::enter();
+                assert_eq!(subagent_depth(), base + 2);
+            }
+            assert_eq!(subagent_depth(), base + 1);
+        }
+        assert_eq!(subagent_depth(), base);
+    }
 }

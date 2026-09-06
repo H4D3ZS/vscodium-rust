@@ -56,6 +56,11 @@ pub struct ProxyState {
     /// Deterministic request-compression (tool-schema digest + Hermes contract).
     /// Off unless `KORTEX_HARNESS=1`; when off the body is forwarded verbatim.
     pub harness: crate::kortex_harness::HarnessConfig,
+    /// Tier 2 exact-match response cache. Off unless `KORTEX_TIER2=1`; when off
+    /// every request flows straight through to the tier logic below.
+    pub tier2: Arc<super::response_cache::ResponseCache>,
+    /// Message-boundary KV anchors (plan §2.6). Off unless `KORTEX_KV_ANCHORS=1`.
+    pub anchors: super::anchors::AnchorConfig,
 }
 
 impl ProxyState {
@@ -91,6 +96,19 @@ impl ProxyState {
             live_session: Mutex::new(None),
             resolved_tier,
             harness,
+            tier2: Arc::new(super::response_cache::ResponseCache::from_env()),
+            anchors: super::anchors::AnchorConfig::from_env(),
+        }
+    }
+
+    /// Opaque per-model identity folded into the Tier 2 cache key so a model
+    /// swap can never serve a cross-model hit.
+    fn tier2_model_key(&self) -> String {
+        let m = &self.opts.model;
+        if m.model_id.is_empty() {
+            self.opts.upstream_url.clone()
+        } else {
+            format!("{}|{}", m.model_id, m.tokenizer_hash)
         }
     }
 
@@ -121,6 +139,7 @@ pub async fn serve(state: SharedProxy) -> Result<tokio::task::JoinHandle<()>> {
     let app = Router::new()
         .route("/v1/chat/completions", post(handle_chat_completions))
         .route("/v1/completions", post(handle_completions))
+        .route("/v1/messages", post(handle_messages))
         .fallback(any(handle_passthrough))
         .with_state(state.clone());
 
@@ -212,7 +231,7 @@ async fn handle_chat_completions(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    handle_intercepted(state, headers, body, IntercepKind::Chat).await
+    tier2_around(state, headers, body, IntercepKind::Chat).await
 }
 
 async fn handle_completions(
@@ -220,13 +239,190 @@ async fn handle_completions(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    handle_intercepted(state, headers, body, IntercepKind::Completion).await
+    tier2_around(state, headers, body, IntercepKind::Completion).await
+}
+
+/// Tier 2 wrapper around [`handle_intercepted`]. A full-request exact match is
+/// answered from the response cache without ever touching the upstream; a miss
+/// runs the normal path and tees the response bytes into the cache once the
+/// stream completes cleanly. A no-op unless `KORTEX_TIER2=1`.
+async fn tier2_around(
+    state: SharedProxy,
+    headers: HeaderMap,
+    body: Bytes,
+    kind: IntercepKind,
+) -> Response {
+    if !state.tier2.enabled() {
+        return handle_intercepted(state, headers, body, kind).await;
+    }
+    let model_key = state.tier2_model_key();
+    let key = match state.tier2.key_for(&body, &model_key) {
+        Some(k) => k,
+        None => return handle_intercepted(state, headers, body, kind).await,
+    };
+
+    if let Some(hit) = state.tier2.get(&key) {
+        tracing::info!("[kortex-tier2] HIT {}", &key[..8]);
+        return replay_cached(hit);
+    }
+
+    let resp = handle_intercepted(state.clone(), headers, body, kind).await;
+    capture_for_tier2(state, key, resp).await
+}
+
+/// Serve a cached response byte-for-byte, tagged so a client can tell.
+fn replay_cached(hit: super::response_cache::CachedResponse) -> Response {
+    let mut b = Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", hit.content_type.clone())
+        .header("x-kortex-cache", "hit");
+    if hit.is_sse {
+        b = b.header("cache-control", "no-cache");
+    }
+    b.body(Body::from(hit.body.clone())).unwrap_or_else(|_| {
+        (StatusCode::INTERNAL_SERVER_ERROR, "tier2 replay build failed").into_response()
+    })
+}
+
+/// Ceiling on how much of one response we buffer to consider caching. Beyond
+/// this we stop collecting and forward the rest untouched.
+const TIER2_CAPTURE_CAP: usize = super::response_cache::MAX_ENTRY_BYTES;
+
+/// Pass `resp` through unchanged while teeing its body; on clean completion,
+/// store it under `key` if [`ResponseCache::validate`] accepts it.
+async fn capture_for_tier2(state: SharedProxy, key: String, resp: Response) -> Response {
+    let (parts, body) = resp.into_parts();
+
+    // Only successful, non-replayed responses are worth capturing.
+    if parts.status != StatusCode::OK || parts.headers.contains_key("x-kortex-cache") {
+        return Response::from_parts(parts, body);
+    }
+    let content_type = parts
+        .headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/json")
+        .to_string();
+    let is_sse = content_type.contains("text/event-stream");
+    let model_id = state.tier2_model_key();
+
+    let collected = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let sink = collected.clone();
+    let mut overflowed = false;
+
+    let teed = body
+        .into_data_stream()
+        .map(move |chunk| {
+            if let Ok(ref b) = chunk {
+                if !overflowed {
+                    let mut g = sink.lock().unwrap_or_else(|p| p.into_inner());
+                    if g.len() + b.len() <= TIER2_CAPTURE_CAP {
+                        g.extend_from_slice(b);
+                    } else {
+                        overflowed = true;
+                        g.clear(); // don't hold a partial giant body
+                    }
+                }
+            }
+            chunk.map_err(std::io::Error::other)
+        })
+        .chain(futures::stream::once(async move {
+            let buf = {
+                let mut g = collected.lock().unwrap_or_else(|p| p.into_inner());
+                std::mem::take(&mut *g)
+            };
+            if super::response_cache::ResponseCache::validate(200, is_sse, &buf) {
+                state.tier2.store(
+                    key,
+                    super::response_cache::CachedResponse {
+                        status: 200,
+                        content_type,
+                        body: Bytes::from(buf),
+                        is_sse,
+                        model_id,
+                        created_at: super::response_cache::now_unix(),
+                    },
+                );
+                tracing::info!("[kortex-tier2] STORE");
+            }
+            Ok::<Bytes, std::io::Error>(Bytes::new())
+        }));
+
+    let mut out = Response::builder().status(parts.status);
+    for (k, v) in parts.headers.iter() {
+        out = out.header(k, v);
+    }
+    out.body(Body::from_stream(teed))
+        .unwrap_or_else(|_| (StatusCode::BAD_GATEWAY, "tier2 capture build failed").into_response())
 }
 
 #[derive(Debug, Clone, Copy)]
 enum IntercepKind {
     Chat,
     Completion,
+}
+
+/// `POST /v1/messages` — Anthropic Messages API (Claude Code). Plan §2.3.
+///
+/// Translate the request to OpenAI shape, run it through the same
+/// KV-cache + harness + Tier 2 path as `/v1/chat/completions` (forcing a
+/// non-streamed upstream call), then translate the response back. If the client
+/// asked for a stream, the finished Anthropic message is rendered as a
+/// well-formed SSE event sequence (emitted whole, not token-timed).
+async fn handle_messages(
+    State(state): State<SharedProxy>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let a: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => return (StatusCode::BAD_REQUEST, format!("invalid JSON: {e}")).into_response(),
+    };
+    let wants_stream = a.get("stream").and_then(Value::as_bool).unwrap_or(false);
+
+    let mut openai_req = match super::anthropic::anthropic_to_openai(&a) {
+        Ok(v) => v,
+        Err(e) => return (StatusCode::BAD_REQUEST, format!("translate: {e}")).into_response(),
+    };
+    // Always call upstream non-streamed; synthesize the Anthropic stream after.
+    openai_req["stream"] = Value::Bool(false);
+    let openai_body = match serde_json::to_vec(&openai_req) {
+        Ok(v) => Bytes::from(v),
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, format!("serialize: {e}")).into_response()
+        }
+    };
+
+    let resp = tier2_around(state, headers, openai_body, IntercepKind::Chat).await;
+    let (parts, rbody) = resp.into_parts();
+    if parts.status != StatusCode::OK {
+        return Response::from_parts(parts, rbody); // surface upstream errors verbatim
+    }
+    let raw = match axum::body::to_bytes(rbody, 32 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(e) => {
+            return (StatusCode::BAD_GATEWAY, format!("read upstream: {e}")).into_response()
+        }
+    };
+    let openai_resp: Value = match serde_json::from_slice(&raw) {
+        Ok(v) => v,
+        Err(_) => return (StatusCode::BAD_GATEWAY, "upstream did not return JSON").into_response(),
+    };
+    let msg = super::anthropic::openai_response_to_anthropic(&openai_resp);
+
+    let (content_type, payload) = if wants_stream {
+        ("text/event-stream", super::anthropic::anthropic_message_to_sse(&msg))
+    } else {
+        ("application/json", msg.to_string())
+    };
+    let mut b = Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", content_type);
+    if wants_stream {
+        b = b.header("cache-control", "no-cache");
+    }
+    b.body(Body::from(payload))
+        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "messages build failed").into_response())
 }
 
 async fn handle_intercepted(
@@ -500,16 +696,104 @@ async fn spawn_save_after(state: SharedProxy, save: SaveAfterStream) {
         save_reason: SaveReason::Cold,
     };
 
-    let mut s = state.store.lock().await;
-    if let Err(e) = s.put_with_reason(entry, SaveReason::Cold) {
-        tracing::warn!("[kortex-kvcache] put failed: {}", e);
-    } else {
+    {
+        let mut s = state.store.lock().await;
+        if let Err(e) = s.put_with_reason(entry, SaveReason::Cold) {
+            tracing::warn!("[kortex-kvcache] put failed: {}", e);
+            return;
+        }
         tracing::info!(
             "[kortex-kvcache] SAVE sha={} ({} tokens, {:.1} MB)",
             &sha[..8],
             save_count,
             slotbin_size as f64 / (1024.0 * 1024.0)
         );
+    }
+
+    // Plan §2.6 — after the tail save, checkpoint the last few message
+    // boundaries as anchor entries that alias this same slot file. On a later
+    // mid-context edit, `longest_prefix` still finds a usable KV prefix up to
+    // one of these boundaries where a raw longest-token-prefix match would have
+    // diverged early. Off unless `KORTEX_KV_ANCHORS=1`.
+    if state.anchors.enabled {
+        write_boundary_anchors(&state, &tokens, save_count, &sha).await;
+    }
+}
+
+/// Tokenise the last few message boundaries of the just-saved prefix and record
+/// an [`SaveReason::Anchor`] index entry for each, all pointing at
+/// `<tail_sha>.slotbin`.
+async fn write_boundary_anchors(
+    state: &SharedProxy,
+    tokens: &[u32],
+    save_count: u32,
+    tail_sha: &str,
+) {
+    let cfg = state.anchors;
+    // Reconstruct the render text for the saved prefix so boundary offsets line
+    // up with what was tokenised. `note_live_session` already stored the full
+    // prefix_text; re-render from the live session to avoid threading it here.
+    let render = {
+        let g = state.live_session.lock().await;
+        match g.as_ref() {
+            Some(ls) => ls.prefix_text.clone(),
+            None => return,
+        }
+    };
+    let slotbin = slotbin_path(&state.opts, tail_sha)
+        .to_string_lossy()
+        .into_owned();
+
+    let mut anchors: Vec<KvCacheEntry> = Vec::new();
+    for byte_off in super::anchors::tail_boundary_offsets(&render, cfg.max_anchors) {
+        let Some(sub) = render.get(..byte_off) else {
+            continue;
+        };
+        if sub.is_empty() {
+            continue;
+        }
+        let toks = match state.client.tokenize(sub).await {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let n = toks.len() as u32;
+        // Must be a real prefix of the saved token stream, long enough to be
+        // worth a restore, and comfortably short of the tail.
+        if n < state.opts.min_tokens
+            || n + cfg.min_gap_tokens >= save_count
+            || (n as usize) > tokens.len()
+            || tokens.get(..n as usize) != Some(&toks[..])
+        {
+            continue;
+        }
+        let asha = sha256_tokens_hex(&toks);
+        anchors.push(KvCacheEntry {
+            sha: asha,
+            prefix_token_count: n,
+            ctx_size: 0,
+            created_at: KvCacheEntry::now_unix(),
+            last_used_at: KvCacheEntry::now_unix(),
+            hit_count: 0,
+            slotbin_path: slotbin.clone(),
+            slotbin_size: 0,
+            rendered_text: sub.chars().take(2048).collect(),
+            model: state.opts.model.clone(),
+            save_reason: SaveReason::Anchor,
+        });
+    }
+
+    if anchors.is_empty() {
+        return;
+    }
+    let n_anchors = anchors.len();
+    let mut s = state.store.lock().await;
+    match s.put_anchors(anchors) {
+        Ok(()) => tracing::info!(
+            "[kortex-kvcache] +{} anchor(s) for sha={}",
+            n_anchors,
+            &tail_sha[..8]
+        ),
+        Err(e) => tracing::warn!("[kortex-kvcache] put_anchors failed: {}", e),
     }
 }
 

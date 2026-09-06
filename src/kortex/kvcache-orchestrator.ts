@@ -56,6 +56,14 @@ export interface KvCacheStats {
     evictions: number;
     /** Sum of tokens we *didn't* prefill thanks to cache hits. */
     tokens_skipped: number;
+    /** Message-boundary anchor entries written (plan §2.6). 0 unless KORTEX_KV_ANCHORS=1. */
+    anchor_saves?: number;
+    /** Tier 2 exact-match response cache (plan §2.4). 0 unless KORTEX_TIER2=1. */
+    tier2_hits?: number;
+    tier2_misses?: number;
+    tier2_stores?: number;
+    tier2_entries?: number;
+    tier2_bytes?: number;
 }
 
 export interface RunningCacheInfo {
@@ -146,5 +154,12 @@ export function summarizeKvCache(stats: KvCacheStats): string {
     const skipped = stats.tokens_skipped >= 1000
         ? `${(stats.tokens_skipped / 1000).toFixed(1)}k`
         : `${stats.tokens_skipped}`;
-    return `${stats.entries} entries, ${gb} GB, ${hitRate}% hit rate, ${skipped} tokens skipped`;
+    let out = `${stats.entries} entries, ${gb} GB, ${hitRate}% hit rate, ${skipped} tokens skipped`;
+    if (stats.anchor_saves) out += `, ${stats.anchor_saves} anchors`;
+    const t2total = (stats.tier2_hits ?? 0) + (stats.tier2_misses ?? 0);
+    if (t2total > 0) {
+        const t2rate = Math.round(((stats.tier2_hits ?? 0) / t2total) * 100);
+        out += ` · Tier 2: ${stats.tier2_entries ?? 0} cached, ${t2rate}% hit`;
+    }
+    return out;
 }

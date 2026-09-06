@@ -13,9 +13,12 @@
 //!      forwards to the llama-server `upstream_url`.
 //!   3. IDE clients point at the proxy URL instead of the raw upstream.
 
+pub mod anchors;
+pub mod anthropic;
 pub mod capability;
 pub mod llamacpp;
 pub mod proxy;
+pub mod response_cache;
 pub mod store;
 pub mod types;
 
@@ -37,6 +40,18 @@ static PROXY: Mutex<Option<Arc<proxy::ProxyState>>> = Mutex::new(None);
 
 fn current_proxy() -> Option<Arc<proxy::ProxyState>> {
     PROXY.lock().ok().and_then(|g| g.clone())
+}
+
+/// `(proxy_url, upstream_url)` of the running KV-cache proxy, or `None` when it
+/// isn't up. Lets other subsystems (e.g. the Claude Code launcher) decide
+/// whether to route through the cache.
+pub fn running_proxy_urls() -> Option<(String, String)> {
+    current_proxy().map(|s| {
+        (
+            format!("http://{}:{}", s.opts.proxy_host, s.opts.proxy_port),
+            s.opts.upstream_url.clone(),
+        )
+    })
 }
 
 fn set_proxy(state: Option<Arc<proxy::ProxyState>>) {
@@ -155,11 +170,18 @@ pub async fn kortex_kvcache_stop() -> Result<(), String> {
 
 #[command]
 pub async fn kortex_kvcache_stats() -> Result<KvCacheStats, String> {
-    if let Some(state) = current_proxy() {
-        Ok(state.current_stats().await)
-    } else {
-        Ok(KvCacheStats::default())
-    }
+    let Some(state) = current_proxy() else {
+        return Ok(KvCacheStats::default());
+    };
+    let mut s = state.current_stats().await;
+    // Fold in the Tier 2 response-cache counters (plan §2.4).
+    let (h, m, st, entries, bytes) = state.tier2.stats();
+    s.tier2_hits = h;
+    s.tier2_misses = m;
+    s.tier2_stores = st;
+    s.tier2_entries = entries as u64;
+    s.tier2_bytes = bytes as u64;
+    Ok(s)
 }
 
 #[command]

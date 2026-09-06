@@ -907,6 +907,9 @@ pub async fn spawn_claude_terminal(
     skip_permissions: Option<bool>,
     allow_net: Option<bool>,
     extra_args: Option<Vec<String>>,
+    // `"auto"` (default) | `"kortex"` | `"lemonade"` — which base URL the
+    // spawned `claude` talks to. See `resolve_claude_anthropic_base`.
+    route: Option<String>,
 ) -> Result<(), String> {
     let workspace_root = {
         let root = state.editor.active_root.lock().await;
@@ -979,8 +982,14 @@ pub async fn spawn_claude_terminal(
 
     // Lemonade exposes the Anthropic-compatible API at `/v1/messages`, so the base
     // URL is the bare host:port — do NOT append `/api/v1` (that is the
-    // OpenAI-compat path and yields 404s on every request).
-    cmd.env("ANTHROPIC_BASE_URL", &lemonade_base);
+    // OpenAI-compat path and yields 404s on every request). Optionally route
+    // through the Kortex KV-cache proxy instead, per the UI selection.
+    let anthropic_base =
+        super::ai::resolve_claude_anthropic_base(&lemonade_base, route.as_deref())?;
+    if anthropic_base != lemonade_base {
+        println!("[claude-terminal] routing /v1/messages via {anthropic_base}");
+    }
+    cmd.env("ANTHROPIC_BASE_URL", &anthropic_base);
     // Any non-empty value; Lemonade ignores it. Both keys are set explicitly so a
     // real cloud key inherited from the parent environment cannot hijack routing
     // and silently bill the user's Anthropic account.
