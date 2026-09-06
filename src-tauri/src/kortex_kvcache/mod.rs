@@ -20,6 +20,7 @@ pub mod llamacpp;
 pub mod proxy;
 pub mod response_cache;
 pub mod store;
+pub mod trace;
 pub mod types;
 
 use std::sync::{Arc, Mutex};

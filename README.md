@@ -30,6 +30,13 @@ native process, not an Electron main thread.
     `kortex.retrieval.autostart=1`).
   - **VFS daemon** (`:1538`) — a sidecar process managing `.aim` memory and file
     watching. Auto-starts on boot.
+  - **Speculative decoding** — for the bundled ROCmFPX backend, the *Kortex
+    ROCmFPX* panel exposes a decode-speed picker (prompt-lookup n-grams — no
+    model, no VRAM — and/or the model's MTP head). The full model verifies
+    every drafted token, so output is unchanged; the panel shows the live
+    acceptance rate. See [`docs/kortex-decode-throughput.md`](docs/kortex-decode-throughput.md).
+    Set `KORTEX_COMPUTE_TRACE=<path>` and `tools/compute-bench/reduce_trace.py`
+    turns a session into a measured prefill-savings receipt.
 - **Agentic by default** — multi-turn tool loop with verify-before-done, a shadow
   workspace for safe edits, background agents for long work.
 - **Local-first** — code and model traffic stay on your machine unless you point a

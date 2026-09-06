@@ -1,44 +1,55 @@
 # Measuring the real thing (not the model)
 
-`model.py` predicts. To *measure* a live session you need per-turn prefill
-token counts and wall time from an actual run. The plumbing already exists;
-it just isn't aggregated into a before/after.
+`model.py` predicts. `reduce_trace.py` measures — it reads a live trace the
+KV-cache proxy writes and prints the same before/after table.
 
-## What's already recorded
+## Get a trace
 
-- **`src/kortex/throughput.ts`** — `ThroughputSample { input_tokens,
-  output_tokens, prefill_ms, tokens_skipped, backend, cache_hit }`. The
-  agent-loop / proxy path pushes one per turn. `summarize()` already
-  computes `avg_prefill_tps` and `total_tokens_skipped`.
-- **`src-tauri/src/kortex_kvcache/types.rs::RoutingTrace`** — the KV-cache
-  proxy's per-request record: `tokens_in`, `prefix_hit_tokens`,
-  `suffix_tokens_processed`, `tokens_out`, `eta`. `prefix_hit_tokens` is
-  exactly "tokens NOT re-prefilled thanks to the cache".
-- **`ai-context-budget`** event (from `context_budget::FitReport`) —
-  `before_tokens`, `after_tokens`, `dropped_messages` per turn.
+Set `KORTEX_COMPUTE_TRACE` to a file path before the KV-cache proxy starts
+(the IDE inherits the env; or export it in the shell that launches the app):
 
-## The one missing piece
+```
+KORTEX_COMPUTE_TRACE=$PWD/.aim/compute-trace.jsonl
+```
 
-A sink that, for a tagged session, writes each turn's
-`{turn, tokens_in, prefix_hit_tokens, suffix_tokens_processed, prefill_ms,
-tokens_out}` to `<workspace>/.aim/compute-trace.jsonl`, then a script that
-reduces it to the same table `model.py` prints — but from real bytes.
+The proxy's `handle_intercepted` (src-tauri/src/kortex_kvcache/trace.rs +
+proxy.rs) then appends one JSON line per intercepted request:
 
-Naive baseline for the same session = `sum(tokens_in)` (every turn would
-re-prefill its whole prompt). Kortex actual =
-`sum(tokens_in - prefix_hit_tokens)`.
+```json
+{"ts_unix_ms":..., "request_id":"...", "kind":"chat",
+ "tokens_in":28114, "prefix_hit_tokens":27650, "suffix_tokens_processed":464,
+ "cache_hit":true}
+```
 
-### Sketch
+`tokens_in` is the prefix token count (conversation minus the trailing turn —
+the part the cache can restore). `prefix_hit_tokens` is what a slot restore
+skipped. Nothing is written unless the env var is set.
 
-1. Rust: in the kvcache proxy's `handle_intercepted`, after a slot
-   restore, append the `RoutingTrace` as one JSON line to
-   `KORTEX_COMPUTE_TRACE` (env path) when set. ~15 lines.
-2. `python reduce_trace.py .aim/compute-trace.jsonl` → the table +
-   `--json` for CI, identical shape to `model.py --json` so they can be
-   diffed.
-3. Run a fixed task (e.g. "add a health endpoint + test, fix the build")
-   twice — once with `KORTEX_TIER2=0 KORTEX_HARNESS=0` and the KV cache
-   off, once with the stack on — and compare the two traces.
+## Reduce it
 
-Until that lands, `model.py` is the argument and the numbers above are the
-claim; a live trace turns the claim into a receipt.
+```
+python tools/compute-bench/reduce_trace.py .aim/compute-trace.jsonl
+python tools/compute-bench/reduce_trace.py .aim/compute-trace.jsonl --json
+```
+
+- Naive baseline = `sum(tokens_in)` — every turn re-prefills its whole prompt.
+- Kortex actual = `sum(tokens_in - prefix_hit_tokens)`.
+
+`--json` emits the same keys as `model.py --json` (`naive_prefill_tokens`,
+`kortex_prefill_tokens`, `tokens_saved`, `cost_factor`, ...) so a CI job can
+diff the measured receipt against the modelled claim.
+
+## A/B a fixed task
+
+Run one fixed task (e.g. "add a health endpoint + test, fix the build") twice,
+each into its own trace file:
+
+1. Stack off: `KORTEX_TIER2=0 KORTEX_HARNESS=0` and the KV cache stopped —
+   only a couple of requests land, all `cache_hit:false`, so
+   `reduce_trace.py` shows ~1.0x (the baseline is the trace itself).
+   For the true naive number, compare against the stack-on run's
+   `naive_prefill_tokens` (same `tokens_in`, since the prompts are identical).
+2. Stack on: KV cache running, `KORTEX_HARNESS=1`. `cost_factor` is the real
+   prefill-compute reduction for that session.
+
+`model.py` is the argument; `reduce_trace.py` on a real trace is the receipt.

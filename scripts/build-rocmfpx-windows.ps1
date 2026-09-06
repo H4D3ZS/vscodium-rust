@@ -154,6 +154,12 @@ if ($useHip) {
         "-DGGML_HIP=ON",
         "-DGGML_HIP_FORCE_MMQ=ON",
         "-DGGML_HIP_ROCWMMA_FATTN=OFF",
+        # HIP graph capture: replays the whole decode step as one graph launch
+        # instead of hundreds of individual kernel launches. Decode is
+        # launch-latency sensitive at low batch on RDNA4, so this is a
+        # measurable tok/s win with identical output. Maps to
+        # ggml-cuda.cu's use_cuda_graph path via vendors/hip.h.
+        "-DGGML_HIP_GRAPHS=ON",
         "-DCMAKE_HIP_ARCHITECTURES=$Arch",
         "-DGPU_TARGETS=$Arch",
         "-DAMDGPU_TARGETS=$Arch"
