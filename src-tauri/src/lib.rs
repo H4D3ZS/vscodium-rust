@@ -276,6 +276,7 @@ pub(crate) use domain::ai::vision_sidecar;
 pub(crate) use domain::ai::workflow_engine;
 #[cfg(feature = "tauri")]
 pub mod kortex_gac;
+pub mod kortex_harness;
 #[cfg(feature = "tauri")]
 pub mod kortex_kvcache;
 #[cfg(feature = "tauri")]

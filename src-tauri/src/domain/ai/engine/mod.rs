@@ -7,6 +7,7 @@ pub mod prompt;
 pub mod providers;
 pub mod sentient;
 pub mod streaming;
+pub mod tool_hooks;
 pub mod types;
 
 pub use sentient::*;

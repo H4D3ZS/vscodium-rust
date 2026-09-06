@@ -225,13 +225,14 @@ export function KortexLocalInferencePanel() {
                     launch: {
                         server_binary: serverBinary || undefined,
                         port: 8081,
-                        // 16k window so the agent loop / Claude Code harness has
-                        // room for its system prompt + tool schemas. q8_0 KV
-                        // roughly halves the cache footprint to keep it in VRAM.
-                        ctx_size: 16384,
+                        // Claude Code's harness alone is ~28k tokens (system
+                        // prompt + tool schemas), so the window has to clear
+                        // that with room for a few conversation turns. q4_0 KV
+                        // keeps 32k in VRAM next to the 2.5-bpw weights on 16 GB.
+                        ctx_size: 32768,
                         slot_save_path: `${base}/slots`,
                         wait_healthy_secs: 0,
-                        extra_args: ['--jinja', '--cache-type-k', 'q8_0', '--cache-type-v', 'q8_0'],
+                        extra_args: ['--jinja', '--cache-type-k', 'q4_0', '--cache-type-v', 'q4_0'],
                     },
                 });
                 startedByUs.current = true;

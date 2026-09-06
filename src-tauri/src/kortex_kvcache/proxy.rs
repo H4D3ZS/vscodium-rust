@@ -53,6 +53,9 @@ pub struct ProxyState {
     /// branch on this: `Kv` runs the KDKVC prefix path; anything else is a
     /// transparent passthrough until the response cache (Tier 2) ships.
     pub resolved_tier: super::types::CacheTier,
+    /// Deterministic request-compression (tool-schema digest + Hermes contract).
+    /// Off unless `KORTEX_HARNESS=1`; when off the body is forwarded verbatim.
+    pub harness: crate::kortex_harness::HarnessConfig,
 }
 
 impl ProxyState {
@@ -64,6 +67,13 @@ impl ProxyState {
             .timeout(std::time::Duration::from_secs(600))
             .build()
             .expect("reqwest client build");
+        let harness = crate::kortex_harness::HarnessConfig::from_env();
+        if harness.enabled {
+            tracing::info!(
+                "[kortex-kvcache] harness compression ON (grammar={})",
+                harness.constrain_grammar
+            );
+        }
         Self {
             opts,
             client,
@@ -72,6 +82,7 @@ impl ProxyState {
             shutdown_tx: tokio::sync::Mutex::new(None),
             live_session: Mutex::new(None),
             resolved_tier,
+            harness,
         }
     }
 
@@ -229,11 +240,36 @@ async fn handle_intercepted(
     }
 
     // Parse the body as JSON. If it doesn't parse, just transparently forward.
-    let parsed: Value = match serde_json::from_slice(&body) {
+    let mut parsed: Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(_) => {
             return forward_raw(&state, headers, body, "/v1/chat/completions").await;
         }
+    };
+
+    // Deterministic request compression (opt-in). Rewrites the tool block into a
+    // compact Hermes-style signature list so a big agent harness fits a small
+    // n_ctx. Runs BEFORE prefix extraction so the KV cache keys on what is
+    // actually sent upstream. `body` is replaced with the rewritten bytes.
+    let body: Bytes = if matches!(kind, IntercepKind::Chat) && state.harness.enabled {
+        let report = crate::kortex_harness::compress_openai_request(&mut parsed, &state.harness);
+        if report.applied {
+            tracing::info!(
+                "[kortex-harness] {} tools -> {} inline + {} compacted (~{} tok saved)",
+                report.tools_in,
+                report.tools_inline_out,
+                report.tools_compacted,
+                report.saved()
+            );
+            match serde_json::to_vec(&parsed) {
+                Ok(v) => Bytes::from(v),
+                Err(_) => body, // serialization shouldn't fail; keep original if it does
+            }
+        } else {
+            body
+        }
+    } else {
+        body
     };
 
     // Extract the prefix text. Best-effort — if we can't, we just forward and

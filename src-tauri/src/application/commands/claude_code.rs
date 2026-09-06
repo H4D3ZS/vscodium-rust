@@ -251,6 +251,35 @@ Attached image(s) — use the Read tool to view:
 
     super::ai::apply_lemonade_tuning(&lemonade_base, &model).await;
 
+    // The context math below assumes we know the server's real window. When the
+    // Kortex ROCmFPX panel launched its own llama-server, its `-c` is whatever
+    // that panel chose — not what `lemonade_tuning` guesses. Ask the server.
+    let probed_n_ctx: Option<u32> = {
+        let client = reqwest::Client::new();
+        let mut found = None;
+        for path in ["/props", "/v1/internal/model/info", "/api/v1/models"] {
+            if let Ok(resp) = client
+                .get(format!("{lemonade_base}{path}"))
+                .timeout(std::time::Duration::from_secs(4))
+                .send()
+                .await
+            {
+                if let Ok(v) = resp.json::<serde_json::Value>().await {
+                    let n = v.get("n_ctx").and_then(|x| x.as_u64()).or_else(|| {
+                        v.get("default_generation_settings")
+                            .and_then(|g| g.get("n_ctx"))
+                            .and_then(|x| x.as_u64())
+                    });
+                    if let Some(n) = n {
+                        found = Some(n as u32);
+                        break;
+                    }
+                }
+            }
+        }
+        found
+    };
+
     let (exe, base_args) = super::terminal::resolve_claude_launch(&workspace_root);
     let mut cmd = std::process::Command::new(&exe);
     // Without CREATE_NO_WINDOW a console flashes up on every chat message: the
@@ -287,7 +316,7 @@ Attached image(s) — use the Read tool to view:
         // Preflight before spawning: an overflowing resume hangs silently, and
         // once the process is running there is no signal to distinguish that
         // from a slow first turn.
-        let (ctx_size, _, _) = super::ai::lemonade_tuning(&model);
+        let ctx_size = probed_n_ctx.unwrap_or_else(|| super::ai::lemonade_tuning(&model).0);
         check_resume_fits(&workspace_root, sid, ctx_size)?;
         cmd.arg("--resume").arg(sid);
     }
@@ -317,7 +346,16 @@ Attached image(s) — use the Read tool to view:
     ] {
         cmd.env(var, &cc_model_alias);
     }
-    let (ctx_size, _, _) = super::ai::lemonade_tuning(&model);
+    // Prefer the server's actual window over the by-name guess — the Kortex
+    // panel may have launched llama-server with any `-c`.
+    let ctx_size = probed_n_ctx.unwrap_or_else(|| super::ai::lemonade_tuning(&model).0);
+    if ctx_size < 24_000 {
+        return Err(format!(
+            "The local server's context window is only {ctx_size} tokens. Claude Code's harness \
+             needs ~28k just to start. Relaunch Kortex ROCmFPX (it now uses 32k), or use the \
+             built-in agent (it runs fine on a small window)."
+        ));
+    }
     // Small on purpose. llama.cpp requires `prompt + max_tokens <= n_ctx`, so a
     // large output budget is headroom stolen from the prompt on every request —
     // and worst of all on the compaction request, which has the biggest prompt.
