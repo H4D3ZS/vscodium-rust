@@ -1114,7 +1114,11 @@ fn relaxed_json_repair(src: &str) -> String {
             let d = cs[*i];
             if d == '\\' {
                 let next = cs.get(*i + 1).copied().unwrap_or('\0');
-                if valid_escape(next) {
+                if quote == '\'' && next == '\'' {
+                    // `\'` inside a single-quoted string is just an apostrophe.
+                    out.push('\'');
+                    *i += 2;
+                } else if valid_escape(next) {
                     out.push('\\');
                     out.push(next);
                     *i += 2;
@@ -1253,5 +1257,11 @@ mod lenient_json_tests {
     fn garbage_returns_none() {
         assert!(parse_lenient_json("### FILE LISTING ###  \\n/./ `.`").is_none());
         assert!(parse_lenient_json("").is_none());
+    }
+
+    #[test]
+    fn apostrophe_escaped_inside_a_single_quoted_string() {
+        let v = parse_lenient_json(r"{'tool':'run','arguments':{'cmd':'echo it\'s fine'}}").unwrap();
+        assert_eq!(v["arguments"]["cmd"], "echo it's fine");
     }
 }
