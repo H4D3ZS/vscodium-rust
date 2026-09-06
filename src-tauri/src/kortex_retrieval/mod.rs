@@ -158,16 +158,24 @@ pub async fn kortex_retrieval_start(
 
     let port: u16 = 1536;
     let root_path = resolve_root(&state, root).await?;
-    let upstream = state
+    let backend = state
         .ai
         .engine
         .lemonade_base()
         .await
         .trim_end_matches('/')
         .to_string();
+    // Compose the two kortex layers: if the KV-slot cache proxy is up, forward
+    // *through* it so a request gets both the smaller retrieved prompt AND
+    // prefix-reuse. Otherwise talk to the backend directly. The catalog is
+    // always built against the real backend's embedder, not the proxy.
+    let upstream = crate::kortex_kvcache::running_proxy_urls()
+        .map(|(proxy_url, _)| proxy_url)
+        .unwrap_or_else(|| backend.clone());
+    let embed_base = backend;
     let embed_model = crate::domain::indexing::embeddings::default_embed_model().to_string();
 
-    let cat = ensure_catalog(&app, &root_path, &upstream, &embed_model, rebuild.unwrap_or(false)).await;
+    let cat = ensure_catalog(&app, &root_path, &embed_base, &embed_model, rebuild.unwrap_or(false)).await;
 
     // aim-proxy reads these at `AppState::from_env()` — set them first.
     std::env::set_var("KORTEX_AIM_CATALOG", &cat.dir);
@@ -202,7 +210,11 @@ pub async fn kortex_retrieval_start(
             "PASS-THROUGH (no usable catalog — build one from the Kortex panel)".to_string()
         }
     );
-    println!("[kortex-retrieval] upstream -> {upstream}");
+    if upstream == embed_base {
+        println!("[kortex-retrieval] upstream -> {upstream}");
+    } else {
+        println!("[kortex-retrieval] upstream -> {upstream} (KV-slot cache) -> {embed_base}");
+    }
 
     *PROXY.lock().unwrap() = Some(ProxyState {
         port,
