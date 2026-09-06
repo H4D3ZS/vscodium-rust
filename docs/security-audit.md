@@ -30,9 +30,30 @@ npm audit: **16 → 6** (all remaining are the item below).
 | event-listener | 5.4.1 → 5.4.2 | RUSTSEC-2026-0221 (!Send across threads) |
 | crossbeam-deque | 0.8.6 → 0.8.8 | (transitive of crossbeam-epoch) |
 
-cargo audit: **9 → 7** vulnerability lines (`h2 0.3.27` ×1 + `quick-xml` 0.37/0.38/0.39 ×2 advisories). All remaining need an unsafe major bump — below.
+### cargo — `reqwest` 0.11 → 0.12 (workspace-wide), then a full `cargo update`
 
-## Accepted / deferred (no safe fix available)
+`reqwest` bumped 0.11 → 0.12 in `src-tauri` and `kortex/{aim-proxy,daemon,harness,libaim}`
+(`vfs_layer` was already on 0.12). The API surface we use — `Client`,
+`Client::builder`, `redirect::Policy`, `Method::from_bytes`, `header::*`,
+`Response::bytes_stream()`, `blocking` — is unchanged between 0.11 and 0.12,
+so it compiled with **no code changes**. Dropping the old `hyper 0.14` /
+`h2 0.3` freed the rest of the graph, and an unconstrained `cargo update`
+then resolved:
+
+| Crate | → | Advisory cleared |
+|---|---|---|
+| h2 `0.3.27` | removed (only `0.4.19` remains) | RUSTSEC-2026-0258 (DoS) |
+| quick-xml `0.37/0.38/0.39` | `0.41.0` / `0.42.0` | RUSTSEC-2026-0194 + 0195 (DoS) |
+| rand `0.7.3` | `0.8.5` / `0.9.5` | RUSTSEC-2026-0097 (unsound) |
+
+**`cargo audit`: 9 → 0 vulnerabilities.** Only 6 `unmaintained` *warnings*
+remain (`gtk` GTK3 bindings, `unic-*` unicode crates) — deep transitive,
+no fix, not vulnerabilities.
+
+Full workspace build (`cargo build --bins --workspace`) and `cargo test
+--lib` (437 pass) verified after the bump.
+
+## Accepted (no fix available)
 
 ### npm — `elliptic` chain (6 × low, dev-only)
 
@@ -51,25 +72,12 @@ cargo audit: **9 → 7** vulnerability lines (`h2 0.3.27` ×1 + `quick-xml` 0.37
 `vite-plugin-node-polyfills`, which breaks the build. Left as-is; ignored
 in `dependabot.yml`.
 
-### cargo — 4 vulnerabilities behind a major bump
+### cargo — `unmaintained` warnings (not vulnerabilities)
 
-| Crate | Advisory | Why deferred |
-|---|---|---|
-| h2 `0.3.27` | RUSTSEC-2026-0258 (DoS) | Only reachable via `reqwest 0.11` → `hyper 0.14`. The 0.3 line has no patch (`>=0.4.16` required). Fix = bump `reqwest` 0.11 → 0.12 across 5 workspace crates (`src-tauri`, `kortex/{aim-proxy,daemon,harness,libaim}`) — an API-breaking change, deferred to a dedicated branch. |
-| quick-xml `0.37.5` | RUSTSEC-2026-0194/0195 (DoS) | `tauri-plugin-notification` → `notify-rust` → `tauri-winrt-notification`. Upstream Tauri. |
-| quick-xml `0.38.4` | RUSTSEC-2026-0194/0195 | `tauri 2.10.3` core + `plist`. Upstream Tauri. |
-| quick-xml `0.39.4` | RUSTSEC-2026-0194/0195 | Linux clipboard: `arboard` → `wl-clipboard-rs` → `wayland-scanner`. Upstream. |
-
-`quick-xml >=0.41` has API changes `plist` / `notify-rust` / `wayland-scanner`
-depend on; a `[patch]` override does not compile. These clear when Tauri
-and its plugins release.
-
-### cargo — `unmaintained` / `unsound` warnings (not vulnerabilities)
-
-`rustls-pemfile`, `unic-char-*`, `unic-common`, `unic-ucd-*`, `paste`,
-`proc-macro-error`, `rand 0.7.3` — all deep transitive, no direct
-dependency line to change. `rand 0.7.3` in particular is pulled by an old
-transitive and would need the same kind of upstream release.
+`gtk` (GTK3 bindings, Linux, via Tauri), `unic-char-*`, `unic-common`,
+`unic-ucd-*` — deep transitive, no direct dependency line to change, and
+flagged `unmaintained`, not `vulnerability`. They clear when the relevant
+upstreams migrate (gtk4-rs, a maintained unicode crate).
 
 ## Re-run
 

@@ -85,17 +85,9 @@ updates:
     labels:
       - "deps"
       - "rust"
-    # See docs/security-audit.md. These are deep transitive deps of Tauri /
-    # its plugins (quick-xml) or need a reqwest 0.11 -> 0.12 API-breaking bump
-    # across 5 workspace crates (h2 0.3). No `[patch]` compiles for quick-xml
-    # >=0.41 against plist / notify-rust / wayland-scanner. They clear when
-    # upstream releases; tracked manually, not via auto-PR.
-    ignore:
-      - dependency-name: "quick-xml"
-      - dependency-name: "h2"
-        versions: ["0.3.x"]
-      - dependency-name: "rand"
-        versions: ["0.7.x"]
+    # cargo audit is clean (see docs/security-audit.md). Nothing to ignore —
+    # the h2 0.3 / quick-xml / rand 0.7 advisories were cleared by the
+    # reqwest 0.11 -> 0.12 bump + a full `cargo update`.
 
   # GitHub Actions workflow versions
   - package-ecosystem: "github-actions"
