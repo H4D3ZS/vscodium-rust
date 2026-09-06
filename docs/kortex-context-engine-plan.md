@@ -57,13 +57,15 @@ model alias + probes real `/props` `n_ctx` + refuses below 24k.
 | §2.5 recallable compaction | `9f9434c4` | **done (v1)** — `kortex_harness/turn_stash.rs` (id→text, 2 MB budget); `compress_old_tool_results` stashes the full result + leaves `recall({"id"})` when `KORTEX_HARNESS=1`; `recall` tool. |
 | §3.1 skills runtime | `3b62e6c0` | **done** — `domain/skills/mod.rs` (`.claude/skills` + `.agent/skills` scan, frontmatter, dedup); `use_skill`/`search_skills` are real; `skill`/`list_skills` aliases. |
 | Remote agent bridge | `40b7b4a0` | **done** — `remote_bridge.rs`: 127.0.0.1 WebSocket → `Sentient::autonomous_loop`, token auth, `KORTEX_REMOTE=1` autostart, `remote_bridge_{start,stop,status}`. |
-| §2.4 Tier 2 response cache | _this branch_ | **done (v1)** — `kortex_kvcache/response_cache.rs` (exact-key LRU, determinism gate, `validate` rejects failures/truncated streams); `tier2_around` wraps the chat/completions handlers, replays byte-for-byte with `x-kortex-cache: hit`, tees misses on clean stream end. Off unless `KORTEX_TIER2=1`. 11 tests. |
+| §2.4 Tier 2 response cache | `b5ebd522` | **done (v1)** — `kortex_kvcache/response_cache.rs` (exact-key LRU, determinism gate, `validate` rejects failures/truncated streams); `tier2_around` wraps the chat/completions handlers, replays byte-for-byte with `x-kortex-cache: hit`, tees misses on clean stream end. Off unless `KORTEX_TIER2=1`. 11 tests. |
+| §3.2 sub-agent nesting | _this branch_ | **done (v1)** — `task` tool → `handle_subagent_task`: bounded (`KORTEX_SUBAGENT_MAX_ITERS`, default 15, via a `"Subagent"` mode branch), isolated (fresh 1-message `AiRequest`, no root), one level deep (`SubagentDepthGuard`). Runs the child `autonomous_loop` on its own thread+runtime (its future is `!Send`); returns only final text. |
 
 ### Still open
 
 - **§2.3 `/v1/messages`** — needs Anthropic↔OpenAI translation + fixtures from a
   real Claude Code capture. Supervised.
-- **§3.2 sub-agent nesting**, **§3.3 Tier 0 residency** — orthogonal.
+- **§2.6 semantic-anchor KV checkpoints** — designed above, not built.
+- **§3.3 Tier 0 residency** — goes with the broader Ollama removal.
 - **§2.6 (new, from FreeToken)** — see below.
 
 ## 2.6 Semantic-anchor KV checkpoints (FreeToken-inspired)
@@ -278,14 +280,32 @@ error, and `recall` on an old turn returns its full content.
 - Done when: a skill dropped in `.claude/skills/foo/SKILL.md` shows in the
   catalog and its body loads on `skill({"name":"foo"})`.
 
-### 3.2 Sub-agent nesting
-- `task` tool spawns a nested `Sentient::autonomous_loop` with its **own**
-  message list (fresh system prompt + the task text + read-only tool subset),
-  a step cap, and returns only its final text to the parent.
-- Files: `domain/tools/dispatch.rs` (or wherever `task` lives), `autonomous.rs`
-  (re-entrancy — the loop must be callable with an isolated `Vec<ChatMessage>`).
-- Done when: `task("summarize domain/ai/")` runs a bounded child loop and the
-  parent sees one clean summary, not the child's tool chatter.
+### 3.2 Sub-agent nesting — **done (v1)**
+- `task` tool → `handle_subagent_task` (`domain/tools/workflow_tools.rs`):
+  spawns a nested `Sentient::autonomous_loop` with a fresh 1-message
+  `AiRequest` (`mode: "Subagent"`, `temperature: 0`, `root_access: false`,
+  `feature: "subagent"`), returns only `result` (the final text).
+- **Bounded.** `autonomous.rs` `max_iterations` gains a `"Subagent"` branch
+  (`KORTEX_SUBAGENT_MAX_ITERS`, default 15), checked *before* `yolo_start` so an
+  outer YOLO run can't lift the cap.
+- **One level deep.** `SUBAGENT_DEPTH: AtomicUsize` + `SubagentDepthGuard` (RAII)
+  in `autonomous.rs`; `handle_subagent_task` rejects when `subagent_depth() >= 1`.
+  Process-global — fine because the IDE runs one top-level agent at a time.
+- **Threading.** The child loop's future is `!Send` (std guards held across
+  awaits) *and* calling it inline is a static recursion cycle
+  (loop → tool dispatch → here → loop). So it runs on a dedicated
+  `std::thread` + `new_current_thread` runtime (same trick as `spawn_subagent`),
+  result returned over a `oneshot`. `handle_subagent_task` `.await`s the
+  receiver, so from the parent's view it's synchronous.
+- **Model.** `KORTEX_SUBAGENT_MODEL` or the live `current_model`; provider is
+  `lemonade` (engine resolves its own base). v1 doesn't inherit a non-lemonade
+  provider/URL — acceptable while the whole kortex stack targets local lemonade.
+- **v1 gaps:** no read-only tool subset yet (child gets the full catalog, just
+  no root); no streaming of child progress to the UI; `task` not added to
+  `OLLAMA_ESSENTIAL_TOOLS` (matches how `expand`/`recall`/`skill` are surfaced).
+- Files: `domain/tools/workflow_tools.rs`, `domain/tools/dispatch.rs` (route
+  `"task" | "subagent"`), `domain/tools/schemas.rs` (`td("task", …)`),
+  `domain/ai/engine/autonomous.rs` (depth guard + `max_iterations` branch).
 
 ### 3.3 Tier 0 residency (provider-agnostic)
 - `ollama_offload.rs` is Ollama-coupled. Generalise `keep_alive` /

@@ -184,4 +184,103 @@ impl AiTools {
             _ => Err(anyhow!("Unknown research tool: {}", name)),
         }
     }
+
+    /// `task` — run a bounded, isolated sub-agent loop and return only its final
+    /// text. The child gets a fresh message list (just the task string), a tight
+    /// iteration cap (`KORTEX_SUBAGENT_MAX_ITERS`, default 15), no root access,
+    /// and may not spawn its own sub-agents. Plan §3.2.
+    pub(crate) async fn handle_subagent_task(&self, args: Value) -> Result<Value> {
+        let task = args
+            .get("task")
+            .or_else(|| args.get("prompt"))
+            .or_else(|| args.get("description"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow!("task: missing non-empty 'task'"))?
+            .to_string();
+
+        // One level of nesting only — a sub-agent that wants a sub-agent is
+        // almost always a loop.
+        if crate::domain::ai::engine::autonomous::subagent_depth() >= 1 {
+            return Ok(json!({
+                "status": "rejected",
+                "error": "sub-agents cannot spawn sub-agents"
+            }));
+        }
+
+        let state = self
+            .editor_state
+            .read()
+            .ok()
+            .and_then(|w| w.upgrade())
+            .ok_or_else(|| anyhow!("task: editor state unavailable"))?;
+
+        let engine = state.ai.engine.clone();
+        let model = match std::env::var("KORTEX_SUBAGENT_MODEL")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+        {
+            Some(m) => m,
+            None => state.ai.current_model.lock().await.clone(),
+        };
+        drop(state); // don't hold the EditorState handle across the child run
+
+        let req = crate::ai_engine::AiRequest {
+            provider: "lemonade".to_string(),
+            model,
+            messages: vec![crate::ai_engine::ChatMessage {
+                role: "user".to_string(),
+                content: Some(crate::ai_engine::MessageContent::Text(task.clone())),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            }],
+            temperature: Some(0.0),
+            autonomous: true,
+            mode: Some("Subagent".to_string()),
+            cyber_mode: None,
+            root_access: Some(false),
+            ollama_url: None,
+            tools: None,
+            reasoning_budget: None,
+            reasoning_effort: None,
+            reasoning_enabled: None,
+            feature: Some("subagent".to_string()),
+        };
+
+        let _depth = crate::domain::ai::engine::autonomous::SubagentDepthGuard::enter();
+
+        // Run the nested loop on its own thread + runtime. `autonomous_loop`'s
+        // future is `!Send` (holds std guards across awaits) so it can't be
+        // awaited inline here, and calling it inline would also be a static
+        // recursion cycle (loop → tool dispatch → here → loop). Same pattern as
+        // `spawn_subagent`, but synchronous — we wait for the final text.
+        let (tx, rx) = tokio::sync::oneshot::channel::<Result<String>>();
+        std::thread::spawn(move || {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(e) => {
+                    let _ = tx.send(Err(anyhow!("task: runtime build failed: {e}")));
+                    return;
+                }
+            };
+            let out = rt.block_on(engine.autonomous_loop(req, None));
+            let _ = tx.send(out);
+        });
+
+        let result = rx
+            .await
+            .map_err(|_| anyhow!("task: sub-agent thread ended without a result"))?
+            .map_err(|e| anyhow!("task: sub-agent failed: {e}"))?;
+
+        Ok(json!({
+            "status": "success",
+            "task": task,
+            "result": result.trim(),
+        }))
+    }
 }

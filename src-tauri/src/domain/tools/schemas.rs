@@ -62,6 +62,8 @@ impl AiTools {
                obj_schema(&["tool"], json!({ "tool": str_prop("The tool name to expand") }))),
             td("recall", "Restore a tool result that history compaction replaced with a summary. Use the id from a '[… compacted]' marker.",
                obj_schema(&["id"], json!({ "id": str_prop("The recall id") }))),
+            td("task", "Delegate a self-contained sub-task to a bounded sub-agent. It runs its own tool loop in isolation (fresh context, tight step cap, no root access) and returns only its final answer — use it to keep large searches or side-quests out of the main context. Cannot be nested.",
+               obj_schema(&["task"], json!({ "task": str_prop("A complete, self-contained description of what the sub-agent should do and what to report back") }))),
             // ── File Operations ──
             td("view_file", "Read the content of a file",
                obj_schema(&["path"], json!({ "path": str_prop("Relative path to the file") }))),
