@@ -680,6 +680,8 @@ pub fn run() {
             ai_commands::propose_file_change,
             ai_commands::preview_search_replace,
             ai_commands::set_lemonade_url,
+            ai_commands::kortex_set_operator,
+            ai_commands::kortex_get_operator,
             ai_commands::list_workspace_rules,
             ai_commands::reindex_workspace,
             ai_commands::check_lemonade_status,

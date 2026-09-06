@@ -121,6 +121,14 @@ export function KortexLocalInferencePanel() {
     const [specType, setSpecType] = useState<string>(() => {
         try { return localStorage.getItem('kortex.spec.type') || ''; } catch { return ''; }
     });
+    // Operator = the small fast model on Lemonade that runs sub-agents + APEX
+    // while this (the reasoner) keeps the main loop. Env-backed on the Rust side.
+    const [opModel, setOpModel] = useState<string>(() => {
+        try { return localStorage.getItem('kortex.operator.model') || ''; } catch { return ''; }
+    });
+    const [opUrl, setOpUrl] = useState<string>(() => {
+        try { return localStorage.getItem('kortex.operator.url') || ''; } catch { return ''; }
+    });
     const [showDetails, setShowDetails] = useState(false);
     const [showLog, setShowLog] = useState(false);
     const startedByUs = useRef(false);
@@ -163,6 +171,17 @@ export function KortexLocalInferencePanel() {
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Push the Operator override to the Rust process (env-backed) whenever it
+    // changes; blank = clear the override / use the default.
+    useEffect(() => {
+        const t = setTimeout(() => {
+            try { localStorage.setItem('kortex.operator.model', opModel); } catch { /* */ }
+            try { localStorage.setItem('kortex.operator.url', opUrl); } catch { /* */ }
+            invoke('kortex_set_operator', { model: opModel || null, url: opUrl || null }).catch(() => { /* engine offline */ });
+        }, 400);
+        return () => clearTimeout(t);
+    }, [opModel, opUrl]);
 
     useEffect(() => {
         if (phase !== 'running') {
@@ -407,6 +426,12 @@ export function KortexLocalInferencePanel() {
                             const p = await pickFile([{ name: 'GGUF', extensions: ['gguf'] }]); if (p) setModelPath(p);
                         }}>…</button>
                     </div>
+                    {/(^|[^a-z0-9])(i?q2|i?q3|q2_k|q3_k)([^a-z0-9]|$)/i.test(modelPath) && (
+                        <div style={{ ...label, color: 'var(--vscode-editorWarning-foreground, #e5a00d)', marginTop: 0 }}>
+                            ⚠ Sub-4-bit quant — tool-call JSON and reasoning degrade fast at this size.
+                            Use Q4_K_M or better for the reasoner.
+                        </div>
+                    )}
                     <label style={label}>Server engine</label>
                     <div style={row}>
                         <input style={inputStyle} value={serverBinary} placeholder="auto (bundled ROCmFPX)"
@@ -437,6 +462,20 @@ export function KortexLocalInferencePanel() {
                     <div style={{ ...label, opacity: 0.55, marginTop: 0 }}>
                         The full model verifies every drafted token — same output, more tokens per pass.
                         Applies on next Start.
+                    </div>
+
+                    <label style={{ ...label, marginTop: 8 }}>Operator — small model on Lemonade (sub-agents, APEX)</label>
+                    <div style={row}>
+                        <input style={inputStyle} value={opModel} placeholder="qwen3.5:4b"
+                            onChange={e => setOpModel(e.target.value)} />
+                    </div>
+                    <div style={row}>
+                        <input style={inputStyle} value={opUrl} placeholder="http://localhost:13305"
+                            onChange={e => setOpUrl(e.target.value)} />
+                    </div>
+                    <div style={{ ...label, opacity: 0.55, marginTop: 0 }}>
+                        This box is the reasoner (big model). The Operator runs the tool-call grunt
+                        work on a separate Lemonade server. Blank = defaults.
                     </div>
                 </div>
             )}

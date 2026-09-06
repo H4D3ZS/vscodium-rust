@@ -2217,6 +2217,33 @@ pub async fn set_lemonade_url(state: State<'_, std::sync::Arc<crate::EditorState
     Ok(())
 }
 
+/// Set the "Operator" — the small fast model (on Lemonade) that runs
+/// sub-agents and the Lite/Mid APEX bank while the reasoner keeps the main
+/// loop. Empty string clears the override (back to the built-in default).
+/// Backed by process env so `gpu_offload::operator_model()` / `operator_url()`
+/// pick it up without threading state.
+#[tauri::command]
+pub async fn kortex_set_operator(model: Option<String>, url: Option<String>) -> Result<(), String> {
+    match model.map(|s| s.trim().to_string()) {
+        Some(m) if !m.is_empty() => std::env::set_var("KORTEX_OPERATOR_MODEL", m),
+        _ => std::env::remove_var("KORTEX_OPERATOR_MODEL"),
+    }
+    match url.map(|s| s.trim().trim_end_matches('/').to_string()) {
+        Some(u) if !u.is_empty() => std::env::set_var("KORTEX_OPERATOR_URL", u),
+        _ => std::env::remove_var("KORTEX_OPERATOR_URL"),
+    }
+    Ok(())
+}
+
+/// Current Operator model + URL (after env / default resolution).
+#[tauri::command]
+pub async fn kortex_get_operator() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "model": crate::gpu_offload::operator_model(),
+        "url": crate::gpu_offload::operator_url(),
+    }))
+}
+
 /// Force the context indexer to rescan the active workspace. Powers the
 /// "Re-index" button under Settings â†’ Indexing & Docs and the `/reindex`
 /// slash command. We call `reindex_if_needed` (not a hard rebuild) so
