@@ -1,14 +1,11 @@
 // =============================================================================
-// AIRI Voice System v2 - Real-Time Streaming TTS with ElevenLabs
-// Priority: ElevenLabs (when API key present) > Qwen3-TTS (local browser)
+// Voice System v2 - Real-Time Streaming TTS
+// Priority: ElevenLabs (when the user has set a key) > Qwen3-TTS (local)
 // =============================================================================
 
 import { invoke } from './tauri_bridge';
 import { qwenTTS } from './audio/qwen-tts'; // Qwen3-TTS local fallback
 import { qwenNativeTTS } from './audio/qwen-tts-native'; // Qwen3-TTS High Quality Server
-
-// NEW API KEY (saved securely via Tauri backend)
-const ELEVENLABS_API_KEY = 'e184e0a4bfa989bb8a04dee3076313f56173c6b29adcc777';
 
 export type VoicePreset =
     | 'airi'      // Energetic anime girl
@@ -219,19 +216,6 @@ export async function initTTS(): Promise<boolean> {
             currentApiKey = apiKeys.elevenlabs_api_key;
             ttsProvider = 'elevenlabs';
             console.log('[TTS] ElevenLabs provider configured (from storage)');
-        } else if (ELEVENLABS_API_KEY && ELEVENLABS_API_KEY.trim().length > 0) {
-            // Use hardcoded key (will be saved to storage)
-            currentApiKey = ELEVENLABS_API_KEY;
-            ttsProvider = 'elevenlabs';
-            console.log('[TTS] ElevenLabs provider configured (from config)');
-
-            // Save to storage
-            try {
-                await invoke('save_api_key', { key: 'elevenlabs_api_key', value: ELEVENLABS_API_KEY });
-                console.log('[TTS] ElevenLabs API key saved to secure storage');
-            } catch (e) {
-                console.warn('[TTS] Could not save API key:', e);
-            }
         } else {
             // No ElevenLabs key - use Qwen3-TTS as fallback
             console.log('[TTS] No ElevenLabs key found, using Qwen3-TTS (local)');

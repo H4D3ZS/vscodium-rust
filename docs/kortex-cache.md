@@ -163,12 +163,18 @@ A visible number is what turns an invisible optimization into trust.
 | # | Milestone | Status |
 |---|---|---|
 | 1 | Capability probe + `CacheTier` on ProxyState; Auto routing | **done** (2026-07-06) |
-| 2 | Wire Tier 1 (KDKVC) in front of detected llama.cpp / Lemonade-llamacpp | todo |
+| 2 | Wire Tier 1 (KDKVC) in front of detected llama.cpp / Lemonade-llamacpp | **done** (2026-09-06) — the Kortex ROCmFPX panel launches llama-server with `--slot-save-path` and starts the `:1537` KDKVC proxy in front; the IDE backend repoints to it |
 | 3 | Tier 2 response cache: key, store, non-stream hit/miss + tests | todo |
 | 4 | Tier 2 streaming replay + `x-kortex-cache` header | todo |
 | 5 | Determinism gating + `cache_nondeterministic` opt-in | todo |
 | 6 | Config surface + KortexInferencePanel stats/tier badge | todo |
 | 7 | Ollama end-to-end validation; Lemonade (both recipes) validation | todo |
+
+**Also landed 2026-09-06 (not in the original plan):** `kortex_harness` —
+deterministic tool-schema compression (Hermes-style compact signatures + an
+`expand` tool + GBNF grammar), `KORTEX_HARNESS=1` opt-in, wired into the proxy
+request path and the native agent loop. See
+`docs/kortex-context-engine-plan.md`.
 
 Each milestone lands with unit tests in the `store`/`proxy` test modules (the project's first-real-tests-here precedent).
 
