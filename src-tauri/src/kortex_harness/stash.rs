@@ -95,6 +95,15 @@ pub fn clear() {
     });
 }
 
+/// Serialises tests that mutate the process-global stash (the test runner is
+/// multi-threaded). Callers: `stash::tests` and the `kortex_harness::tests`
+/// cases that go through `compress_openai_request` / `expand_tool`.
+#[cfg(test)]
+pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static L: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    L.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,6 +115,7 @@ mod tests {
 
     #[test]
     fn put_get_roundtrip() {
+        let _g = super::test_lock();
         clear();
         put("m1", &map(&[("web_fetch", json!({"a": 1})), ("grep", json!({"b": 2}))]));
         assert_eq!(get("m1", "web_fetch"), Some(json!({"a": 1})));
@@ -115,6 +125,7 @@ mod tests {
 
     #[test]
     fn put_merges() {
+        let _g = super::test_lock();
         clear();
         put("m1", &map(&[("a", json!(1))]));
         put("m1", &map(&[("b", json!(2))]));
@@ -124,6 +135,7 @@ mod tests {
 
     #[test]
     fn sticky_flow() {
+        let _g = super::test_lock();
         clear();
         assert!(!is_sticky("m1", "web_fetch"));
         mark_sticky("m1", "web_fetch");
@@ -134,6 +146,7 @@ mod tests {
 
     #[test]
     fn fifo_eviction_past_max_models() {
+        let _g = super::test_lock();
         clear();
         for i in 0..(MAX_MODELS + 3) {
             put(&format!("m{i}"), &map(&[("t", json!(i))]));
@@ -145,6 +158,7 @@ mod tests {
 
     #[test]
     fn empty_inputs_are_noops() {
+        let _g = super::test_lock();
         clear();
         put("", &map(&[("t", json!(1))]));
         put("m1", &HashMap::new());

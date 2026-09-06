@@ -60,6 +60,8 @@ impl AiTools {
             // ── Harness ──
             td("expand", "Restore the full JSON schema for a tool whose signature was compacted by the Kortex harness. Call this before using a tool if you're unsure of its exact arguments.",
                obj_schema(&["tool"], json!({ "tool": str_prop("The tool name to expand") }))),
+            td("recall", "Restore a tool result that history compaction replaced with a summary. Use the id from a '[… compacted]' marker.",
+               obj_schema(&["id"], json!({ "id": str_prop("The recall id") }))),
             // ── File Operations ──
             td("view_file", "Read the content of a file",
                obj_schema(&["path"], json!({ "path": str_prop("Relative path to the file") }))),

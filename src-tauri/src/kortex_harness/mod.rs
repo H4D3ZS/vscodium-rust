@@ -18,6 +18,7 @@
 pub mod contract;
 pub mod stash;
 pub mod tool_digest;
+pub mod turn_stash;
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -288,6 +289,8 @@ mod tests {
 
     #[test]
     fn compacts_non_core_tools() {
+        let _g = stash::test_lock();
+        stash::clear();
         let mut b = req_with(20);
         let cfg = HarnessConfig { enabled: true, ..Default::default() };
         let r = compress_openai_request(&mut b, &cfg);
@@ -335,6 +338,8 @@ mod tests {
 
     #[test]
     fn rehydrate_finds_stashed_schema() {
+        let _g = stash::test_lock();
+        stash::clear();
         let mut b = req_with(20);
         let cfg = HarnessConfig { enabled: true, ..Default::default() };
         compress_openai_request(&mut b, &cfg);
@@ -344,6 +349,7 @@ mod tests {
 
     #[test]
     fn expand_roundtrip_and_sticky() {
+        let _g = stash::test_lock();
         stash::clear();
         let cfg = HarnessConfig { enabled: true, ..Default::default() };
 

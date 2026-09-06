@@ -96,6 +96,26 @@ impl AiTools {
         Ok(json!({ "status": "success", "query": query, "skills": skills }))
     }
 
+    /// `recall({"id": ...})` — restore a tool result that history compaction
+    /// replaced with a summary (see `agent_harness::compress_old_tool_results`).
+    pub(crate) async fn handle_recall(&self, args: Value) -> Result<Value> {
+        let id = args
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if id.is_empty() {
+            return Ok(json!({ "error": "recall needs an 'id' (from a '[… compacted]' marker)" }));
+        }
+        match crate::kortex_harness::turn_stash::get(id) {
+            Some(text) => Ok(json!({ "id": id, "content": text })),
+            None => Ok(json!({
+                "id": id,
+                "error": format!("nothing stashed under '{id}' — it may have been evicted (2 MB budget)")
+            })),
+        }
+    }
+
     /// `expand({"tool": name})` — rehydrate a tool schema the Kortex harness
     /// compacted, and pin it inline for the rest of this model's session.
     pub(crate) async fn handle_expand(&self, args: Value) -> Result<Value> {

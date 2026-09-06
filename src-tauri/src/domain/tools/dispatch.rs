@@ -189,6 +189,7 @@ impl AiTools {
             "use_skill" | "skill" => self.handle_use_skill(arguments).await,
             "search_skills" | "list_skills" => self.handle_search_skills(arguments).await,
             "expand" => self.handle_expand(arguments).await,
+            "recall" => self.handle_recall(arguments).await,
 
             // Live offensive-security tools (real shell / file analysis)
             "generate_0day_exploit" => self.handle_live_exploit_scaffold(arguments).await,
