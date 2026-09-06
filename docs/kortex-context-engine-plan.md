@@ -57,13 +57,12 @@ model alias + probes real `/props` `n_ctx` + refuses below 24k.
 | §2.5 recallable compaction | `9f9434c4` | **done (v1)** — `kortex_harness/turn_stash.rs` (id→text, 2 MB budget); `compress_old_tool_results` stashes the full result + leaves `recall({"id"})` when `KORTEX_HARNESS=1`; `recall` tool. |
 | §3.1 skills runtime | `3b62e6c0` | **done** — `domain/skills/mod.rs` (`.claude/skills` + `.agent/skills` scan, frontmatter, dedup); `use_skill`/`search_skills` are real; `skill`/`list_skills` aliases. |
 | Remote agent bridge | `40b7b4a0` | **done** — `remote_bridge.rs`: 127.0.0.1 WebSocket → `Sentient::autonomous_loop`, token auth, `KORTEX_REMOTE=1` autostart, `remote_bridge_{start,stop,status}`. |
+| §2.4 Tier 2 response cache | _this branch_ | **done (v1)** — `kortex_kvcache/response_cache.rs` (exact-key LRU, determinism gate, `validate` rejects failures/truncated streams); `tier2_around` wraps the chat/completions handlers, replays byte-for-byte with `x-kortex-cache: hit`, tees misses on clean stream end. Off unless `KORTEX_TIER2=1`. 11 tests. |
 
 ### Still open
 
 - **§2.3 `/v1/messages`** — needs Anthropic↔OpenAI translation + fixtures from a
   real Claude Code capture. Supervised.
-- **§2.4 Tier 2 response cache** — the plan's main deliverable; touches the hot
-  proxy path. Supervised.
 - **§3.2 sub-agent nesting**, **§3.3 Tier 0 residency** — orthogonal.
 - **§2.6 (new, from FreeToken)** — see below.
 
@@ -210,6 +209,31 @@ and *also* as a fast pre-check when tier == Kv).
 **Done when.** Re-running the exact same `temperature=0` agent prompt returns in
 <50 ms with `calls_avoided` incremented and byte-identical output (including
 stream framing).
+
+**Implemented (v1, `KORTEX_TIER2=1`).** `kortex_kvcache/response_cache.rs`:
+
+- `ResponseCache` — in-memory `HashMap` + LRU `VecDeque`, byte budget
+  `KORTEX_TIER2_MAX_MB` (default 128), hit/miss/store counters via `stats()`.
+- `key_for(body, model_id)` — `SHA-256("kortex-tier2\0" ‖ model_id ‖ each
+  keyed field's canonical JSON)`. `serde_json::Value` maps are `BTreeMap`-backed
+  here (no `preserve_order`), so the render is canonical and client JSON key
+  order doesn't matter. `stream` flag is in the key (SSE vs JSON replay differ).
+- Determinism gate in `key_for`: returns `None` unless `temperature == 0` or a
+  non-null `seed` is present; `KORTEX_TIER2_NONDETERMINISTIC=1` lifts it.
+- `validate(status, is_sse, body)` — rejects non-200, `{"error":…}`, empty
+  completions, and SSE that never reached `[DONE]`.
+- Wiring: `proxy.rs::tier2_around` wraps `handle_chat_completions` /
+  `handle_completions` (no changes to `handle_intercepted`, `forward_raw*`, or
+  the slot path). Hit → `replay_cached` (byte-for-byte + `x-kortex-cache: hit`,
+  `cache-control: no-cache` for SSE). Miss → `capture_for_tier2` tees the
+  response body via `Body::into_data_stream()` (capped at `MAX_ENTRY_BYTES`,
+  8 MiB) and stores on clean stream end.
+- **v1 gaps vs the spec above:** in-memory only (no disk table in `store.rs`, no
+  atomic index writes); SSE is stored as raw bytes and replayed as one chunk
+  (clients parse SSE regardless of chunk boundaries) rather than a re-timed
+  ordered chunk list; no `calls_avoided` surfaced in `KvCacheStats` yet;
+  `ModelIdentity::accepts` policy is collapsed to "model_id|tokenizer_hash is in
+  the key" (a mismatch simply misses).
 
 ### 2.5 Semantic history compaction (the actual "big window")
 

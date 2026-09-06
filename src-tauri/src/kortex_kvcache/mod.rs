@@ -16,6 +16,7 @@
 pub mod capability;
 pub mod llamacpp;
 pub mod proxy;
+pub mod response_cache;
 pub mod store;
 pub mod types;
 

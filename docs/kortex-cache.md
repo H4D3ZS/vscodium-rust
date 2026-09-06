@@ -164,10 +164,10 @@ A visible number is what turns an invisible optimization into trust.
 |---|---|---|
 | 1 | Capability probe + `CacheTier` on ProxyState; Auto routing | **done** (2026-07-06) |
 | 2 | Wire Tier 1 (KDKVC) in front of detected llama.cpp / Lemonade-llamacpp | **done** (2026-09-06) — the Kortex ROCmFPX panel launches llama-server with `--slot-save-path` and starts the `:1537` KDKVC proxy in front; the IDE backend repoints to it |
-| 3 | Tier 2 response cache: key, store, non-stream hit/miss + tests | todo |
-| 4 | Tier 2 streaming replay + `x-kortex-cache` header | todo |
-| 5 | Determinism gating + `cache_nondeterministic` opt-in | todo |
-| 6 | Config surface + KortexInferencePanel stats/tier badge | todo |
+| 3 | Tier 2 response cache: key, store, non-stream hit/miss + tests | **done (v1)** (2026-09-06) — `kortex_kvcache/response_cache.rs`, in-memory LRU, `KORTEX_TIER2=1`; disk table deferred |
+| 4 | Tier 2 streaming replay + `x-kortex-cache` header | **done (v1)** (2026-09-06) — SSE stored raw + replayed byte-for-byte as one chunk (re-timed chunk list deferred) |
+| 5 | Determinism gating + `cache_nondeterministic` opt-in | **done** (2026-09-06) — `temp==0`/`seed` gate in `key_for`; `KORTEX_TIER2_NONDETERMINISTIC=1` opt-in |
+| 6 | Config surface + KortexInferencePanel stats/tier badge | todo — `ResponseCache::stats()` exists; not surfaced in `KvCacheStats` / the panel yet |
 | 7 | Ollama end-to-end validation; Lemonade (both recipes) validation | todo |
 
 **Also landed 2026-09-06 (not in the original plan):** `kortex_harness` —
