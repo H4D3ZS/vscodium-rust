@@ -160,6 +160,9 @@ export interface LaunchExtras {
     draft_max?: number;
     /** Persisted n-gram cache file for `ngram-cache` (`--lookup-cache-dynamic`). */
     lookup_cache?: string;
+    /** `--n-cpu-moe`: MoE expert layers to keep in RAM instead of VRAM. The
+     *  knob that fits a Q4 35B-A3B on 16 GB (~20-24). No-op on a dense model. */
+    n_cpu_moe?: number;
     /** Seconds to wait for /health before returning. Default 60. 0 = don't wait. */
     wait_healthy_secs?: number;
 }
@@ -331,6 +334,7 @@ export async function launchServer(
         draftNgl: extras.draft_ngl ?? null,
         draftMax: extras.draft_max ?? null,
         lookupCache: extras.lookup_cache ?? null,
+        nCpuMoe: extras.n_cpu_moe ?? null,
         extraArgs: extras.extra_args ?? null,
         waitHealthySecs: extras.wait_healthy_secs ?? null,
     });

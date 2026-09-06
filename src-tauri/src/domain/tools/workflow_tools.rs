@@ -253,7 +253,19 @@ impl AiTools {
                 tool_call_id: None,
                 metadata: None,
             }],
-            temperature: Some(0.0),
+            // NOT zero: greedy / temp-0 decoding degenerates into repetition
+            // loops on the reasoning-tuned Qwen3.x small models (their cards
+            // say so explicitly). 0.6 is the community consensus for agentic
+            // work — low enough to stay on-task, past the greedy-loop cliff.
+            // The DRY + repeat-penalty sampler on the local path is the
+            // backstop. Override with KORTEX_OPERATOR_TEMP.
+            temperature: Some(
+                std::env::var("KORTEX_OPERATOR_TEMP")
+                    .ok()
+                    .and_then(|s| s.trim().parse::<f32>().ok())
+                    .filter(|t| (0.0..=2.0).contains(t))
+                    .unwrap_or(0.6),
+            ),
             autonomous: true,
             mode: Some("Subagent".to_string()),
             cyber_mode: None,

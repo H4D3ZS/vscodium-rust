@@ -129,6 +129,9 @@ export function KortexLocalInferencePanel() {
     const [opUrl, setOpUrl] = useState<string>(() => {
         try { return localStorage.getItem('kortex.operator.url') || ''; } catch { return ''; }
     });
+    const [nCpuMoe, setNCpuMoe] = useState<number>(() => {
+        try { return parseInt(localStorage.getItem('kortex.nCpuMoe') || '0') || 0; } catch { return 0; }
+    });
     const [showDetails, setShowDetails] = useState(false);
     const [showLog, setShowLog] = useState(false);
     const startedByUs = useRef(false);
@@ -269,6 +272,9 @@ export function KortexLocalInferencePanel() {
                         ctx_size: 32768,
                         slot_save_path: `${base}/slots`,
                         wait_healthy_secs: 0,
+                        // MoE expert offload — set for a Q4 35B-A3B on 16 GB
+                        // (dense weights on GPU, expert FFNs to RAM). 0 = off.
+                        n_cpu_moe: nCpuMoe > 0 ? nCpuMoe : undefined,
                         extra_args: ['--jinja', '--cache-type-k', 'q4_0', '--cache-type-v', 'q4_0'],
                     },
                 });
@@ -446,6 +452,19 @@ export function KortexLocalInferencePanel() {
                     <input type="number" min={2048} step={512} style={{ ...inputStyle, flex: 'none', width: 120 }}
                         value={vramMb || 16384} disabled={running}
                         onChange={e => setVramMb?.(parseInt(e.target.value) || 16384)} />
+
+                    <label style={label}>MoE expert offload (`--n-cpu-moe`, 0 = off)</label>
+                    <input type="number" min={0} max={64} step={1} style={{ ...inputStyle, flex: 'none', width: 120 }}
+                        value={nCpuMoe} disabled={running}
+                        onChange={e => {
+                            const v = Math.max(0, Math.min(64, parseInt(e.target.value) || 0));
+                            setNCpuMoe(v);
+                            try { localStorage.setItem('kortex.nCpuMoe', String(v)); } catch { /* */ }
+                        }} />
+                    <div style={{ ...label, opacity: 0.55, marginTop: 0 }}>
+                        For a Q4 <b>MoE</b> (35B-A3B) on 16&nbsp;GB: try 20–24. Spills that
+                        many layers' experts to RAM so the model fits. No effect on a dense model.
+                    </div>
 
                     <label style={label}>Speculative decoding (decode-speed, output unchanged)</label>
                     <select style={{ ...inputStyle, flex: 'none', width: '100%' }} value={specType} disabled={running}

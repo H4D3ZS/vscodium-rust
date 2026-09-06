@@ -155,6 +155,8 @@ pub async fn kortex_gac_launch(
     draft_ngl: Option<u32>,
     draft_max: Option<u32>,
     lookup_cache: Option<String>,
+    // `--n-cpu-moe`: MoE experts to keep in RAM (fits a Q4 35B-A3B on 16 GB).
+    n_cpu_moe: Option<u32>,
     extra_args: Option<Vec<String>>,
     wait_healthy_secs: Option<u64>,
 ) -> Result<RunningInfo, String> {
@@ -175,6 +177,7 @@ pub async fn kortex_gac_launch(
         draft_ngl,
         draft_max,
         lookup_cache: lookup_cache.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+        n_cpu_moe: n_cpu_moe.filter(|n| *n > 0),
         extra_args: extra_args.unwrap_or_default(),
     };
     let host_clone = opts.host.clone();

@@ -126,6 +126,11 @@ pub struct LaunchOpts {
     /// reads at start and writes back on exit, so learned n-grams persist
     /// across server restarts. Only meaningful with `ngram-cache` in the list.
     pub lookup_cache: Option<PathBuf>,
+    /// `--n-cpu-moe` / `-ncmoe`: keep the first N MoE layers' experts in system
+    /// RAM instead of VRAM. The knob that lets a Q4 35B-A3B fit 16 GB — the
+    /// dense attention/norm weights stay on the GPU, the fat expert FFNs spill
+    /// to RAM. Only meaningful for a MoE model; `0`/`None` = everything on GPU.
+    pub n_cpu_moe: Option<u32>,
 
     /// Extra free-form args appended verbatim. Useful for `--mlock`, `--no-mmap`, etc.
     pub extra_args: Vec<String>,
@@ -172,6 +177,7 @@ impl Default for LaunchOpts {
             draft_ngl: None,
             draft_max: None,
             lookup_cache: None,
+            n_cpu_moe: None,
             extra_args: Vec::new(),
         }
     }
@@ -200,6 +206,12 @@ pub fn build_argv(plan: &TierPlan, opts: &LaunchOpts) -> Vec<String> {
     if let Some(p) = opts.slot_save_path.as_ref() {
         argv.push("--slot-save-path".into());
         argv.push(p.to_string_lossy().into_owned());
+    }
+    // MoE expert offload — spill the first N layers' experts to RAM so a Q4
+    // 35B-A3B fits 16 GB VRAM. No-op on a dense model.
+    if let Some(n) = opts.n_cpu_moe.filter(|n| *n > 0) {
+        argv.push("--n-cpu-moe".into());
+        argv.push(n.to_string());
     }
 
     // Speculative decoding (see LaunchOpts). The fork's `--spec-type` takes a
@@ -571,5 +583,28 @@ mod tests {
             ..Default::default()
         };
         assert!(!build_argv(&min_plan(), &opts).contains(&"--lookup-cache-dynamic".to_string()));
+    }
+
+    #[test]
+    fn n_cpu_moe_emits_the_offload_flag_when_positive() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            n_cpu_moe: Some(22),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--n-cpu-moe", "22"]));
+    }
+
+    #[test]
+    fn n_cpu_moe_zero_or_none_emits_nothing() {
+        for n in [None, Some(0)] {
+            let opts = LaunchOpts {
+                model_path: PathBuf::from("m.gguf"),
+                n_cpu_moe: n,
+                ..Default::default()
+            };
+            assert!(!build_argv(&min_plan(), &opts).contains(&"--n-cpu-moe".to_string()));
+        }
     }
 }
