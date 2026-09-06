@@ -236,9 +236,9 @@ pub struct VisionSidecarResult {
 pub async fn discover_vision_models_cmd(
     state: State<'_, std::sync::Arc<crate::EditorState>>,
 ) -> Result<Vec<String>, String> {
-    let ollama_url = state.ai.engine.lemonade_base().await;
-    let bearer = ollama_bearer_for(&state, &ollama_url);
-    Ok(discover_vision_models(&ollama_url, &bearer).await)
+    let inference_url = state.ai.engine.lemonade_base().await;
+    let bearer = ollama_bearer_for(&state, &inference_url);
+    Ok(discover_vision_models(&inference_url, &bearer).await)
 }
 
 #[cfg(feature = "tauri")]
@@ -248,7 +248,7 @@ pub async fn vision_sidecar_process_attachments(
     agent_model: String,
     attachments: Vec<VisionAttachmentIn>,
     user_prompt: Option<String>,
-    ollama_url: Option<String>,
+    inference_url: Option<String>,
 ) -> Result<VisionSidecarResult, String> {
     if attachments.is_empty() {
         return Ok(VisionSidecarResult {
@@ -295,7 +295,7 @@ pub async fn vision_sidecar_process_attachments(
         });
     }
 
-    let primary_url = ollama_url
+    let primary_url = inference_url
         .filter(|u| !u.trim().is_empty())
         .unwrap_or_else(|| {
             // block_on not available — caller should pass URL; fall back to state

@@ -934,7 +934,7 @@ fn simple_ai_request(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some(mode.to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1011,10 +1011,10 @@ pub async fn ai_chat(
     state.services.kairos.report_activity().await;
 
     // Ensure the local backend URL is on the request (agent loop bearer auth uses it).
-    if request.ollama_url.as_ref().map(|u| u.trim().is_empty()).unwrap_or(true) {
+    if request.inference_url.as_ref().map(|u| u.trim().is_empty()).unwrap_or(true) {
         let url = state.ai.engine.lemonade_base().await;
         if !url.trim().is_empty() {
-            request.ollama_url = Some(url);
+            request.inference_url = Some(url);
         }
     }
 
@@ -1219,10 +1219,10 @@ pub async fn ai_chat_oneshot(
 
     let engine = state.ai.engine.clone();
     let _silent = engine.enter_silent();
-    if request.ollama_url.as_ref().map(|u| u.trim().is_empty()).unwrap_or(true) {
+    if request.inference_url.as_ref().map(|u| u.trim().is_empty()).unwrap_or(true) {
         let url = state.ai.engine.lemonade_base().await;
         if !url.trim().is_empty() {
-            request.ollama_url = Some(url);
+            request.inference_url = Some(url);
         }
     }
     let result = engine
@@ -1339,7 +1339,7 @@ pub async fn ai_inline_complete(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Completion".to_string()),
-        ollama_url: comp_local_url,
+        inference_url: comp_local_url,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1400,7 +1400,7 @@ pub async fn predict_next_edit(
     let model_name = model_override
         .filter(|s| !s.trim().is_empty())
         .unwrap_or(current_model);
-    let (provider, model, ollama_url) = detect_provider(&model_name, provider.as_deref());
+    let (provider, model, inference_url) = detect_provider(&model_name, provider.as_deref());
 
     // Number the lines so the model can reference exact line numbers (1-based).
     let numbered: String = content
@@ -1451,7 +1451,7 @@ exists, return {{\"has_edit\":false}}. Never invent edits at the cursor itself."
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Completion".to_string()),
-        ollama_url,
+        inference_url,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1599,7 +1599,7 @@ pub async fn ai_generate_code(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Generate".to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1667,7 +1667,7 @@ pub async fn ai_refactor_code(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Refactor".to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1742,7 +1742,7 @@ pub async fn ai_debug_code(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Debug".to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1813,7 +1813,7 @@ pub async fn ai_multi_cursor_edit(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("MultiEdit".to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1891,7 +1891,7 @@ pub async fn ai_pr_review(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Review".to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,

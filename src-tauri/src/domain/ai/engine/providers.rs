@@ -340,7 +340,7 @@ impl Sentient {
         }
         let base = self.resolved_local_base(req).await;
         let m = model.to_lowercase();
-        Self::is_cyberifrit_managed_ollama_url(&base)
+        Self::is_cyberifrit_managed_inference_url(&base)
             || m.contains("bugtrace")
             || model.contains("hf.co/")
     }
@@ -524,7 +524,7 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
             mode: Some("Chat".to_string()),
             cyber_mode: None,
             root_access: None,
-            ollama_url: req.ollama_url.clone(),
+            inference_url: req.inference_url.clone(),
             tools: Some(vec![]),
             reasoning_budget: None,
             reasoning_effort: None,

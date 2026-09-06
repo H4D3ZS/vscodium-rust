@@ -98,7 +98,7 @@ impl Sentient {
             mode: None,
             cyber_mode: None,
             root_access: None,
-            ollama_url: Some(local_url),
+            inference_url: Some(local_url),
             tools: None,
             reasoning_budget: None,
             reasoning_effort: None,

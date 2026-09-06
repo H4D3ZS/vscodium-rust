@@ -8,7 +8,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiAssistConfig {
-    pub ollama_url: String,
+    pub inference_url: String,
     pub model: String,
     pub enabled: bool,
 }
@@ -19,7 +19,7 @@ impl Default for AiAssistConfig {
             // Default to the standard local Ollama endpoint. Vega reads this
             // from EditorState at runtime, so the default is only used when
             // VegaAiAssist is constructed outside the normal boot flow.
-            ollama_url: "http://127.0.0.1:11434".into(),
+            inference_url: "http://127.0.0.1:11434".into(),
             // Default to a small model so triage runs on modest hardware and
             // fully offline. 2b–4b class models are the design target; anything
             // larger is a user upgrade, not a requirement.
@@ -64,7 +64,7 @@ impl VegaAiAssist {
         if !self.config.enabled {
             return false;
         }
-        let url = format!("{}/api/tags", self.config.ollama_url.trim_end_matches('/'));
+        let url = format!("{}/api/tags", self.config.inference_url.trim_end_matches('/'));
         matches!(
             self.client
                 .get(&url)
@@ -107,7 +107,7 @@ impl VegaAiAssist {
             "format": "json"
         });
 
-        let url = format!("{}/api/generate", self.config.ollama_url.trim_end_matches('/'));
+        let url = format!("{}/api/generate", self.config.inference_url.trim_end_matches('/'));
         let resp = self
             .client
             .post(&url)
@@ -167,7 +167,7 @@ impl VegaAiAssist {
             "options": { "temperature": 0.0, "num_predict": 16 }
         });
 
-        let url = format!("{}/api/generate", self.config.ollama_url.trim_end_matches('/'));
+        let url = format!("{}/api/generate", self.config.inference_url.trim_end_matches('/'));
         let resp = match self.client.post(&url).json(&body).send().await {
             Ok(r) => r,
             Err(_) => return Ok(heuristic_verdict(alert_type, evidence)),

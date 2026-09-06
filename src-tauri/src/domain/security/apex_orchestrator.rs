@@ -68,7 +68,7 @@ pub struct FailurePrediction {
 /// The central orchestrator for all APEX intelligence engines
 pub struct ApexOrchestrator {
     client: Client,
-    ollama_url: Arc<Mutex<String>>,
+    inference_url: Arc<Mutex<String>>,
     /// Lemonade (real llama.cpp, OpenAI-compatible) base URL for engines routed
     /// off Ollama — e.g. the BugTrace CORE-Ultra tooling engine. Default :13305.
     lemonade_url: Arc<Mutex<String>>,
@@ -81,18 +81,18 @@ pub struct ApexOrchestrator {
 }
 
 impl ApexOrchestrator {
-    pub fn new(ollama_url: &str, workspace_root: Option<PathBuf>, config_dir: Option<PathBuf>) -> Self {
+    pub fn new(inference_url: &str, workspace_root: Option<PathBuf>, config_dir: Option<PathBuf>) -> Self {
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(600))
             .build()
             .unwrap_or_else(|_| Client::new());
 
-        let red_team = Arc::new(ApexRedTeam::new(ollama_url));
+        let red_team = Arc::new(ApexRedTeam::new(inference_url));
 
         Self {
             client,
-            ollama_url: Arc::new(Mutex::new(ollama_url.to_string())),
+            inference_url: Arc::new(Mutex::new(inference_url.to_string())),
             lemonade_url: Arc::new(Mutex::new(
                 std::env::var("LEMONADE_URL").unwrap_or_else(|_| "http://localhost:13305".to_string()),
             )),
@@ -126,9 +126,9 @@ impl ApexOrchestrator {
     }
 
     /// Update the Ollama URL for all engines
-    pub async fn set_ollama_url(&self, url: &str) {
-        *self.ollama_url.lock().await = url.to_string();
-        self.red_team.set_ollama_url(url).await;
+    pub async fn set_inference_url(&self, url: &str) {
+        *self.inference_url.lock().await = url.to_string();
+        self.red_team.set_inference_url(url).await;
     }
 
     /// Update the Lemonade (llama.cpp) base URL used by Lemonade-backed engines.
@@ -495,7 +495,7 @@ impl ApexOrchestrator {
         });
 
         // Perf optimization
-        let perf_url = self.ollama_url.lock().await.clone();
+        let perf_url = self.inference_url.lock().await.clone();
         let perf_ws = self.workspace_root.lock().await.clone();
         let perf_cfg = self.config_dir.lock().await.clone();
         let perf_self = Self::new(&perf_url, perf_ws, perf_cfg);
@@ -506,7 +506,7 @@ impl ApexOrchestrator {
         });
 
         // Failure prediction
-        let pred_url = self.ollama_url.lock().await.clone();
+        let pred_url = self.inference_url.lock().await.clone();
         let pred_ws = self.workspace_root.lock().await.clone();
         let pred_cfg = self.config_dir.lock().await.clone();
         let pred_self = Self::new(&pred_url, pred_ws, pred_cfg);
@@ -516,7 +516,7 @@ impl ApexOrchestrator {
         });
 
         // Architect — stack recommendation for this module
-        let arch_url = self.ollama_url.lock().await.clone();
+        let arch_url = self.inference_url.lock().await.clone();
         let arch_ws = self.workspace_root.lock().await.clone();
         let arch_cfg = self.config_dir.lock().await.clone();
         let arch_self = Self::new(&arch_url, arch_ws, arch_cfg);
@@ -529,7 +529,7 @@ impl ApexOrchestrator {
         let arch_handle = tokio::spawn(async move { arch_self.architect_design(&arch_desc).await });
 
         // Threat anticipation
-        let threat_url = self.ollama_url.lock().await.clone();
+        let threat_url = self.inference_url.lock().await.clone();
         let threat_ws = self.workspace_root.lock().await.clone();
         let threat_cfg = self.config_dir.lock().await.clone();
         let threat_self = Self::new(&threat_url, threat_ws, threat_cfg);
@@ -540,7 +540,7 @@ impl ApexOrchestrator {
         });
 
         // Self-improve (single pass — full sweep must stay bounded)
-        let si_url = self.ollama_url.lock().await.clone();
+        let si_url = self.inference_url.lock().await.clone();
         let si_ws = self.workspace_root.lock().await.clone();
         let si_cfg = self.config_dir.lock().await.clone();
         let si_self = Self::new(&si_url, si_ws, si_cfg);
@@ -549,7 +549,7 @@ impl ApexOrchestrator {
         let si_handle = tokio::spawn(async move { si_self.self_improve(&si_code, &si_lang, 1).await });
 
         // Explainable security audit
-        let ex_url = self.ollama_url.lock().await.clone();
+        let ex_url = self.inference_url.lock().await.clone();
         let ex_ws = self.workspace_root.lock().await.clone();
         let ex_cfg = self.config_dir.lock().await.clone();
         let ex_self = Self::new(&ex_url, ex_ws, ex_cfg);
@@ -560,7 +560,7 @@ impl ApexOrchestrator {
         });
 
         // Multi-system correlation (single-file preview for sweep context)
-        let ms_url = self.ollama_url.lock().await.clone();
+        let ms_url = self.inference_url.lock().await.clone();
         let ms_ws = self.workspace_root.lock().await.clone();
         let ms_cfg = self.config_dir.lock().await.clone();
         let ms_self = Self::new(&ms_url, ms_ws, ms_cfg);
@@ -692,7 +692,7 @@ impl ApexOrchestrator {
             return self.query_engine_lemonade(engine, &model, prompt, system).await;
         }
 
-        let url = self.ollama_url.lock().await.clone();
+        let url = self.inference_url.lock().await.clone();
 
         // DeepHat-V1-7B performs best with its own persona prompt. When it's the
         // resolved model, lead with that persona so the security fine-tune is used

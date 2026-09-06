@@ -224,7 +224,7 @@ impl AiTools {
             mode: Some("Chat".to_string()),
             cyber_mode: None,
             root_access: None,
-            ollama_url: None,
+            inference_url: None,
             tools: Some(vec![]),
             reasoning_budget: None,
             reasoning_effort: None,
@@ -1272,7 +1272,7 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
             run_passive: Some(true),
             ai_triage: args.get("ai_triage").and_then(|v| v.as_bool()),
             ai_model: None,
-            ollama_url: None,
+            inference_url: None,
             session_cookie: args.get("session_cookie").and_then(|v| v.as_str()).map(String::from),
         };
         let result = crate::vega::run_campaign(opts).await.map_err(|e| anyhow!(e))?;

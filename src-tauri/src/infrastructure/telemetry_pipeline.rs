@@ -215,16 +215,16 @@ pub struct TelemetryPipeline {
     semaphore: Arc<Semaphore>,
     aim_path: PathBuf,
     workspace_root: PathBuf,
-    ollama_url: String,
+    inference_url: String,
 }
 
 impl TelemetryPipeline {
-    pub fn new(aim_path: PathBuf, workspace_root: PathBuf, ollama_url: &str) -> Self {
+    pub fn new(aim_path: PathBuf, workspace_root: PathBuf, inference_url: &str) -> Self {
         Self {
             semaphore: Arc::new(Semaphore::new(1)),
             aim_path,
             workspace_root,
-            ollama_url: ollama_url.trim_end_matches('/').to_string(),
+            inference_url: inference_url.trim_end_matches('/').to_string(),
         }
     }
 
@@ -289,7 +289,7 @@ impl TelemetryPipeline {
             .map_err(|e| e.to_string())?;
 
         let resp = client
-            .post(format!("{}/api/generate", self.ollama_url))
+            .post(format!("{}/api/generate", self.inference_url))
             .json(&body)
             .send()
             .await

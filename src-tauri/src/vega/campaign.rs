@@ -92,7 +92,7 @@ pub struct VegaScanOptions {
     /// Opt-in: run a local-LLM second pass to flag likely false positives.
     pub ai_triage: Option<bool>,
     pub ai_model: Option<String>,
-    pub ollama_url: Option<String>,
+    pub inference_url: Option<String>,
     /// Optional `Cookie:` header value sent on every request, e.g.
     /// `PHPSESSID=abc; security=low`. Lets the scanner reach pages behind a
     /// login (paste a session from an authenticated browser).
@@ -337,9 +337,9 @@ async fn run_ai_triage(alerts: &[Alert], opts: &VegaScanOptions) -> Vec<String> 
             cfg.model = m;
         }
     }
-    if let Some(u) = opts.ollama_url.clone() {
+    if let Some(u) = opts.inference_url.clone() {
         if !u.trim().is_empty() {
-            cfg.ollama_url = u;
+            cfg.inference_url = u;
         }
     }
     let mut assist = VegaAiAssist::new(cfg);

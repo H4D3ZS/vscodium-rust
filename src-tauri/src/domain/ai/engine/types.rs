@@ -101,7 +101,11 @@ pub struct AiRequest {
     pub mode: Option<String>,
     pub cyber_mode: Option<bool>,
     pub root_access: Option<bool>,
-    pub ollama_url: Option<String>,
+    /// Base URL of the local inference server (Lemonade / llama-server / the
+    /// Kortex proxy). `ollama_url` is still accepted on the wire for back-compat
+    /// with any persisted request payloads.
+    #[serde(alias = "ollama_url")]
+    pub inference_url: Option<String>,
     pub tools: Option<Vec<Value>>,
     /// Anthropic/Gemini extended thinking: budget_tokens (e.g. 8000)
     #[serde(default)]

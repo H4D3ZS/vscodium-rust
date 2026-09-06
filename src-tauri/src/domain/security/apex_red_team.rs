@@ -125,13 +125,13 @@ pub struct RedTeamReport {
 
 pub struct ApexRedTeam {
     client: Client,
-    ollama_url: Arc<Mutex<String>>,
+    inference_url: Arc<Mutex<String>>,
     model: Arc<Mutex<String>>,
     findings_history: Arc<Mutex<Vec<RedTeamFinding>>>,
 }
 
 impl ApexRedTeam {
-    pub fn new(ollama_url: &str) -> Self {
+    pub fn new(inference_url: &str) -> Self {
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(600))
@@ -140,7 +140,7 @@ impl ApexRedTeam {
 
         Self {
             client,
-            ollama_url: Arc::new(Mutex::new(ollama_url.to_string())),
+            inference_url: Arc::new(Mutex::new(inference_url.to_string())),
             // 26B BugTrace only fits the full tier (~15GB weights); lite/mid
             // machines fall back to the shared RAM-tiered threat model.
             model: Arc::new(Mutex::new(
@@ -159,8 +159,8 @@ impl ApexRedTeam {
     }
 
     /// Set the Ollama URL
-    pub async fn set_ollama_url(&self, url: &str) {
-        *self.ollama_url.lock().await = url.to_string();
+    pub async fn set_inference_url(&self, url: &str) {
+        *self.inference_url.lock().await = url.to_string();
     }
 
     /// Execute a full red team scan on a code target
@@ -329,7 +329,7 @@ impl ApexRedTeam {
             .await
             .map_err(|e| format!("[APEX-RT] Engine gate closed: {}", e))?;
 
-        let url = self.ollama_url.lock().await.clone();
+        let url = self.inference_url.lock().await.clone();
         let model = self.model.lock().await.clone();
 
         println!("[APEX-RT] Querying {} with model {}...", url, model);

@@ -42,13 +42,13 @@ impl Sentient {
         vec![]
     }
 
-    pub(crate) fn is_cyberifrit_managed_ollama_url(url: &str) -> bool {
+    pub(crate) fn is_cyberifrit_managed_inference_url(url: &str) -> bool {
         let u = url.to_lowercase();
         u.contains("ai.cyberifrit.xyz") || u.contains("api.cyberifrit.xyz")
     }
 
     pub(crate) fn ollama_auth_hint(base_url: &str, status_code: u16) -> &'static str {
-        if Self::is_cyberifrit_managed_ollama_url(base_url) {
+        if Self::is_cyberifrit_managed_inference_url(base_url) {
             return match status_code {
                 401 => "Sign in to Cyber-Ifrit (Settings → Account) to use Cyber-Ifrit Cloud.",
                 402 => "Your plan does not include Cyber-Ifrit Cloud. Start the free 1-day trial, subscribe to Pro+, or use Local Ollama / your own API keys.",
@@ -66,7 +66,7 @@ impl Sentient {
     /// Resolve the local backend base URL: request override first, then the
     /// configured Lemonade server. Lemonade is the only local backend.
     pub(crate) async fn resolved_local_base(&self, req: &AiRequest) -> String {
-        if let Some(u) = req.ollama_url.as_ref().filter(|u| !u.trim().is_empty()) {
+        if let Some(u) = req.inference_url.as_ref().filter(|u| !u.trim().is_empty()) {
             return u.trim_end_matches('/').to_string();
         }
         self.lemonade_base().await
@@ -301,13 +301,13 @@ impl Sentient {
             // Local DeepSeek V2 running on Apple Silicon (M1/M2/M3) via either
             // llama.cpp + Metal or MLX-LM. Both expose an OpenAI-compatible
             // server. Default port is 8080 (llama-server), overridable via
-            // the DEEPSEEK_ANE_URL env var or `ollama_url` field on the
+            // the DEEPSEEK_ANE_URL env var or `inference_url` field on the
             // request (we reuse the field for any local OpenAI-compatible
             // endpoint to avoid threading another override through the API).
             "deepseek-ane" | "deepseek_ane" | "ds2-ane" => {
                 let base = std::env::var("DEEPSEEK_ANE_URL")
                     .ok()
-                    .or_else(|| req.ollama_url.clone())
+                    .or_else(|| req.inference_url.clone())
                     .unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
                 let base = base.trim().trim_end_matches('/').to_string();
                 // Accept either bare host (http://127.0.0.1:8080) or fully
@@ -328,11 +328,11 @@ impl Sentient {
                 "https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions".to_string()
             }
             "antigravity" => "http://127.0.0.1:1536/v1/chat/completions".to_string(),
-            // vLLM — OpenAI-compat server, URL from ollama_url field or env
+            // vLLM — OpenAI-compat server, URL from inference_url field or env
             "vllm" => {
                 let base = std::env::var("VLLM_URL")
                     .ok()
-                    .or_else(|| req.ollama_url.clone())
+                    .or_else(|| req.inference_url.clone())
                     .unwrap_or_else(|| "http://127.0.0.1:8000".to_string());
                 let base = base.trim().trim_end_matches('/').to_string();
                 if base.ends_with("/v1/chat/completions") { base }
@@ -343,7 +343,7 @@ impl Sentient {
             "lmstudio" | "lm-studio" | "lm_studio" => {
                 let base = std::env::var("LMSTUDIO_URL")
                     .ok()
-                    .or_else(|| req.ollama_url.clone())
+                    .or_else(|| req.inference_url.clone())
                     .unwrap_or_else(|| "http://127.0.0.1:1234".to_string());
                 let base = base.trim().trim_end_matches('/').to_string();
                 if base.ends_with("/v1/chat/completions") { base }
@@ -354,7 +354,7 @@ impl Sentient {
             "litellm" | "lite-llm" | "lite_llm" => {
                 let base = std::env::var("LITELLM_URL")
                     .ok()
-                    .or_else(|| req.ollama_url.clone())
+                    .or_else(|| req.inference_url.clone())
                     .unwrap_or_else(|| "http://127.0.0.1:4000".to_string());
                 let base = base.trim().trim_end_matches('/').to_string();
                 if base.ends_with("/v1/chat/completions") { base }
@@ -366,7 +366,7 @@ impl Sentient {
                 // /api/v1/ (chat: /api/v1/chat/completions); it does NOT speak
                 // Ollama's native /api/chat. Cloud/proxied deployments may only
                 // expose /v1/ — the request layer retries on /v1 after a 404.
-                let raw = req.ollama_url.clone()
+                let raw = req.inference_url.clone()
                     .filter(|u| !u.trim().is_empty())
                     .unwrap_or_else(|| self.lemonade_base_blocking());
                 let base = Self::strip_lemonade_v1(&raw);
@@ -387,13 +387,13 @@ impl Sentient {
                 "https://api.openmodel.ai/v1/messages".to_string()
             }
             // Hugging Face Inference Router — OpenAI-compatible.
-            // Base comes from env, then req.ollama_url (set by the frontend
+            // Base comes from env, then req.inference_url (set by the frontend
             // when inferenceBackend === 'huggingface'), then the default.
             "huggingface" => {
                 let base = std::env::var("HUGGINGFACE_BASE_URL")
                     .ok()
                     .filter(|s| !s.trim().is_empty())
-                    .or_else(|| req.ollama_url.clone())
+                    .or_else(|| req.inference_url.clone())
                     .unwrap_or_else(|| "https://router.huggingface.co/v1".to_string());
                 let base = base.trim().trim_end_matches('/').to_string();
                 if base.ends_with("/v1/chat/completions") { base }

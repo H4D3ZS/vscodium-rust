@@ -108,10 +108,10 @@ pub struct OrchestratorState {
 }
 
 impl OrchestratorState {
-    pub fn new(workspace_root: PathBuf, config_dir: PathBuf, ollama_url: &str) -> Self {
+    pub fn new(workspace_root: PathBuf, config_dir: PathBuf, inference_url: &str) -> Self {
         let aim_path = config_dir.join("telemetry.aim");
         Self {
-            pipeline: TelemetryPipeline::new(aim_path, workspace_root, ollama_url),
+            pipeline: TelemetryPipeline::new(aim_path, workspace_root, inference_url),
             event_log: VecDeque::with_capacity(512),
             drift_log: Vec::new(),
             last_snapshot: None,
@@ -268,11 +268,11 @@ fn parse_synthesis_response(raw: &str, run_id: u64) -> Result<CanvasSnapshot, St
 /// Global handle — initialised once in setup, shared via `Arc<Mutex<>>`.
 pub type OrchestratorHandle = Arc<Mutex<OrchestratorState>>;
 
-pub fn init(workspace_root: PathBuf, config_dir: PathBuf, ollama_url: &str) -> OrchestratorHandle {
+pub fn init(workspace_root: PathBuf, config_dir: PathBuf, inference_url: &str) -> OrchestratorHandle {
     Arc::new(Mutex::new(OrchestratorState::new(
         workspace_root,
         config_dir,
-        ollama_url,
+        inference_url,
     )))
 }
 

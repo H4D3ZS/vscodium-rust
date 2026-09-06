@@ -378,7 +378,7 @@ async fn execute_task(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Agent".to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,

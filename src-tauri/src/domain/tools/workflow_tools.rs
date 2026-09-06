@@ -241,7 +241,7 @@ impl AiTools {
             mode: Some("Subagent".to_string()),
             cyber_mode: None,
             root_access: Some(false),
-            ollama_url: None,
+            inference_url: None,
             tools: None,
             reasoning_budget: None,
             reasoning_effort: None,
