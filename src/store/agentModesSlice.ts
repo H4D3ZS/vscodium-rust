@@ -184,11 +184,17 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
             const provider = (agentModel.includes('|') ? agentModel.split('|')[0] : '').toLowerCase();
             const g: any = get();
             const setBackend = g.setInferenceBackend;
+            // 'llama-cpp' (Kortex ROCmFPX) is also a local OpenAI-compat backend and
+            // its model tags carry the same `lemonade|` prefix (agent.ts maps its
+            // routingProvider to 'lemonade'). Never yank the backend away from it on
+            // a model pick / model-list refresh — that's what made "Kortex" snap
+            // back to "Lemonade" on every settings refresh.
+            const servesLemonadeTags = (b: string) => b === 'lemonade' || b === 'llama-cpp';
             if (typeof setBackend === 'function') {
-                if (provider === 'lemonade' && g.inferenceBackend !== 'lemonade') setBackend('lemonade');
+                if (provider === 'lemonade' && !servesLemonadeTags(g.inferenceBackend)) setBackend('lemonade');
                 else if (provider === 'huggingface' && g.inferenceBackend !== 'huggingface') setBackend('huggingface');
                 else if (provider === 'openmodel' && g.inferenceBackend !== 'openmodel') setBackend('openmodel');
-                else if (provider === 'antigravity' && g.inferenceBackend !== 'lemonade') setBackend('lemonade');
+                else if (provider === 'antigravity' && !servesLemonadeTags(g.inferenceBackend)) setBackend('lemonade');
             }
         } catch { /* non-fatal */ }
     },
