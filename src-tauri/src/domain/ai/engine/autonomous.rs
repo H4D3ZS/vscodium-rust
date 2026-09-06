@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use super::types::*;
-use super::sentient::{Sentient, OLLAMA_ESSENTIAL_TOOLS};
+use super::sentient::{Sentient, LOCAL_ESSENTIAL_TOOLS};
 
 /// Depth of nested [`Sentient::autonomous_loop`] calls started by the `task`
 /// tool. Process-global on purpose: the IDE runs one top-level agent at a time,
@@ -723,7 +723,7 @@ impl Sentient {
                 let name = t["function"]["name"].as_str()
                     .or_else(|| t["name"].as_str())
                     .unwrap_or("");
-                OLLAMA_ESSENTIAL_TOOLS.contains(&name)
+                LOCAL_ESSENTIAL_TOOLS.contains(&name)
             });
 
             // Task-aware secondary filter: reduce tool set further based on task domain.

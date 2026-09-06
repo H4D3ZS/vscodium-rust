@@ -234,9 +234,10 @@ impl AiTools {
         engine.single_shot_completion(req).await
     }
 
-    /// Best-effort list of locally-installed Ollama model tags.
-    pub(crate) async fn list_ollama_tags(&self) -> Vec<String> {
-        let base = std::env::var("OLLAMA_HOST")
+    /// Best-effort list of locally-installed model tags (Ollama-style `/api/tags`).
+    pub(crate) async fn list_local_model_tags(&self) -> Vec<String> {
+        let base = std::env::var("KORTEX_IMAGE_HOST")
+            .or_else(|_| std::env::var("OLLAMA_HOST"))
             .ok()
             .map(|h| if h.starts_with("http") { h } else { format!("http://{}", h) })
             .unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
@@ -324,7 +325,7 @@ impl AiTools {
 
         // Candidate pool: (provider, model, size_hint, is_security).
         let mut pool: Vec<(String, String, u32, bool)> = Vec::new();
-        for m in self.list_ollama_tags().await {
+        for m in self.list_local_model_tags().await {
             let sz = model_size_hint(&m);
             let sec = is_security_model(&m);
             pool.push(("lemonade".to_string(), m, sz, sec));

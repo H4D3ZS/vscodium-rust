@@ -1415,7 +1415,7 @@ impl AiTools {
                 .await
                 .map_err(|e| anyhow!("{e}"))
         } else {
-            crate::image_gen::generate_with_ollama(prompt, &full)
+            crate::image_gen::generate_with_local_image(prompt, &full)
                 .await
                 .map_err(|e| anyhow!("{e}"))
         };
@@ -1466,7 +1466,7 @@ impl AiTools {
                 .await
                 .map_err(|e| anyhow!("{e}"))?
         } else {
-            match crate::image_gen::analyze_with_ollama(&full, question).await {
+            match crate::image_gen::analyze_with_local_vision(&full, question).await {
                 Ok(t) => t,
                 Err(_) if google_key.is_some() => {
                     crate::image_gen::analyze_with_gemini(google_key.unwrap(), &full, question)

@@ -234,7 +234,7 @@ impl AiTools {
             | "generate_exploit_artifact"
             | "apex_pentest_report" => self.handle_apex_tool(canonical, arguments).await,
 
-            // TS-parity workflow tools (also in OLLAMA_ESSENTIAL_TOOLS)
+            // TS-parity workflow tools (also in LOCAL_ESSENTIAL_TOOLS)
             "todo_write" | "task_create" | "task_update" | "task_list" | "task_get" => {
                 self.handle_task_tool(canonical, arguments).await
             }

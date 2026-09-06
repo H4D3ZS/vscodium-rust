@@ -3,33 +3,46 @@ use reqwest::Client;
 use serde_json::{json, Value};
 use std::path::Path;
 
-const DEFAULT_OLLAMA: &str = "http://127.0.0.1:11434";
+const DEFAULT_IMAGE_HOST: &str = "http://127.0.0.1:11434";
 const DEFAULT_VISION_MODEL: &str = "llava";
 const DEFAULT_IMAGE_MODEL: &str = "x/flux2-klein";
 
-/// Resolve the inference backend URL. Checks Ollama env vars first, then
-/// falls back to the hardcoded default. For Lemonade users, set
-/// `OLLAMA_HOST=http://127.0.0.1:13305` or use the main engine routing.
-fn ollama_base() -> String {
-    std::env::var("OLLAMA_HOST")
-        .or_else(|_| std::env::var("OLLAMA_BASE_URL"))
-        .unwrap_or_else(|_| DEFAULT_OLLAMA.to_string())
+/// First env var name that has a value, else the fallback.
+fn env_any(names: &[&str], fallback: &str) -> String {
+    for n in names {
+        if let Ok(v) = std::env::var(n) {
+            if !v.trim().is_empty() {
+                return v;
+            }
+        }
+    }
+    fallback.to_string()
+}
+
+/// Resolve the image/vision backend URL. Set `KORTEX_IMAGE_HOST`
+/// (legacy `OLLAMA_HOST` / `OLLAMA_BASE_URL` still honoured), else the default.
+fn image_backend_base() -> String {
+    env_any(
+        &["KORTEX_IMAGE_HOST", "OLLAMA_HOST", "OLLAMA_BASE_URL"],
+        DEFAULT_IMAGE_HOST,
+    )
 }
 
 fn vision_model() -> String {
-    std::env::var("OLLAMA_VISION_MODEL").unwrap_or_else(|_| DEFAULT_VISION_MODEL.to_string())
+    env_any(&["KORTEX_VISION_MODEL", "OLLAMA_VISION_MODEL"], DEFAULT_VISION_MODEL)
 }
 
 fn image_gen_model() -> String {
-    std::env::var("OLLAMA_IMAGE_MODEL").unwrap_or_else(|_| DEFAULT_IMAGE_MODEL.to_string())
+    env_any(&["KORTEX_IMAGE_MODEL", "OLLAMA_IMAGE_MODEL"], DEFAULT_IMAGE_MODEL)
 }
 
-/// Analyze an image with Ollama vision model (llava, moondream, etc.).
-pub async fn analyze_with_ollama(image_path: &Path, question: &str) -> Result<String, String> {
+/// Analyze an image with a local vision model (llava, moondream, etc.) over the
+/// Ollama-style `/api/chat` protocol many local servers expose.
+pub async fn analyze_with_local_vision(image_path: &Path, question: &str) -> Result<String, String> {
     let bytes = std::fs::read(image_path).map_err(|e| e.to_string())?;
     let b64 = B64.encode(&bytes);
     let client = Client::new();
-    let url = format!("{}/api/chat", ollama_base().trim_end_matches('/'));
+    let url = format!("{}/api/chat", image_backend_base().trim_end_matches('/'));
     let body = json!({
         "model": vision_model(),
         "stream": false,
@@ -44,9 +57,9 @@ pub async fn analyze_with_ollama(image_path: &Path, question: &str) -> Result<St
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Ollama vision request failed: {e}"))?;
+        .map_err(|e| format!("local vision request failed: {e}"))?;
     if !resp.status().is_success() {
-        return Err(format!("Ollama vision HTTP {}", resp.status()));
+        return Err(format!("local vision HTTP {}", resp.status()));
     }
     let v: Value = resp.json().await.map_err(|e| e.to_string())?;
     Ok(v["message"]["content"]
@@ -103,10 +116,10 @@ pub async fn analyze_with_gemini(api_key: &str, image_path: &Path, question: &st
     Ok(text.to_string())
 }
 
-/// Generate image via Ollama image-capable model; writes PNG to dest_path.
-pub async fn generate_with_ollama(prompt: &str, dest_path: &Path) -> Result<String, String> {
+/// Generate an image via a local image-capable model (`/api/generate`); writes PNG to dest_path.
+pub async fn generate_with_local_image(prompt: &str, dest_path: &Path) -> Result<String, String> {
     let client = Client::new();
-    let url = format!("{}/api/generate", ollama_base().trim_end_matches('/'));
+    let url = format!("{}/api/generate", image_backend_base().trim_end_matches('/'));
     let body = json!({
         "model": image_gen_model(),
         "prompt": prompt,
@@ -117,11 +130,11 @@ pub async fn generate_with_ollama(prompt: &str, dest_path: &Path) -> Result<Stri
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Ollama image gen failed: {e}"))?;
+        .map_err(|e| format!("local image-gen request failed: {e}"))?;
     if !resp.status().is_success() {
         let err = resp.text().await.unwrap_or_default();
         return Err(format!(
-            "Ollama image model '{}' unavailable: {err}. Pull with: ollama pull {}",
+            "local image model '{}' unavailable: {err}. Pull it into your image backend first ({})",
             image_gen_model(),
             image_gen_model()
         ));
@@ -135,7 +148,7 @@ pub async fn generate_with_ollama(prompt: &str, dest_path: &Path) -> Result<Stri
         std::fs::write(dest_path, &bytes).map_err(|e| e.to_string())?;
         return Ok(dest_path.to_string_lossy().to_string());
     }
-    Err("Ollama response contained no image data — use a model that supports image output (e.g. x/flux2-klein)".into())
+    Err("the image backend returned no image data — use a model that supports image output (e.g. x/flux2-klein)".into())
 }
 
 /// Generate image via Gemini native image generation.

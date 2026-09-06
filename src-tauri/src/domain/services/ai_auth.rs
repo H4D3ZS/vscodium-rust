@@ -311,7 +311,6 @@ pub struct ApiKeys {
     pub alibaba: Option<String>,
     pub nvidia: Option<String>,
     pub apiradar: Option<String>,
-    /// Bearer token for reverse-proxied Ollama (e.g. nginx + `OLLAMA_BEARER`).
     pub elevenlabs_api_key: Option<String>,
     pub elevenlabs_voice_id: Option<String>,
     pub openai_base_url: Option<String>,
