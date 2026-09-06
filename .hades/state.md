@@ -1,3 +1,3 @@
 # Mission State
 - **Status:** Active
-- **Current Task:** Processing: Audit the entire codebase for bugs, dead code, and architectural issues. List fi
+- **Current Task:** Processing: *Loading **Escha-W2-35B-A3B-ROCmFP2-Qwen3.6-35B-A3B-Escha-W2-ROCmFP2.gguf**on Le
