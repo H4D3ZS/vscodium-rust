@@ -2676,6 +2676,10 @@ ${preview? preview + '\n': ''}Call aim_pack_context for the full semantic map.`;
                     resume: storeSnapshot.claudeCodeSessionId ?? undefined,
                     model: routingModel,
                     images: imagesForClaudeCode.length? imagesForClaudeCode: undefined,
+                    // "auto" | "kortex" | "lemonade" — which base URL the spawned
+                    // `claude` talks to. Persisted per-user; auto = the Kortex
+                    // KV-cache proxy if it's running, else Lemonade direct.
+                    route: (() => { try { return localStorage.getItem('claudeCode.route') || 'auto'; } catch { return 'auto'; } })(),
                 },
             ).then((r) => {
                 if (r.session_id) store.getState().setClaudeCodeSessionId?.(r.session_id);

@@ -15,6 +15,13 @@ const InferenceBackendPanel: React.FC = () => {
     const useClaudeCodeAgent = useStore((s) => s.useClaudeCodeAgent);
     const setUseClaudeCodeAgent = useStore((s) => s.setUseClaudeCodeAgent);
     const [claudeAvailable, setClaudeAvailable] = React.useState<boolean | null>(null);
+    const [claudeRoute, setClaudeRoute] = React.useState<string>(() => {
+        try { return localStorage.getItem('claudeCode.route') || 'auto'; } catch { return 'auto'; }
+    });
+    const updateClaudeRoute = (v: string) => {
+        setClaudeRoute(v);
+        try { localStorage.setItem('claudeCode.route', v); } catch { /* private mode */ }
+    };
 
     React.useEffect(() => {
         let cancelled = false;
@@ -92,6 +99,20 @@ const InferenceBackendPanel: React.FC = () => {
                     {claudeAvailable === false && (
                         <> Not installed — <code>npm i -g @anthropic-ai/claude-code</code></>
                     )}
+                </p>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, margin: '10px 0 0 24px' }}>
+                    Route <code>/v1/messages</code> via
+                    <select value={claudeRoute} onChange={(e) => updateClaudeRoute(e.target.value)}
+                        style={{ fontSize: 12, padding: '2px 4px' }}>
+                        <option value="auto">Auto (Kortex proxy if running)</option>
+                        <option value="kortex">Kortex KV-cache proxy</option>
+                        <option value="lemonade">Lemonade direct</option>
+                    </select>
+                </label>
+                <p style={{ fontSize: 11, opacity: 0.6, margin: '4px 0 0 24px' }}>
+                    Kortex adds prefix-cache reuse + harness compression on the Claude Code path.
+                    Lemonade direct is the plain Anthropic adapter. Applies to the Claude terminal too.
                 </p>
             </div>
         </div>

@@ -431,9 +431,15 @@ export class TerminalManager {
       skipPermissions?: boolean;
       allowNet?: boolean;
       extraArgs?: string[];
+      /** "auto" | "kortex" | "lemonade" — base URL the spawned `claude` uses. */
+      route?: string;
     } = {}
   ): Promise<string> {
     const { explicitId, groupId, model, skipPermissions, allowNet, extraArgs } = opts;
+    let route = opts.route;
+    if (!route) {
+      try { route = localStorage.getItem('claudeCode.route') || 'auto'; } catch { route = 'auto'; }
+    }
     return this.createTerminal(
       undefined,
       groupId,
@@ -446,6 +452,7 @@ export class TerminalManager {
         ...(skipPermissions !== undefined? { skipPermissions }: {}),
         ...(allowNet !== undefined? { allowNet }: {}),
         ...(extraArgs? { extraArgs }: {}),
+        ...(route? { route }: {}),
       }
     );
   }

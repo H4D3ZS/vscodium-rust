@@ -169,6 +169,9 @@ pub async fn claude_code_chat(
     skip_permissions: Option<bool>,
     allow_net: Option<bool>,
     images: Option<Vec<String>>,
+    // `"auto"` (default) | `"kortex"` | `"lemonade"` — which base URL the
+    // spawned `claude` talks to. See `resolve_claude_anthropic_base`.
+    route: Option<String>,
 ) -> Result<ClaudeCodeReply, String> {
     let mut prompt = prompt.trim().to_string();
     if prompt.is_empty() {
@@ -323,7 +326,14 @@ Attached image(s) — use the Read tool to view:
     cmd.arg(&prompt);
 
     // Identical env contract to `spawn_claude_terminal` — see the comments there.
-    cmd.env("ANTHROPIC_BASE_URL", &lemonade_base);
+    // Route either straight at Lemonade's Anthropic adapter or through the
+    // Kortex KV-cache proxy (prefix reuse + harness compression), per the UI.
+    let anthropic_base =
+        super::ai::resolve_claude_anthropic_base(&lemonade_base, route.as_deref())?;
+    if anthropic_base != lemonade_base {
+        println!("[claude-code] routing /v1/messages via {anthropic_base}");
+    }
+    cmd.env("ANTHROPIC_BASE_URL", &anthropic_base);
     cmd.env("ANTHROPIC_AUTH_TOKEN", "lemonade");
     cmd.env("ANTHROPIC_API_KEY", "lemonade");
     // Recent Claude Code builds validate ANTHROPIC_MODEL against a known list and

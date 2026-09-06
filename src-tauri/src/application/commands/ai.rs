@@ -197,6 +197,38 @@ pub async fn lemonade_wait_healthy(base: &str, timeout: std::time::Duration) -> 
 /// an error on prompt one and success on prompt two, once the server has come up
 /// on its own.
 ///
+/// Resolve the `ANTHROPIC_BASE_URL` a spawned `claude` process should use.
+///
+/// `route` (from the UI, case-insensitive):
+///   - `"lemonade"` / `"direct"` — talk to Lemonade's native Anthropic adapter
+///     directly (no KV-slot cache, no harness compression).
+///   - `"kortex"` / `"proxy"` — go through the Kortex KV-cache proxy so
+///     `/v1/messages` gets prefix-cache reuse + harness compression. Errors if
+///     the proxy isn't running.
+///   - `"auto"` / empty / unrecognised — the proxy if it's up, else Lemonade.
+///
+/// `CLAUDE_CODE_ANTHROPIC_BASE_URL` in the environment overrides everything.
+pub fn resolve_claude_anthropic_base(lemonade_base: &str, route: Option<&str>) -> Result<String, String> {
+    if let Ok(explicit) = std::env::var("CLAUDE_CODE_ANTHROPIC_BASE_URL") {
+        let explicit = explicit.trim();
+        if !explicit.is_empty() {
+            return Ok(explicit.trim_end_matches('/').to_string());
+        }
+    }
+    let lemonade_base = lemonade_base.trim_end_matches('/').to_string();
+    let proxy = crate::kortex_kvcache::running_proxy_urls().map(|(p, _)| p);
+
+    match route.map(|r| r.trim().to_ascii_lowercase()).as_deref() {
+        Some("lemonade") | Some("direct") => Ok(lemonade_base),
+        Some("kortex") | Some("proxy") | Some("kvcache") => proxy.ok_or_else(|| {
+            "Kortex KV-cache routing was selected but the proxy isn't running — \
+             start it in Settings → Inference Backend, or switch Claude Code routing to 'lemonade'."
+                .to_string()
+        }),
+        _ => Ok(proxy.unwrap_or(lemonade_base)), // auto
+    }
+}
+
 /// Also pre-loads the model. A cold load is ~20-30s for the 35B; paying it at
 /// startup rather than inside the user's first prompt is the difference between
 /// "slow app launch" and "the AI is broken".
@@ -2426,6 +2458,40 @@ pub async fn aim_inspect(state: State<'_, std::sync::Arc<crate::EditorState>>, p
         obj.insert("format".to_string(), serde_json::json!("aim-binary"));
     }
     Ok(val)
+}
+
+#[cfg(test)]
+mod claude_route_tests {
+    use super::*;
+
+    // One test fn: it mutates a process-global env var, so the steps must not
+    // interleave with a sibling test. No KV-cache proxy runs under `cargo test`,
+    // so `running_proxy_urls()` is always None here.
+    #[test]
+    fn route_resolution() {
+        std::env::remove_var("CLAUDE_CODE_ANTHROPIC_BASE_URL");
+
+        // "lemonade" → the lemonade base, trailing slash trimmed.
+        assert_eq!(
+            resolve_claude_anthropic_base("http://localhost:13305/", Some("lemonade")).unwrap(),
+            "http://localhost:13305"
+        );
+        // "auto" (and None, and unknown) → lemonade when the proxy is down.
+        for r in [None, Some("auto"), Some("AUTO"), Some("wat")] {
+            assert_eq!(
+                resolve_claude_anthropic_base("http://localhost:13305", r).unwrap(),
+                "http://localhost:13305"
+            );
+        }
+        // explicit "kortex" with no proxy → a helpful error, not a silent fallback.
+        assert!(resolve_claude_anthropic_base("http://localhost:13305", Some("kortex")).is_err());
+
+        // env override beats the route argument.
+        std::env::set_var("CLAUDE_CODE_ANTHROPIC_BASE_URL", "http://127.0.0.1:9999/");
+        let got = resolve_claude_anthropic_base("http://localhost:13305", Some("lemonade")).unwrap();
+        std::env::remove_var("CLAUDE_CODE_ANTHROPIC_BASE_URL");
+        assert_eq!(got, "http://127.0.0.1:9999");
+    }
 }
 
 #[cfg(test)]

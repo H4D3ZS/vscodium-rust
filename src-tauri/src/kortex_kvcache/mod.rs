@@ -42,6 +42,18 @@ fn current_proxy() -> Option<Arc<proxy::ProxyState>> {
     PROXY.lock().ok().and_then(|g| g.clone())
 }
 
+/// `(proxy_url, upstream_url)` of the running KV-cache proxy, or `None` when it
+/// isn't up. Lets other subsystems (e.g. the Claude Code launcher) decide
+/// whether to route through the cache.
+pub fn running_proxy_urls() -> Option<(String, String)> {
+    current_proxy().map(|s| {
+        (
+            format!("http://{}:{}", s.opts.proxy_host, s.opts.proxy_port),
+            s.opts.upstream_url.clone(),
+        )
+    })
+}
+
 fn set_proxy(state: Option<Arc<proxy::ProxyState>>) {
     if let Ok(mut g) = PROXY.lock() {
         *g = state;
