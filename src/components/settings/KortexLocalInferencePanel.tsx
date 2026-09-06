@@ -116,6 +116,9 @@ export function KortexLocalInferencePanel() {
     const [phase, setPhase] = useState<Phase>('idle');
     const [msg, setMsg] = useState('');
     const [modelLabel, setModelLabel] = useState('');
+    type LocalGguf = { repo: string; file: string; quant: string; path: string; size_mb: number; aux: boolean };
+    const [localGgufs, setLocalGgufs] = useState<LocalGguf[]>([]);
+    const [ggufsLoading, setGgufsLoading] = useState(false);
     const [statsLine, setStatsLine] = useState('');
     const [specLine, setSpecLine] = useState('');
     const [specType, setSpecType] = useState<string>(() => {
@@ -185,6 +188,20 @@ export function KortexLocalInferencePanel() {
         }, 400);
         return () => clearTimeout(t);
     }, [opModel, opUrl]);
+
+    const scanGgufs = useCallback(async () => {
+        setGgufsLoading(true);
+        try {
+            const rows = await invoke<LocalGguf[]>('kortex_gac_list_local_ggufs', { extraDir: null });
+            setLocalGgufs(rows || []);
+        } catch { /* leave list empty */ }
+        finally { setGgufsLoading(false); }
+    }, []);
+
+    // Scan the local GGUF caches the first time the details panel is opened.
+    useEffect(() => {
+        if (showDetails && localGgufs.length === 0 && !ggufsLoading) void scanGgufs();
+    }, [showDetails, localGgufs.length, ggufsLoading, scanGgufs]);
 
     useEffect(() => {
         if (phase !== 'running') {
@@ -424,7 +441,25 @@ export function KortexLocalInferencePanel() {
             {/* details: compact, only on demand */}
             {showDetails && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10, marginLeft: 18 }}>
-                    <label style={label}>Model file (.gguf)</label>
+                    <div style={{ ...row, alignItems: 'center' }}>
+                        <label style={{ ...label, flex: 1 }}>
+                            Downloaded models {ggufsLoading ? '(scanning…)' : localGgufs.length ? `(${localGgufs.filter(g => !g.aux).length})` : ''}
+                        </label>
+                        <button type="button" style={{ ...btn, padding: '2px 8px' }} disabled={running || ggufsLoading}
+                            onClick={scanGgufs} title="Re-scan the HF / Lemonade caches">↻</button>
+                    </div>
+                    <select style={{ ...inputStyle, flex: 'none', width: '100%' }} disabled={running}
+                        value={localGgufs.some(g => g.path === modelPath) ? modelPath : ''}
+                        onChange={e => { if (e.target.value) { setModelPath(e.target.value); try { localStorage.setItem('kortex.localModelPath', e.target.value); } catch { /* */ } } }}>
+                        <option value="">{localGgufs.length ? '— pick a downloaded GGUF —' : '(none found — pull one via Lemonade, or use the path below)'}</option>
+                        {localGgufs.filter(g => !g.aux).map(g => (
+                            <option key={g.path} value={g.path}>
+                                {g.repo} · {g.quant || 'gguf'} · {(g.size_mb / 1024).toFixed(1)} GB
+                            </option>
+                        ))}
+                    </select>
+
+                    <label style={label}>…or a model file path (.gguf)</label>
                     <div style={row}>
                         <input style={inputStyle} value={modelPath} placeholder="auto-detected"
                             onChange={e => setModelPath(e.target.value)} disabled={running} />

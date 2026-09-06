@@ -219,3 +219,164 @@ pub async fn kortex_gac_default_profile_path(model_path: String) -> Result<Strin
     let p = default_profile_path(std::path::Path::new(&model_path));
     Ok(p.to_string_lossy().into_owned())
 }
+
+/// One GGUF found on disk, for the panel's model picker.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LocalGguf {
+    /// `Org/Repo` when the file lives under a HF `models--Org--Repo` tree,
+    /// else the containing directory name.
+    pub repo: String,
+    /// File name, e.g. `Qwen3.8-27B-AD-IQ3_XXS.gguf`.
+    pub file: String,
+    /// Quant tag parsed from the file name (`IQ3_XXS`, `Q4_K_M`, …) or "".
+    pub quant: String,
+    /// Absolute path — this is what goes in the launcher's `-m`.
+    pub path: String,
+    pub size_mb: u64,
+    /// `mmproj` / vision projector / embedding sidecar — not a chat model.
+    pub aux: bool,
+}
+
+fn parse_quant(name: &str) -> String {
+    let up = name.to_uppercase();
+    // Longest / most-specific tags first so `Q4_K_M` wins over `Q4_0`, and the
+    // Escha/ROCm custom types are caught before the plain ones.
+    for tag in [
+        "Q2_0_ROCMFPX", "ROCMFPX", "ROCMFP2", "ROCMI4",
+        "IQ1_M", "IQ1_S", "IQ2_XXS", "IQ2_XS", "IQ2_S", "IQ2_M", "IQ3_XXS", "IQ3_XS", "IQ3_S",
+        "IQ3_M", "IQ4_XS", "IQ4_NL", "Q2_K_XL", "Q2_K", "Q3_K_XL", "Q3_K_M", "Q3_K_S", "Q4_K_XL",
+        "Q4_K_M", "Q4_K_S", "Q5_K_M", "Q5_K_S", "Q6_K", "Q8_0",
+        "Q2_0", "Q3_0", "Q4_0", "Q4_1", "Q5_0", "Q5_1",
+        "BF16", "F16", "F32",
+    ] {
+        if up.contains(tag) {
+            return tag.to_string();
+        }
+    }
+    String::new()
+}
+
+/// Scan the usual local caches for `.gguf` files so the panel can offer a
+/// picker instead of a paste-the-path field. Best-effort: unreadable roots are
+/// skipped, never errors on a missing cache.
+#[command]
+pub async fn kortex_gac_list_local_ggufs(extra_dir: Option<String>) -> Result<Vec<LocalGguf>, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut roots: Vec<PathBuf> = Vec::new();
+        if let Some(h) = dirs::home_dir() {
+            roots.push(h.join(".cache/huggingface/hub"));
+            roots.push(h.join(".lmstudio/models"));
+        }
+        if let Some(c) = dirs::cache_dir() {
+            roots.push(c.join("lemonade"));
+            roots.push(c.join("lemonade-server"));
+            roots.push(c.join("huggingface/hub"));
+        }
+        for (var, sub) in [
+            ("HF_HOME", "hub"),
+            ("HF_HUB_CACHE", ""),
+            ("HUGGINGFACE_HUB_CACHE", ""),
+            ("LEMONADE_MODELS", ""),
+            ("LEMONADE_CACHE", ""),
+        ] {
+            if let Ok(v) = std::env::var(var) {
+                if !v.trim().is_empty() {
+                    let p = PathBuf::from(v.trim());
+                    roots.push(if sub.is_empty() { p } else { p.join(sub) });
+                }
+            }
+        }
+        if let Some(d) = extra_dir.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            roots.push(PathBuf::from(d));
+        }
+
+        let mut out: Vec<LocalGguf> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for root in roots {
+            if !root.is_dir() {
+                continue;
+            }
+            for entry in walkdir::WalkDir::new(&root)
+                .max_depth(7)
+                .follow_links(true)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                let p = entry.path();
+                if p.extension().and_then(|e| e.to_str()) != Some("gguf") {
+                    continue;
+                }
+                let canon = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+                if !seen.insert(canon.clone()) {
+                    continue;
+                }
+                let file = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+                let flc = file.to_lowercase();
+                let aux = flc.starts_with("mmproj")
+                    || flc.contains("mmproj")
+                    || flc.contains("embedding")
+                    || flc.contains("-proj-");
+                // repo = "Org/Repo" from a `models--Org--Repo` ancestor.
+                let repo = p
+                    .ancestors()
+                    .find_map(|a| {
+                        a.file_name()
+                            .and_then(|n| n.to_str())
+                            .filter(|n| n.starts_with("models--"))
+                            .map(|n| n.trim_start_matches("models--").replace("--", "/"))
+                    })
+                    .unwrap_or_else(|| {
+                        p.parent()
+                            .and_then(|d| d.file_name())
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("(local)")
+                            .to_string()
+                    });
+                let size_mb = std::fs::metadata(p).map(|m| m.len() / (1024 * 1024)).unwrap_or(0);
+                out.push(LocalGguf {
+                    repo,
+                    quant: parse_quant(&file),
+                    file,
+                    path: canon.to_string_lossy().into_owned(),
+                    size_mb,
+                    aux,
+                });
+            }
+        }
+        // chat models first, then repo, then largest (usually the least-quantised)
+        out.sort_by(|a, b| {
+            a.aux
+                .cmp(&b.aux)
+                .then_with(|| a.repo.to_lowercase().cmp(&b.repo.to_lowercase()))
+                .then_with(|| b.size_mb.cmp(&a.size_mb))
+        });
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod local_gguf_tests {
+    use super::parse_quant;
+
+    #[test]
+    fn parses_common_quant_tags() {
+        assert_eq!(parse_quant("Qwen3.8-27B-AD-IQ3_XXS.gguf"), "IQ3_XXS");
+        assert_eq!(parse_quant("model.Q4_K_M.gguf"), "Q4_K_M");
+        assert_eq!(parse_quant("Escha-W2-35B-A3B-Q2_0_ROCMFPX.gguf"), "Q2_0_ROCMFPX");
+    }
+
+    #[test]
+    fn q4_k_m_not_shadowed_by_q4_0() {
+        // "Q4_K_M" must win over the shorter "Q4_0" substring check order.
+        assert_eq!(parse_quant("foo-Q4_K_M-bar.gguf"), "Q4_K_M");
+        assert_eq!(parse_quant("foo-Q4_0-bar.gguf"), "Q4_0");
+    }
+
+    #[test]
+    fn unknown_returns_empty() {
+        assert_eq!(parse_quant("mmproj-Qwen3.8-27B-BF16.gguf"), "BF16");
+        assert_eq!(parse_quant("some-random-model.gguf"), "");
+    }
+}
