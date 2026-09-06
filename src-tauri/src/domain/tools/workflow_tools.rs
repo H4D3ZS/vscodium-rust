@@ -230,6 +230,19 @@ impl AiTools {
         let model = crate::gpu_offload::operator_model();
         let operator_url = crate::gpu_offload::operator_url();
 
+        // Preflight: a sub-agent burns real iterations before it discovers the
+        // Operator is down. Fail fast with something actionable instead.
+        if let Err(why) = operator_preflight(&operator_url).await {
+            return Ok(json!({
+                "status": "rejected",
+                "error": format!(
+                    "Operator (small model) not reachable at {operator_url}: {why}. \
+                     Start Lemonade and load `{model}` (e.g. `lemonade-server pull …`), \
+                     or set KORTEX_OPERATOR_URL to a running server."
+                ),
+            }));
+        }
+
         let req = crate::ai_engine::AiRequest {
             provider: "lemonade".to_string(),
             model,
@@ -287,4 +300,39 @@ impl AiTools {
             "result": result.trim(),
         }))
     }
+}
+
+/// Quick reachability check for the Operator's server. Tries the endpoints a
+/// lemonade-server / OpenAI-compat gateway exposes; any 2xx (or even a 401/403,
+/// which still means "server is there") counts as up. ~2.5s ceiling so a dead
+/// port fails fast instead of hanging the sub-agent.
+async fn operator_preflight(base: &str) -> std::result::Result<(), String> {
+    let root = base.trim_end_matches('/');
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(2500))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut last = String::from("no endpoint answered");
+    for path in ["/api/v1/models", "/v1/models", "/health", "/api/health"] {
+        match client.get(format!("{root}{path}")).send().await {
+            Ok(r) => {
+                let s = r.status();
+                if s.is_success() || s.as_u16() == 401 || s.as_u16() == 403 {
+                    return Ok(());
+                }
+                last = format!("HTTP {} at {path}", s.as_u16());
+            }
+            Err(e) => {
+                last = if e.is_connect() {
+                    "connection refused".to_string()
+                } else if e.is_timeout() {
+                    "timed out".to_string()
+                } else {
+                    e.to_string()
+                };
+            }
+        }
+    }
+    Err(last)
 }

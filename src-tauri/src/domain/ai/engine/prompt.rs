@@ -960,7 +960,7 @@ impl Sentient {
 
             if let Some(end) = end_idx {
                 let candidate = &content[actual_start..end];
-                if let Ok(val) = serde_json::from_str::<Value>(candidate) {
+                if let Some(val) = parse_lenient_json(candidate) {
                     let old_len = tools.len();
                     self.parse_single_json_item_to_tools(val, tools);
                     if tools.len() > old_len {
@@ -975,14 +975,14 @@ impl Sentient {
 
     pub(crate) fn parse_json_to_tools(&self, json_block: &str, tools: &mut Vec<ToolCall>) {
         // Try parsing the full block first (valid if it's one object or an array)
-        if let Ok(val) = serde_json::from_str::<Value>(json_block) {
+        if let Some(val) = parse_lenient_json(json_block) {
             self.parse_single_json_item_to_tools(val, tools);
         } else {
             // Try splitting by newline for NDJSON inside the block
             for line in json_block.lines() {
                 let line = line.trim();
                 if !line.is_empty() {
-                    if let Ok(val) = serde_json::from_str::<Value>(line) {
+                    if let Some(val) = parse_lenient_json(line) {
                         self.parse_single_json_item_to_tools(val, tools);
                     }
                 }
@@ -1067,4 +1067,191 @@ impl Sentient {
         summary
     }
 
+}
+
+/// Parse a JSON value, strict first, then with a light repair pass. Weak /
+/// heavily-quantised local models routinely emit *near*-JSON tool calls —
+/// `{"tool": "list_dir", arguments:{path:'C:\Users\x'}}` — that `serde_json`
+/// rejects outright, so the call is dropped and the model hallucinates the
+/// result instead. The repair only runs after a strict parse fails, and if it
+/// still doesn't parse we return `None` and nothing downstream changes.
+pub(crate) fn parse_lenient_json(src: &str) -> Option<Value> {
+    let src = src.trim();
+    if src.is_empty() {
+        return None;
+    }
+    if let Ok(v) = serde_json::from_str::<Value>(src) {
+        return Some(v);
+    }
+    let repaired = relaxed_json_repair(src);
+    serde_json::from_str::<Value>(&repaired).ok()
+}
+
+/// Best-effort JSON normaliser. Single pass over `chars` (all structural
+/// tokens are ASCII, so char indexing is safe):
+///   * bare identifier keys           `arguments:` → `"arguments":`
+///   * single-quoted strings          `'x'` → `"x"`
+///   * trailing commas                `{"a":1,}` → `{"a":1}`
+///   * lone backslashes in strings    `"C:\Users"` → `"C:\\Users"`
+/// Intentionally conservative — anything it can't classify passes through.
+fn relaxed_json_repair(src: &str) -> String {
+    let cs: Vec<char> = src.chars().collect();
+    let n = cs.len();
+    let mut out = String::with_capacity(src.len() + 16);
+    let mut i = 0;
+    let mut last_significant = '\0';
+
+    let is_key_start = |c: char| c.is_ascii_alphabetic() || c == '_' || c == '$';
+    let is_key_char =
+        |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$' || c == '.' || c == '-';
+    let valid_escape =
+        |c: char| matches!(c, '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't' | 'u');
+
+    let copy_quoted = |out: &mut String, cs: &[char], i: &mut usize, quote: char| {
+        out.push('"');
+        *i += 1;
+        while *i < cs.len() {
+            let d = cs[*i];
+            if d == '\\' {
+                let next = cs.get(*i + 1).copied().unwrap_or('\0');
+                if valid_escape(next) {
+                    out.push('\\');
+                    out.push(next);
+                    *i += 2;
+                } else {
+                    out.push_str("\\\\");
+                    *i += 1;
+                }
+                continue;
+            }
+            if d == quote {
+                out.push('"');
+                *i += 1;
+                break;
+            }
+            if d == '"' && quote == '\'' {
+                out.push_str("\\\"");
+                *i += 1;
+                continue;
+            }
+            out.push(d);
+            *i += 1;
+        }
+    };
+
+    while i < n {
+        let c = cs[i];
+        match c {
+            '"' | '\'' => {
+                copy_quoted(&mut out, &cs, &mut i, c);
+                last_significant = '"';
+            }
+            '}' | ']' => {
+                if last_significant == ',' {
+                    while out.ends_with([' ', '\n', '\r', '\t']) {
+                        out.pop();
+                    }
+                    if out.ends_with(',') {
+                        out.pop();
+                    }
+                }
+                out.push(c);
+                last_significant = c;
+                i += 1;
+            }
+            ' ' | '\n' | '\r' | '\t' => {
+                out.push(c);
+                i += 1;
+            }
+            _ if (last_significant == '{' || last_significant == ',') && is_key_start(c) => {
+                let start = i;
+                let mut j = i;
+                while j < n && is_key_char(cs[j]) {
+                    j += 1;
+                }
+                let mut k = j;
+                while k < n && matches!(cs[k], ' ' | '\n' | '\r' | '\t') {
+                    k += 1;
+                }
+                if k < n && cs[k] == ':' {
+                    out.push('"');
+                    out.extend(&cs[start..j]);
+                    out.push('"');
+                    i = j;
+                    last_significant = '"';
+                } else {
+                    out.push(c);
+                    last_significant = c;
+                    i += 1;
+                }
+            }
+            _ => {
+                out.push(c);
+                last_significant = c;
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod lenient_json_tests {
+    use super::parse_lenient_json;
+
+    #[test]
+    fn strict_json_passes_through() {
+        let v = parse_lenient_json(r#"{"tool":"grep","arguments":{"pattern":"foo"}}"#).unwrap();
+        assert_eq!(v["tool"], "grep");
+        assert_eq!(v["arguments"]["pattern"], "foo");
+    }
+
+    #[test]
+    fn bare_keys_are_quoted() {
+        let v = parse_lenient_json(r#"{"tool": "list_dir", arguments:{path:"src"}}"#).unwrap();
+        assert_eq!(v["tool"], "list_dir");
+        assert_eq!(v["arguments"]["path"], "src");
+    }
+
+    #[test]
+    fn single_quotes_become_double() {
+        let v = parse_lenient_json("{'tool':'grep','arguments':{'pattern':'x'}}").unwrap();
+        assert_eq!(v["tool"], "grep");
+        assert_eq!(v["arguments"]["pattern"], "x");
+    }
+
+    #[test]
+    fn lone_backslashes_in_a_windows_path_are_escaped() {
+        // The exact shape from the failing screenshot.
+        let v = parse_lenient_json(
+            r#"{"tool": "list_dir", arguments:{path:"C:\Users\hades\src-tauri\src\domain\ai"}}"#,
+        )
+        .unwrap();
+        assert_eq!(v["arguments"]["path"], r"C:\Users\hades\src-tauri\src\domain\ai");
+    }
+
+    #[test]
+    fn trailing_commas_are_dropped() {
+        let v = parse_lenient_json(r#"{"tool":"grep","arguments":{"pattern":"x",},}"#).unwrap();
+        assert_eq!(v["tool"], "grep");
+    }
+
+    #[test]
+    fn valid_escapes_inside_strings_are_preserved() {
+        let v = parse_lenient_json(r#"{"tool":"write","arguments":{"content":"line1\nline2\t\"q\""}}"#)
+            .unwrap();
+        assert_eq!(v["arguments"]["content"], "line1\nline2\t\"q\"");
+    }
+
+    #[test]
+    fn unicode_in_strings_survives() {
+        let v = parse_lenient_json(r#"{tool:"echo", arguments:{msg:"café ✓ 日本語"}}"#).unwrap();
+        assert_eq!(v["arguments"]["msg"], "café ✓ 日本語");
+    }
+
+    #[test]
+    fn garbage_returns_none() {
+        assert!(parse_lenient_json("### FILE LISTING ###  \\n/./ `.`").is_none());
+        assert!(parse_lenient_json("").is_none());
+    }
 }
