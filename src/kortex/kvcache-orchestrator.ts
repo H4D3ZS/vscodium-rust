@@ -163,3 +163,28 @@ export function summarizeKvCache(stats: KvCacheStats): string {
     }
     return out;
 }
+
+// ── shared base-dir helpers (used by the boot hook + the Kortex panel) ───────
+
+function homeDir(): string {
+    const env = typeof window !== 'undefined'
+        ? (window as { process?: { env?: { USERPROFILE?: string; HOME?: string } } }).process?.env
+        : undefined;
+    return env?.HOME || env?.USERPROFILE || '.';
+}
+
+/** `<home>/.kortex/kvcache`, or the stored override. */
+export async function resolveKvCacheBaseDir(): Promise<string> {
+    try {
+        const stored = localStorage.getItem('kvcache.baseDir')?.trim();
+        if (stored) return stored;
+    } catch { /* no storage */ }
+    return `${homeDir()}/.kortex/kvcache`;
+}
+
+/** Create `<baseDir>/index` and `<baseDir>/slots` (no-op if they exist). */
+export async function ensureKvCacheDirs(baseDir: string): Promise<void> {
+    for (const sub of ['index', 'slots']) {
+        try { await invoke('create_dir', { path: `${baseDir}/${sub}` }); } catch { /* exists */ }
+    }
+}

@@ -1,105 +1,149 @@
 import { useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../tauri_bridge';
+import { useStore } from '../store';
+import {
+    getKvCacheStatus, startKvCache, stopKvCache, getKvCacheStats,
+    makeKvCacheOptions, resolveKvCacheBaseDir, summarizeKvCache,
+    type RunningCacheInfo, type KvCacheStats,
+} from '../kortex/kvcache-orchestrator';
 
-interface RetrievalStatus {
-    running: boolean;
-    port: number | null;
-}
+interface SvcStatus { running: boolean; port: number | null }
 
-interface VfsStatus {
-    running: boolean;
-    port: number | null;
-}
-
+/**
+ * Kortex services — the three local processes the README describes.
+ *
+ * Port map: `:1536` AIM retrieval proxy (opt-in, experimental) ·
+ * `:1537` KV-slot cache (the "route through kortex" path) · `:1538` aim-vfs.
+ */
 export function KortexPanel() {
-    const [retrieval, setRetrieval] = useState<RetrievalStatus | null>(null);
-    const [vfs, setVfs] = useState<VfsStatus | null>(null);
-    const [busy, setBusy] = useState(false);
+    const inferenceUrl = useStore(s => s.inferenceUrl);
+    const setInferenceUrl = useStore(s => s.setInferenceUrl);
+    const lemonadeUrl = useStore(s => s.lemonadeUrl);
+    const setLemonadeUrl = useStore(s => s.setLemonadeUrl);
+    const kvProxyPort = useStore(s => s.kvCacheProxyPort) || 1537;
+
+    // Point every routing path (store URLs + the Rust engine base) at `url`.
+    const repointInference = useCallback(async (url: string) => {
+        const clean = url.replace(/\/$/, '');
+        setInferenceUrl?.(clean);
+        setLemonadeUrl?.(clean);
+        try { await invoke('set_lemonade_url', { url: clean }); } catch { /* engine offline */ }
+    }, [setInferenceUrl, setLemonadeUrl]);
+
+    const [retrieval, setRetrieval] = useState<SvcStatus | null>(null);
+    const [vfs, setVfs] = useState<SvcStatus | null>(null);
+    const [kv, setKv] = useState<RunningCacheInfo | null>(null);
+    const [kvStats, setKvStats] = useState<KvCacheStats | null>(null);
+    const [busy, setBusy] = useState('');
     const [error, setError] = useState('');
 
-    const refreshStatus = useCallback(async () => {
+    const refresh = useCallback(async () => {
         try {
-            const [r, v] = await Promise.all([
-                invoke<RetrievalStatus>('kortex_retrieval_status'),
-                invoke<VfsStatus>('kortex_vfs_status'),
+            const [r, v, k] = await Promise.all([
+                invoke<SvcStatus>('kortex_retrieval_status').catch(() => null),
+                invoke<SvcStatus>('kortex_vfs_status').catch(() => null),
+                getKvCacheStatus().catch(() => null),
             ]);
             setRetrieval(r);
             setVfs(v);
+            setKv(k);
+            if (k) setKvStats(await getKvCacheStats().catch(() => null));
+            else setKvStats(null);
         } catch { /* ignore */ }
     }, []);
 
     useEffect(() => {
-        refreshStatus();
-        const t = setInterval(refreshStatus, 5000);
+        void refresh();
+        const t = setInterval(refresh, 5000);
         return () => clearInterval(t);
-    }, [refreshStatus]);
+    }, [refresh]);
 
-    const stopRetrieval = useCallback(async () => {
-        setBusy(true); setError('');
-        try {
-            await invoke('kortex_retrieval_stop');
-            await refreshStatus();
-        } catch (e) { setError(String(e)); }
-        finally { setBusy(false); }
-    }, [refreshStatus]);
-
-    const stopVfs = useCallback(async () => {
-        setBusy(true); setError('');
-        try {
-            await invoke('kortex_vfs_stop');
-            await refreshStatus();
-        } catch (e) { setError(String(e)); }
-        finally { setBusy(false); }
-    }, [refreshStatus]);
-
-    const ghost: React.CSSProperties = {
-        fontSize: 11, padding: '4px 10px', borderRadius: 3,
-        background: 'transparent', color: 'var(--vscode-descriptionForeground)',
-        border: '1px solid var(--vscode-panel-border)',
-        cursor: busy ? 'wait' : 'pointer',
+    const run = async (label: string, fn: () => Promise<unknown>) => {
+        setBusy(label); setError('');
+        try { await fn(); await refresh(); }
+        catch (e) { setError(String(e)); }
+        finally { setBusy(''); }
     };
-    const badge = (on: boolean) => ({
-        display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-        background: on ? '#4ec9b0' : '#808080', marginRight: 6,
+
+    const startKv = () => run('kv', async () => {
+        const base = await resolveKvCacheBaseDir();
+        const upstream = (lemonadeUrl || inferenceUrl || 'http://127.0.0.1:13305').replace(/\/$/, '');
+        if (upstream.includes(`:${kvProxyPort}`)) throw new Error('inference URL already points at the proxy port — set a real backend URL first');
+        const opts = makeKvCacheOptions(base, { upstream_url: upstream, proxy_port: kvProxyPort });
+        const port = await startKvCache(opts).catch((e) => {
+            if (String(e).includes('already running')) return kvProxyPort;
+            throw e;
+        });
+        try { localStorage.setItem('kvcache.upstream', upstream); } catch { /* */ }
+        // This is the "prompts route through kortex" path: point inference at the proxy.
+        await repointInference(`http://127.0.0.1:${port}`);
     });
 
+    const stopKv = () => run('kv', async () => {
+        let upstream = kv?.upstream_url || '';
+        try { upstream = upstream || (localStorage.getItem('kvcache.upstream') || ''); } catch { /* */ }
+        upstream = upstream || 'http://127.0.0.1:13305';
+        await stopKvCache();
+        if (inferenceUrl.includes(`:${kvProxyPort}`)) await repointInference(upstream);
+    });
+
+    const badge = (on: boolean): React.CSSProperties => ({
+        display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+        background: on ? '#4ec9b0' : '#808080', marginRight: 6, flexShrink: 0,
+    });
+    const btn: React.CSSProperties = {
+        fontSize: 11, padding: '3px 9px', borderRadius: 3, cursor: busy ? 'wait' : 'pointer',
+        background: 'transparent', color: 'var(--vscode-descriptionForeground)',
+        border: '1px solid var(--vscode-panel-border)',
+    };
+    const sub: React.CSSProperties = { fontSize: 10, color: 'var(--vscode-descriptionForeground)', margin: '2px 0 8px 14px' };
+
+    const svc = (
+        on: boolean, name: string, port: number | string | null,
+        note: string, actions: React.ReactNode,
+    ) => (
+        <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={badge(on)} />
+                <span style={{ fontSize: 11, flex: 1, minWidth: 0 }}>
+                    {name} {on && port ? `(:${port})` : ''}
+                </span>
+                {actions}
+            </div>
+            <div style={sub}>{note}</div>
+        </div>
+    );
+
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', padding: 8, gap: 8, color: 'var(--vscode-foreground)' }}>
-            <div style={{ fontSize: 12, fontWeight: 600 }}>Kortex Services</div>
+        <div style={{ display: 'flex', flexDirection: 'column', padding: 8, gap: 4, color: 'var(--vscode-foreground)' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>Kortex Services</div>
+            {error && <div style={{ fontSize: 11, color: 'var(--vscode-errorForeground)', marginBottom: 4 }}>{error}</div>}
 
-            {error && <div style={{ fontSize: 11, color: 'var(--vscode-errorForeground)' }}>{error}</div>}
+            {svc(
+                !!kv, 'KV-slot cache', kv?.proxy_url?.split(':').pop() ?? kvProxyPort,
+                kv
+                    ? (kvStats ? summarizeKvCache(kvStats) : `proxy → ${kv.upstream_url}`)
+                    : 'Prompts route through the proxy; repeated prefixes skip prefill. Opt-in.',
+                kv
+                    ? <button style={btn} onClick={stopKv} disabled={!!busy}>Stop</button>
+                    : <button style={btn} onClick={startKv} disabled={!!busy}>{busy === 'kv' ? '…' : 'Start'}</button>,
+            )}
 
-            {/* Retrieval Proxy — auto-starts on boot */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={badge(!!retrieval?.running)} />
-                <span style={{ fontSize: 11, flex: 1 }}>
-                    Retrieval {retrieval?.running
-                        ? `(:${retrieval.port})`
-                        : '(starting\u2026)'}
-                </span>
-                {retrieval?.running && (
-                    <button style={ghost} onClick={stopRetrieval} disabled={busy}>Stop</button>
-                )}
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--vscode-descriptionForeground)', marginTop: -4 }}>
-                Auto-starts on boot. Augments AI prompts with .aim context.
-            </div>
+            {svc(
+                !!vfs?.running, 'VFS daemon', vfs?.port ?? null,
+                'Auto-starts on boot. Manages .aim memory + file watching.',
+                vfs?.running
+                    ? <button style={btn} onClick={() => run('vfs', () => invoke('kortex_vfs_stop'))} disabled={!!busy}>Stop</button>
+                    : <button style={btn} onClick={() => run('vfs', () => invoke('kortex_vfs_start'))} disabled={!!busy}>{busy === 'vfs' ? '…' : 'Start'}</button>,
+            )}
 
-            {/* VFS Daemon — auto-starts on boot */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={badge(!!vfs?.running)} />
-                <span style={{ fontSize: 11, flex: 1 }}>
-                    VFS Daemon {vfs?.running
-                        ? `(:${vfs.port})`
-                        : '(starting\u2026)'}
-                </span>
-                {vfs?.running && (
-                    <button style={ghost} onClick={stopVfs} disabled={busy}>Stop</button>
-                )}
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--vscode-descriptionForeground)', marginTop: -4 }}>
-                Auto-starts on boot. Manages .aim memory and file watching.
-            </div>
+            {svc(
+                !!retrieval?.running, 'AIM retrieval proxy', retrieval?.port ?? null,
+                'Experimental — injects .aim workspace context into prompts. Off by default: needs a verified .aim catalog or it can feed models bad context.',
+                retrieval?.running
+                    ? <button style={btn} onClick={() => run('ret', () => invoke('kortex_retrieval_stop'))} disabled={!!busy}>Stop</button>
+                    : <button style={btn} onClick={() => run('ret', () => invoke('kortex_retrieval_start'))} disabled={!!busy}>{busy === 'ret' ? '…' : 'Start'}</button>,
+            )}
         </div>
     );
 }

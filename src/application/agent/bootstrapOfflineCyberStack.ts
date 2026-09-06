@@ -1,5 +1,6 @@
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
+import { resolveKvCacheBaseDir, ensureKvCacheDirs } from '../../kortex/kvcache-orchestrator';
 import { applyLocalAgentDefaults } from '../../lib/localAgentDefaults';
 
 const MIGRATION_KEY = 'ide.offline-cyber-boot-v1';
@@ -40,29 +41,6 @@ export function applyOfflineCyberDefaults(): void {
     localStorage.setItem('agent.plannerEnabled', '0');
 
     localStorage.setItem(MIGRATION_KEY, '1');
-}
-
-async function ensureKvCacheDirs(baseDir: string): Promise<void> {
-    for (const sub of ['index', 'slots']) {
-        try {
-            await invoke('create_dir', { path: `${baseDir}/${sub}` });
-        } catch { /* already exists */ }
-    }
-}
-
-function resolveHomeDir(): string {
-    const env = typeof window !== 'undefined'
-        ? (window as { process?: { env?: { USERPROFILE?: string; HOME?: string } } }).process?.env
-        : undefined;
-    return env?.HOME || env?.USERPROFILE || '.';
-}
-
-async function resolveKvCacheBaseDir(): Promise<string> {
-    const stored = (() => {
-        try { return localStorage.getItem('kvcache.baseDir')?.trim() || ''; } catch { return ''; }
-    })();
-    if (stored) return stored;
-    return `${resolveHomeDir()}/.kortex/kvcache`;
 }
 
 async function probeAimProxy(): Promise<void> {
@@ -160,6 +138,30 @@ export async function bootstrapOfflineCyberStack(opts?: { heavy?: boolean }): Pr
         const baseDir = await resolveKvCacheBaseDir();
         try { localStorage.setItem('kvcache.baseDir', baseDir); } catch { /* */ }
         await ensureKvCacheDirs(baseDir);
+
+        // Opt-in: put the KDKVC proxy (:1537) in front of the local backend on
+        // boot so "prompts route through kortex" happens transparently. Default
+        // OFF — the Kortex panel's Start button is the primary path.
+        let autostart = false;
+        try { autostart = localStorage.getItem('kvcache.autostart') === '1'; } catch { /* */ }
+        const base = (store.lemonadeUrl || store.inferenceUrl || '').replace(/\/$/, '');
+        const isLocal = /127\.0\.0\.1|localhost|0\.0\.0\.0/.test(base);
+        if (autostart && isLocal && base && !store.inferenceUrl.includes(`:${store.kvCacheProxyPort || 1537}`)) {
+            try {
+                const kv = await import('../../kortex/kvcache-orchestrator');
+                const port = await kv.startKvCache(
+                    kv.makeKvCacheOptions(baseDir, { upstream_url: base, proxy_port: store.kvCacheProxyPort || 1537 }),
+                ).catch((e) => { if (String(e).includes('already running')) return store.kvCacheProxyPort || 1537; throw e; });
+                const proxyUrl = `http://127.0.0.1:${port}`;
+                try { localStorage.setItem('kvcache.upstream', base); } catch { /* */ }
+                store.setInferenceUrl?.(proxyUrl);
+                store.setLemonadeUrl?.(proxyUrl);
+                try { await invoke('set_lemonade_url', { url: proxyUrl }); } catch { /* engine offline */ }
+                console.log(`[offline-cyber] KV-slot cache active — inference routes through :${port} -> ${base}`);
+            } catch (e) {
+                console.warn('[offline-cyber] KV-slot cache autostart skipped:', e);
+            }
+        }
     }
 
     const currentModel = (store.agentModel || '').trim();

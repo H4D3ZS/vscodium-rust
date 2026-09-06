@@ -15,10 +15,17 @@ native process, not an Electron main thread.
 - **Local inference via [Lemonade](https://github.com/lemonade-sdk/lemonade)** — an
   OpenAI-compatible server (`:13305`) running real llama.cpp, tuned for local hardware
   (AMD included). It's the only backend; bring your own API key for a hosted model if
-  you want one. Prompts can route through **kortex**: an `.aim` workspace-context
-  proxy (`:1536`, from the [kortex submodule](https://github.com/H4D3ZS/kortex),
-  AGPL-3.0, spawned as a separate process) plus an in-process KV-slot cache
-  (`:1537`) that skips re-prefilling repeated prompt prefixes.
+  you want one. Prompts can route through **kortex** (from the
+  [kortex submodule](https://github.com/H4D3ZS/kortex), AGPL-3.0):
+  - **KV-slot cache** (`:1537`) — an in-process reverse proxy in front of the
+    backend that skips re-prefilling repeated prompt prefixes (KDKVC). Opt-in:
+    the *Kortex Services* panel's **Start** button, or `kvcache.autostart=1`.
+  - **AIM retrieval proxy** (`:1536`) — an in-process router (`aim-proxy`) that
+    injects `.aim` workspace context into prompts. **Experimental, off by
+    default** — it needs a verified `.aim` catalog or it can feed models bad
+    context.
+  - **VFS daemon** (`:1538`) — a sidecar process managing `.aim` memory and file
+    watching. Auto-starts on boot.
 - **Agentic by default** — multi-turn tool loop with verify-before-done, a shadow
   workspace for safe edits, background agents for long work.
 - **Local-first** — code and model traffic stay on your machine unless you point a

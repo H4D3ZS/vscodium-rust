@@ -80,7 +80,7 @@ export const CURSOR_PARITY_GROUPS: CursorParityGroup[] = [
         cursorRef: 'cursor-mcp',
         features: [
             { id: 'mcp-client', name: 'MCP client (stdio/SSE)', description: 'Connect external MCP servers', cursorRef: 'cursor-mcp', status: 'done', hadesPath: 'mcp_client.rs, mcp_registry.rs' },
-            { id: 'mcp-server', name: 'Built-in MCP server', description: 'Expose IDE tools over MCP', cursorRef: 'cursor-mcp', status: 'done', hadesPath: 'mcp_server.rs :1537' },
+            { id: 'mcp-server', name: 'Built-in MCP server', description: 'Expose IDE tools over MCP', cursorRef: 'cursor-mcp', status: 'done', hadesPath: 'mcp_server.rs :1539' },
             { id: 'browser-mcp', name: 'Browser automation MCP', description: 'Automated browser for agent', cursorRef: 'cursor-browser-automation', status: 'done', hadesPath: 'browser.rs, browser_status' },
         ],
     },
