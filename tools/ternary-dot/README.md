@@ -73,6 +73,23 @@ data that recovers the exact top-10 at 0.998 recall, for ~2.7× less work and
   is why the committed catalog doesn't need this — or (b) *train the model*
   ternary-aware (BitNet), where quality is recovered by training, not arithmetic.
 
+## Wired into libaim (opt-in, off by default)
+
+`kortex/libaim/src/ternary.rs` is the production `TernaryVec` (encode + popcount
+dot). `DeltaLayer::search` uses it as a coarse-to-fine pre-filter: a ternary
+popcount scan narrows to a `k*8` candidate net, then the **exact f32 cosine
+reranks** it — so the returned scores are always exact and only the candidate
+*set* is approximated.
+
+It is **off by default** (`ternary_min()` returns `usize::MAX`). Enable it with
+`KORTEX_TERNARY_MIN_CHUNKS=2048` (the delta size at which it engages), and
+`KORTEX_TERNARY_ALPHA` tunes the sign threshold. It ships off because the
+default delta embedder is the *sparse feature-hash* one, for which the funnel
+is not yet validated — the ~0.998 recall was measured on *dense anisotropic*
+embeddings. A test (`ternary_prefilter_matches_exact_top_k_when_engaged`)
+proves that, when engaged on suitable data, the coarse path returns the same
+top-k as the exhaustive scan.
+
 ## Where this belongs
 
 - **Committed catalog:** already covered by turbovec (learned PQ). Don't
