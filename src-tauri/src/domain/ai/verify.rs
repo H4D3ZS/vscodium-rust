@@ -359,11 +359,16 @@ impl CheckRunner for CommandCheckRunner {
     }
 }
 
-/// Auto-detect the project's build/test commands from files present at `root`
-/// (Cargo.toml → `cargo build`/`cargo test`; package.json → `npm run
-/// build`/`npm test` when those scripts exist; pyproject.toml/setup.py →
-/// pytest). Returns a runner with whichever commands it could infer; anything
-/// it can't infer stays `None` (skipped, never a false failure).
+/// Auto-detect the project's build/test commands from files present at
+/// `root`: Cargo.toml (Rust), package.json (Node), pyproject.toml/setup.py
+/// (Python), go.mod (Go), pom.xml (Maven), build.gradle[.kts] (Gradle, via
+/// the wrapper when present), a `*.csproj`/`*.sln` (.NET), or a Makefile with
+/// recognizable `build`/`test` targets. Checked in that order, first match
+/// wins — a project with both Cargo.toml and package.json (a Tauri app, say)
+/// gets the Rust commands, matching what "the project's tests" means for a
+/// repo shaped like this one. Returns a runner with whichever commands it
+/// could infer; anything it can't infer stays `None` (skipped, never a false
+/// failure).
 pub fn detect_runner(root: &std::path::Path) -> CommandCheckRunner {
     let mut runner = CommandCheckRunner::new(root);
 
@@ -394,7 +399,73 @@ pub fn detect_runner(root: &std::path::Path) -> CommandCheckRunner {
         runner.test = Some(vec!["python".into(), "-m".into(), "pytest".into(), "-q".into()]);
         return runner;
     }
+    if root.join("go.mod").is_file() {
+        runner.build = Some(vec!["go".into(), "build".into(), "./...".into()]);
+        runner.test = Some(vec!["go".into(), "test".into(), "./...".into()]);
+        return runner;
+    }
+    if root.join("pom.xml").is_file() {
+        let mvn = if cfg!(windows) { "mvn.cmd" } else { "mvn" };
+        runner.build = Some(vec![mvn.into(), "-q".into(), "-B".into(), "compile".into()]);
+        runner.test = Some(vec![mvn.into(), "-q".into(), "-B".into(), "test".into()]);
+        return runner;
+    }
+    if root.join("build.gradle").is_file() || root.join("build.gradle.kts").is_file() {
+        let wrapper = if cfg!(windows) { "gradlew.bat" } else { "gradlew" };
+        let gradle = if root.join(wrapper).is_file() {
+            // Relative so it resolves under CommandCheckRunner's cwd (root),
+            // not wherever the IDE process happens to be running from.
+            if cfg!(windows) { ".\\gradlew.bat".to_string() } else { "./gradlew".to_string() }
+        } else {
+            "gradle".to_string()
+        };
+        runner.build = Some(vec![gradle.clone(), "assemble".into(), "-q".into()]);
+        runner.test = Some(vec![gradle, "test".into(), "-q".into()]);
+        return runner;
+    }
+    if has_dotnet_project(root) {
+        runner.build = Some(vec!["dotnet".into(), "build".into()]);
+        runner.test = Some(vec!["dotnet".into(), "test".into()]);
+        return runner;
+    }
+    if let Some(makefile) = ["Makefile", "makefile", "GNUmakefile"]
+        .iter()
+        .map(|f| root.join(f))
+        .find(|p| p.is_file())
+    {
+        // Only offer a target this Makefile actually declares — `make` with
+        // no matching target either runs the wrong thing or errors, and a
+        // guessed target name is worse than skipping the check entirely.
+        if let Ok(text) = std::fs::read_to_string(&makefile) {
+            let has_target = |name: &str| {
+                text.lines().any(|l| {
+                    l.starts_with(&format!("{name}:")) || l.starts_with(&format!("{name} :"))
+                })
+            };
+            if has_target("build") || has_target("all") {
+                let target = if has_target("build") { "build" } else { "all" };
+                runner.build = Some(vec!["make".into(), target.into()]);
+            }
+            if has_target("test") {
+                runner.test = Some(vec!["make".into(), "test".into()]);
+            }
+        }
+        return runner;
+    }
     runner // nothing detected — every check is a no-op skip
+}
+
+/// Any `*.csproj` or `*.sln` directly under `root` (not a deep recursive
+/// scan — `detect_runner` is meant to be fast, not a project-type oracle).
+fn has_dotnet_project(root: &std::path::Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return false;
+    };
+    entries.filter_map(|e| e.ok()).any(|e| {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        name.ends_with(".csproj") || name.ends_with(".sln")
+    })
 }
 
 fn tail_chars(s: &str, n: usize) -> String {
@@ -509,6 +580,124 @@ mod tests {
         let report = run_verification_loop(&m, &cfg(), |_| false); // fixer can't fix
         assert!(!report.accepted);
         assert_eq!(report.attempts, 1, "no re-verify after the fixer gives up");
+    }
+
+    // ── detect_runner ───────────────────────────────────────────────────────
+
+    fn write(dir: &std::path::Path, name: &str, content: &str) {
+        std::fs::write(dir.join(name), content).unwrap();
+    }
+
+    #[test]
+    fn detects_cargo_project() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        write(tmp.path(), "Cargo.toml", "[package]\nname=\"x\"\n");
+        let r = detect_runner(tmp.path());
+        assert_eq!(r.build, Some(vec!["cargo".into(), "build".into(), "--quiet".into()]));
+        assert_eq!(r.test, Some(vec!["cargo".into(), "test".into(), "--quiet".into()]));
+    }
+
+    #[test]
+    fn detects_npm_project_only_configured_scripts() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        write(tmp.path(), "package.json", r#"{"scripts":{"test":"jest"}}"#);
+        let r = detect_runner(tmp.path());
+        assert_eq!(r.test, Some(vec!["npm".into(), "test".into()]));
+        assert_eq!(r.build, None, "no build script declared → not guessed");
+        assert_eq!(r.lint, None);
+    }
+
+    #[test]
+    fn detects_python_project() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        write(tmp.path(), "pyproject.toml", "[project]\nname=\"x\"\n");
+        let r = detect_runner(tmp.path());
+        assert_eq!(r.test, Some(vec!["python".into(), "-m".into(), "pytest".into(), "-q".into()]));
+    }
+
+    #[test]
+    fn detects_go_project() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        write(tmp.path(), "go.mod", "module example.com/x\n");
+        let r = detect_runner(tmp.path());
+        assert_eq!(r.build, Some(vec!["go".into(), "build".into(), "./...".into()]));
+        assert_eq!(r.test, Some(vec!["go".into(), "test".into(), "./...".into()]));
+    }
+
+    #[test]
+    fn detects_maven_project() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        write(tmp.path(), "pom.xml", "<project></project>");
+        let r = detect_runner(tmp.path());
+        assert!(r.build.is_some());
+        assert!(r.test.is_some());
+        let mvn = if cfg!(windows) { "mvn.cmd" } else { "mvn" };
+        assert_eq!(r.build.unwrap()[0], mvn);
+    }
+
+    #[test]
+    fn detects_gradle_project_without_wrapper() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        write(tmp.path(), "build.gradle", "// empty\n");
+        let r = detect_runner(tmp.path());
+        assert_eq!(r.build.unwrap()[0], "gradle");
+    }
+
+    #[test]
+    fn detects_gradle_project_prefers_wrapper() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        write(tmp.path(), "build.gradle.kts", "// empty\n");
+        let wrapper = if cfg!(windows) { "gradlew.bat" } else { "gradlew" };
+        write(tmp.path(), wrapper, "#!/bin/sh\n");
+        let r = detect_runner(tmp.path());
+        let expected = if cfg!(windows) { ".\\gradlew.bat" } else { "./gradlew" };
+        assert_eq!(r.build.unwrap()[0], expected);
+    }
+
+    #[test]
+    fn detects_dotnet_project() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        write(tmp.path(), "App.csproj", "<Project></Project>");
+        let r = detect_runner(tmp.path());
+        assert_eq!(r.build, Some(vec!["dotnet".into(), "build".into()]));
+        assert_eq!(r.test, Some(vec!["dotnet".into(), "test".into()]));
+    }
+
+    #[test]
+    fn detects_makefile_only_declared_targets() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        write(tmp.path(), "Makefile", "build:\n\techo building\n\nclean:\n\techo cleaning\n");
+        let r = detect_runner(tmp.path());
+        assert_eq!(r.build, Some(vec!["make".into(), "build".into()]));
+        assert_eq!(r.test, None, "no test target declared → not guessed");
+    }
+
+    #[test]
+    fn makefile_with_no_recognizable_targets_offers_nothing() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        write(tmp.path(), "Makefile", "deploy:\n\techo deploying\n");
+        let r = detect_runner(tmp.path());
+        assert_eq!(r.build, None);
+        assert_eq!(r.test, None);
+    }
+
+    #[test]
+    fn unrecognized_project_yields_an_all_skip_runner() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let r = detect_runner(tmp.path());
+        assert_eq!(r.build, None);
+        assert_eq!(r.test, None);
+        assert_eq!(r.lint, None);
+    }
+
+    #[test]
+    fn cargo_takes_priority_over_npm_in_a_mixed_repo() {
+        // A Tauri-shaped repo has both — "the project's tests" should mean Rust.
+        let tmp = tempfile::TempDir::new().unwrap();
+        write(tmp.path(), "Cargo.toml", "[package]\nname=\"x\"\n");
+        write(tmp.path(), "package.json", r#"{"scripts":{"test":"jest"}}"#);
+        let r = detect_runner(tmp.path());
+        assert_eq!(r.build.unwrap()[0], "cargo");
     }
 
     #[test]
