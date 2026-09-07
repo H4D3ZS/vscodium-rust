@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
+import { KortexReliabilityPanel } from './KortexReliabilityPanel';
 
 /**
  * Kortex ROCmFPX — the local AMD-GPU backend.
@@ -626,6 +627,8 @@ export function KortexLocalInferencePanel() {
                         This box is the reasoner (big model). The Operator runs the tool-call grunt
                         work on a separate Lemonade server. Blank = defaults.
                     </div>
+
+                    <KortexReliabilityPanel />
                 </div>
             )}
         </div>

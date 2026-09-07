@@ -27,6 +27,8 @@ pub(crate) use infrastructure::hermes_gateway;
 pub(crate) use domain::extensions::hermes_skills;
 pub(crate) use domain::workspace::ide_shell;
 #[cfg(feature = "tauri")]
+pub(crate) use domain::ai::reliability_stats;
+#[cfg(feature = "tauri")]
 pub use application::jobs;
 pub(crate) use domain::workspace::kairos;
 #[cfg(feature = "tauri")]
@@ -660,6 +662,7 @@ pub fn run() {
             ai_commands::ai_generate_code,
             ai_commands::ai_get_context,
             ai_commands::ai_inline_complete,
+            reliability_stats::kortex_reliability_status,
             ai_commands::predict_next_edit,
             claurst_bridge::claurst_status,
             claurst_bridge::claurst_run,

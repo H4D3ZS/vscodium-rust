@@ -45,10 +45,15 @@ const SERVER_PROBE_TIMEOUT: Duration = Duration::from_millis(800);
 pub fn try_tgrep(q: &RipgrepQuery<'_>, max: usize) -> Option<Vec<SearchResult>> {
     if let Some(tgrep) = crate::ide_shell::resolve_tgrep_exe() {
         if let Some(hits) = run_server_probe(&tgrep, q, max) {
+            crate::domain::ai::reliability_stats::bump("TGREP_SERVER_PROBE_HITS");
             return Some(hits);
         }
     }
-    run_in_process(q, max)
+    let hits = run_in_process(q, max);
+    if hits.is_some() {
+        crate::domain::ai::reliability_stats::bump("TGREP_IN_PROCESS_HITS");
+    }
+    hits
 }
 
 /// The in-process path: `tgrep-core`'s own search engine, linked directly

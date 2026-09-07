@@ -183,8 +183,10 @@ impl SemanticCache {
         if let Some((i, _)) = best {
             let e = &mut entries[i];
             e.hits += 1;
+            super::reliability_stats::bump("SEMCACHE_HITS");
             return Some(e.response.clone());
         }
+        super::reliability_stats::bump("SEMCACHE_MISSES");
         None
     }
 

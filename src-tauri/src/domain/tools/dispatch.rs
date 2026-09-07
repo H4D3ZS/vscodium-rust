@@ -54,12 +54,16 @@ impl AiTools {
             let d = crate::domain::ai::authorization::authorize(canonical, &arguments, &authz);
             match d.decision {
                 crate::domain::ai::authorization::Decision::Deny => {
+                    crate::domain::ai::reliability_stats::bump("AUTHZ_DENIED");
                     return Err(anyhow!("blocked by authorization policy: {}", d.reason));
                 }
                 crate::domain::ai::authorization::Decision::Confirm => {
+                    crate::domain::ai::reliability_stats::bump("AUTHZ_CONFIRMED");
                     eprintln!("[authz] {} needs confirmation ({:?}) — allowed in autonomous mode", canonical, d.impact);
                 }
-                crate::domain::ai::authorization::Decision::Allow => {}
+                crate::domain::ai::authorization::Decision::Allow => {
+                    crate::domain::ai::reliability_stats::bump("AUTHZ_ALLOWED");
+                }
             }
         }
 
@@ -300,14 +304,21 @@ impl AiTools {
         {
             return v;
         }
-        use crate::domain::ai::provenance::{tag, Trust};
+        use crate::domain::ai::provenance::{scan, tag, Trust};
         let src = format!("tool:{canonical}");
+        let mut fence = |s: &str| -> String {
+            crate::domain::ai::reliability_stats::bump("PROVENANCE_FENCED");
+            if scan(s).is_suspicious() {
+                crate::domain::ai::reliability_stats::bump("PROVENANCE_INJECTION_FLAGGED");
+            }
+            tag(s, &src, Trust::Untrusted)
+        };
         match v {
-            Value::String(s) => Value::String(tag(&s, &src, Trust::Untrusted)),
+            Value::String(s) => Value::String(fence(&s)),
             Value::Object(mut map) => {
                 for key in ["content", "result", "text", "output", "answer"] {
                     if let Some(Value::String(s)) = map.get(key) {
-                        let wrapped = tag(s, &src, Trust::Untrusted);
+                        let wrapped = fence(s);
                         map.insert(key.to_string(), Value::String(wrapped));
                         break;
                     }

@@ -395,6 +395,9 @@ pub async fn run_cascade(
         Tier::Reasoner
     };
     if start == Tier::Reasoner {
+        if cfg.enabled {
+            super::reliability_stats::bump("CASCADE_STARTED_REASONER_PRECLASSIFIED");
+        }
         let text = reasoner(client).await?;
         let reasoner_tokens = approx_tokens(&text);
         cache.store(reasoner_model, system, prompt, &text);
@@ -413,6 +416,7 @@ pub async fn run_cascade(
     }
 
     // Try the Operator.
+    super::reliability_stats::bump("CASCADE_STARTED_OPERATOR");
     let (op_text, op_raw) =
         chat_with_logprobs(client, operator_base, operator_model, &messages, 2048).await?;
     let conf = confidence_from_response(&op_raw, &op_text);
@@ -421,6 +425,7 @@ pub async fn run_cascade(
 
     match decision {
         Decision::Accept => {
+            super::reliability_stats::bump("CASCADE_ACCEPTED_OPERATOR");
             cache.store(reasoner_model, system, prompt, &op_text);
             Ok((
             op_text,
@@ -436,6 +441,7 @@ pub async fn run_cascade(
         ))
         }
         Decision::Escalate { reason } => {
+            super::reliability_stats::bump("CASCADE_ESCALATED");
             let text = reasoner(client).await?;
             let reasoner_tokens = approx_tokens(&text);
             cache.store(reasoner_model, system, prompt, &text);

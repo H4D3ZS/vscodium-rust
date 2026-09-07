@@ -51,6 +51,10 @@ pub fn finalize_with(
 
     // Grounding annotation first (flags fabricated refs inline).
     let mut out = if grounding_on {
+        super::reliability_stats::bump("GROUNDING_CLAIMS_CHECKED");
+        if report.has_hallucinations() {
+            super::reliability_stats::bump("GROUNDING_UNGROUNDED_FLAGGED");
+        }
         grounding::annotate(text, &report)
     } else {
         text.to_string()
@@ -63,7 +67,14 @@ pub fn finalize_with(
         let decision = abstain::decide(&report, mean_p, hedged, &cfg);
         out = match decision.stance {
             Stance::Answer => out,
-            _ => abstain::apply(&out, &decision),
+            Stance::Qualify => {
+                super::reliability_stats::bump("ABSTAIN_QUALIFIED");
+                abstain::apply(&out, &decision)
+            }
+            Stance::Abstain => {
+                super::reliability_stats::bump("ABSTAIN_WITHHELD");
+                abstain::apply(&out, &decision)
+            }
         };
     }
     out

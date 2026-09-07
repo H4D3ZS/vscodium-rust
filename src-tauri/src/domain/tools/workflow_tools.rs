@@ -220,6 +220,8 @@ impl AiTools {
         let runner = crate::domain::ai::verify::detect_runner(&root);
         let checks = crate::domain::ai::verify::run_checks(&runner, &cfg);
         let verified = crate::domain::ai::verify::accepts(&checks, &cfg);
+        crate::domain::ai::reliability_stats::bump("VERIFY_RUNS");
+        crate::domain::ai::reliability_stats::bump(if verified { "VERIFY_PASSED" } else { "VERIFY_FAILED" });
         Ok(json!({
             "status": if verified { "success" } else { "failed" },
             "task": task,

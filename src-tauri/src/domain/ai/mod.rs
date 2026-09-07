@@ -13,6 +13,7 @@ pub mod context_budget;
 pub mod grounding;
 pub mod provenance;
 pub mod reliability;
+pub mod reliability_stats;
 pub mod semantic_cache;
 pub mod state_ledger;
 pub mod verify;

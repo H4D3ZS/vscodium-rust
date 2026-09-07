@@ -124,8 +124,19 @@ pub fn compress_openai_request(body: &mut Value, cfg: &HarnessConfig) -> Harness
     }
 
     compress_tool_schemas(body, cfg, &mut report);
+    if report.tools_compacted > 0 {
+        crate::domain::ai::reliability_stats::bump("HARNESS_SCHEMA_COMPACTED");
+    }
     report.tool_output = tool_output::compress_tool_messages(body, &tool_output::ToolOutputConfig::from_env());
+    if report.tool_output.messages_compacted > 0 {
+        crate::domain::ai::reliability_stats::bump("HARNESS_TOOL_OUTPUT_COMPACTED");
+    }
     report.steer = response_steer::steer_response(body, &response_steer::SteerConfig::from_env());
+    if report.steer.directive_injected {
+        // Not `applied` — that stays true on an idempotent resend too, and this
+        // counter should reflect new applications, not repeats of the same turn.
+        crate::domain::ai::reliability_stats::bump("HARNESS_STEER_APPLIED");
+    }
     if report.tool_output.messages_compacted > 0 || report.steer.applied {
         report.applied = true;
     }
