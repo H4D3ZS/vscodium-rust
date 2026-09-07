@@ -48,7 +48,7 @@
     "@heroui/react": "^2.8.10",
     "@mermaid-js/layout-elk": "^0.2.3",
     "@monaco-editor/react": "^4.7.0",
-    "@tabler/icons-react": "^3.44.0",
+    "@tabler/icons-react": "^3.46.0",
     "@tauri-apps/api": "~2.10.0",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@types/diff": "^7.0.2",
