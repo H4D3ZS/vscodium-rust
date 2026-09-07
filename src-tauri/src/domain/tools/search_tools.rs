@@ -62,29 +62,44 @@ impl AiTools {
         Ok(json!({ "status": "success", "diagnostics": [] }))
     }
 
+    /// The `grep` tool. Was a hand-rolled `rg` subprocess with its own
+    /// `--json` parsing loop, which meant it never benefited from the
+    /// tgrep-first engine order or the shared JSON parser wired into
+    /// `ripgrep_search` — the *only* other caller of that hardcoded path was
+    /// `search_files` (`fs_tools.rs`), so `grep` (the more commonly reached
+    /// tool name) was quietly the slow, tgrep-blind path. Routed through the
+    /// shared engine now; `fixed_string: true` and case-sensitive are kept
+    /// exactly as before (the old code passed `--fixed-string`, no `-i`) —
+    /// only the engine underneath changed, not the search semantics.
+    ///
+    /// Note: the tool's own schema calls `query` a "regex pattern", which
+    /// this fixed-string behavior has never actually matched — a real
+    /// mismatch, left alone here since fixing it changes what existing
+    /// regex-metacharacter queries do, which is a separate, deliberate call
+    /// to make, not a silent side effect of a routing fix.
     pub(crate) async fn grep(&self, args: Value) -> Result<Value> {
         let query = args.get("query").and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing query"))?;
         let path = args.get("path").and_then(|v| v.as_str());
         let root = self.root_path.lock().await.clone();
         let search_path = path.map(|p| root.join(p)).unwrap_or(root.clone());
-        let output = std::process::Command::new("rg").arg("--json").arg("--fixed-string").arg("--").arg(query).arg(&search_path)
-            .output();
-        let stdout = match output {
-            Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
-            Err(_) => return Ok(json!({ "status": "success", "results": Vec::<Value>::new() })),
+
+        let hits = crate::ripgrep_search::ripgrep_search(crate::ripgrep_search::RipgrepQuery {
+            pattern: query,
+            root: &search_path,
+            include: None,
+            max_results: 200,
+            case_insensitive: false,
+            fixed_string: true,
+            file: None,
+        });
+        let results: Vec<Value> = match hits {
+            Ok(hits) => hits
+                .into_iter()
+                .map(|h| json!({ "file": h.path, "line": h.line, "content": h.content }))
+                .collect(),
+            Err(_) => Vec::new(),
         };
-        let mut results = Vec::new();
-        for line in stdout.lines() {
-            if let Ok(val) = serde_json::from_str::<Value>(line) {
-                if val["type"] == "match" {
-                    let text = val["data"]["path"]["text"].as_str().unwrap_or("");
-                    let line_num = val["data"]["line_number"].as_u64().unwrap_or(0);
-                    let content = val["data"]["lines"]["text"].as_str().unwrap_or("");
-                    results.push(json!({ "file": text, "line": line_num, "content": content.trim() }));
-                }
-            }
-        }
         Ok(json!({ "status": "success", "results": results }))
     }
 
