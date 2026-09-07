@@ -2,7 +2,7 @@
 //! (Google Research's TurboQuant). Vectors are stored 2–4-bit quantized instead
 //! of raw f32, so a large codebase's embeddings fit in a fraction of the RAM —
 //! the point being a modest machine can hold the whole index resident while
-//! Ollama uses the rest of memory for model weights. Search runs turbovec's
+//! The model server uses the rest of memory for model weights. Search runs turbovec's
 //! SIMD kernels (NEON/AVX-512).
 //!
 //! Public API is unchanged from the previous flat index (`upsert` / `search` /

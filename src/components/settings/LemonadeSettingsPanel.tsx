@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../../store';
 
 /**
- * Lemonade server settings — styled to match the Ollama Integration panel
+ * Lemonade server settings — styled to match the the local backend Integration panel
  * (gradient cards, codicon icons, status pill, monospace endpoints).
  *
  * All server I/O goes through the Rust `list_provider_models('lemonade')` command

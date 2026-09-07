@@ -3,7 +3,7 @@
 // reasoning slider logic.
 
 export type ProviderName =
-    | 'anthropic' | 'openAI' | 'deepseek' | 'ollama' | 'vLLM' | 'openRouter'
+    | 'anthropic' | 'openAI' | 'deepseek' | 'vLLM' | 'openRouter'
     | 'gemini' | 'groq' | 'xAI' | 'mistral' | 'lmStudio' | 'liteLLM'
     | 'openAICompatible' | 'googleVertex' | 'microsoftAzure' | 'awsBedrock'
     | 'antigravity' | 'mimo' | 'cyberifrit' | 'highwayapi' | 'lemonade' | 'huggingface'
@@ -79,7 +79,6 @@ export const defaultGlobalSettings: GlobalSettings = {
 };
 
 export const defaultProviderEndpoints: Partial<Record<ProviderName, string>> = {
-    ollama: 'http://127.0.0.1:13305',
     lemonade: 'http://127.0.0.1:13305',
     huggingface: 'https://router.huggingface.co/v1',
     openmodel: 'https://api.openmodel.ai',
@@ -92,7 +91,7 @@ export const defaultProviderEndpoints: Partial<Record<ProviderName, string>> = {
     highwayapi: 'https://api.highwayapi.ai/openai',
 };
 
-export const localProviders: ProviderName[] = ['ollama', 'vLLM', 'lmStudio', 'antigravity', 'lemonade'];
+export const localProviders: ProviderName[] = ['vLLM', 'lmStudio', 'antigravity', 'lemonade'];
 
 const defaultCaps: ModelCapabilities = {
     contextWindow: 4_096,
@@ -104,7 +103,7 @@ const defaultCaps: ModelCapabilities = {
     downloadable: false,
 };
 
-// ── Open-source model patterns (shared across Ollama / vLLM / etc.) ──────────
+// ── Open-source model patterns (shared across the local backend / vLLM / etc.) ──────────
 
 const openSourceModels: Record<string, Partial<ModelCapabilities>> = {
     'deepseek-r1': {
@@ -347,7 +346,7 @@ const groqModels: Record<string, ModelCapabilities> = {
     'qwen-qwq-32b': { contextWindow: 128_000, reservedOutputTokenSpace: null, cost: { input: 0.29, output: 0.39 }, downloadable: false, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
 };
 
-const ollamaModels: Record<string, ModelCapabilities> = {
+const localModels: Record<string, ModelCapabilities> = {
     'qwen2.5-coder:7b': { contextWindow: 32_000, reservedOutputTokenSpace: null, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 1.9 }, supportsFIM: true, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
     'qwen2.5-coder:3b': { contextWindow: 32_000, reservedOutputTokenSpace: null, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 1.9 }, supportsFIM: true, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
     'llama3.1': { contextWindow: 128_000, reservedOutputTokenSpace: null, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 4.9 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
@@ -358,7 +357,7 @@ const ollamaModels: Record<string, ModelCapabilities> = {
     'gemma-4-12B-coder-fable5-composer2.5-v1': { contextWindow: 131_072, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 7 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
 };
 
-export const ollamaRecommendedModels = ['qwen2.5-coder:7b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest', 'gemma2:2b'];
+export const recommendedLocalModels = ['qwen2.5-coder:7b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest', 'gemma2:2b'];
 
 const providerModelDbs: Partial<Record<ProviderName, Record<string, ModelCapabilities>>> = {
     anthropic: anthropicModels,
@@ -370,7 +369,6 @@ const providerModelDbs: Partial<Record<ProviderName, Record<string, ModelCapabil
     highwayapi: highwayapiModels,
     mistral: mistralModels,
     groq: groqModels,
-    ollama: ollamaModels,
     // Lemonade serves whatever models are loaded — no fixed catalog. The fuzzy
     // lookup handles all common model families (llama, qwen, gemma, deepseek…).
     lemonade: {},
@@ -488,13 +486,13 @@ export function getContextWindow(providerName: ProviderName, modelName: string):
 }
 
 // ── Default model selections per feature ─────────────────────────────────────
-// Optimized for local Ollama setup — all models run locally, no cloud.
+// Optimized for local the local backend setup — all models run locally, no cloud.
 
 // Local-first defaults point at Lemonade (AMD's llama.cpp runtime). The model
 // name is a placeholder the local server ignores — a single-model llama-server
 // serves whatever GGUF it was launched with regardless of the requested id —
 // so a fresh profile works as soon as any local backend is up, instead of
-// resolving a dead Ollama tag.
+// resolving a dead the local backend tag.
 const LOCAL_DEFAULT = { providerName: 'lemonade' as const, modelName: 'local' };
 export const defaultModelSelectionOfFeature: ModelSelectionOfFeature = {
     Chat: { ...LOCAL_DEFAULT },
@@ -520,7 +518,6 @@ export const providerDisplayInfo: Record<ProviderName, { title: string; icon?: s
     anthropic: { title: 'Anthropic' },
     openAI: { title: 'OpenAI' },
     deepseek: { title: 'DeepSeek' },
-    ollama: { title: 'Ollama (Local)' },
     vLLM: { title: 'vLLM (Local)' },
     openRouter: { title: 'OpenRouter' },
     gemini: { title: 'Gemini' },
@@ -592,7 +589,7 @@ const BIG_LOCAL = /(?::|-)(?:30b|32b|34b|40b|65b|70b|72b|110b)\b/i;
 const SMALL_LOCAL = /(?::|-)(?:0\.5b|1\.5b|1b|2b|3b|4b|7b|8b|9b|12b|13b|14b)\b/i;
 const HEAVY_LOCAL = /(?:^|[/:\-_])(40|35|32|30|27|70|72|128|229)(?:b|-)|deck-opus|neo-code|abliterat/i;
 
-const LOCAL_PROVIDERS = new Set(['ollama', 'lmstudio', 'lm-studio', 'lm_studio', 'vllm', 'local']);
+const LOCAL_PROVIDERS = new Set(['lmstudio', 'lm-studio', 'lm_studio', 'vllm', 'local', 'lemonade']);
 
 /** Models that will stall a consumer GPU/CPU if used as hybrid planner. */
 export function isHeavyLocalModel(modelId: string): boolean {
@@ -659,7 +656,7 @@ function executorScore(m: AvailableModelLite): number {
  * best fast model that differs from the planner; if only one model exists, both
  * roles collapse to it (degrades to today's single-model behavior).
  *
- * All-local installs (typical 4b–14b Ollama rigs): never auto-pick 30B+ deck models
+ * All-local installs (typical 4b–14b the local backend rigs): never auto-pick 30B+ deck models
  * as planner — that doubles cold-load time on consumer hardware.
  */
 export function classifyModels(models: AvailableModelLite[]): PlannerExecutorPick {
@@ -668,8 +665,6 @@ export function classifyModels(models: AvailableModelLite[]): PlannerExecutorPic
         if (!m || !m.id) return false;
         const p = String(m.provider || '').toLowerCase();
         if (p === 'apiradar') return false;
-        // Ollama tags in the picker were already fetched — treat as reachable.
-        if (p === 'ollama') return true;
         // Skip cloud-only model names that aren't installed locally.
         if (/:cloud$|-cloud$/i.test(m.id)) return false;
         return true;

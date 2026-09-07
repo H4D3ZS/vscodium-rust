@@ -224,7 +224,7 @@ impl AiTools {
             mode: Some("Chat".to_string()),
             cyber_mode: None,
             root_access: None,
-            ollama_url: None,
+            inference_url: None,
             tools: Some(vec![]),
             reasoning_budget: None,
             reasoning_effort: None,
@@ -234,12 +234,12 @@ impl AiTools {
         engine.single_shot_completion(req).await
     }
 
-    /// Best-effort list of locally-installed Ollama model tags.
-    pub(crate) async fn list_ollama_tags(&self) -> Vec<String> {
-        let base = std::env::var("OLLAMA_HOST")
+    /// Best-effort list of locally-installed model tags (the local backend-style `/api/tags`).
+    pub(crate) async fn list_local_model_tags(&self) -> Vec<String> {
+        let base = std::env::var("KORTEX_IMAGE_HOST")
             .ok()
             .map(|h| if h.starts_with("http") { h } else { format!("http://{}", h) })
-            .unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
+            .unwrap_or_else(|| "http://127.0.0.1:13305".to_string());
         let url = format!("{}/api/tags", base.trim_end_matches('/'));
         let client = match reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(4))
@@ -298,7 +298,7 @@ impl AiTools {
     }
 
     /// Resolve the (cheap, mid, strong) model tiers for a vuln-hunt. Explicit
-    /// args win; otherwise auto-detect from installed Ollama models + keyed cloud
+    /// args win; otherwise auto-detect from installed local models + keyed cloud
     /// providers (incl. cyberifrit). The strong/confirm tier prefers a
     /// security-specialized model, then the biggest available, so it auto-selects
     /// the user's `SecurityEngineer` / `BugTraceAI-Apex` when api.cyberifrit.xyz
@@ -324,7 +324,7 @@ impl AiTools {
 
         // Candidate pool: (provider, model, size_hint, is_security).
         let mut pool: Vec<(String, String, u32, bool)> = Vec::new();
-        for m in self.list_ollama_tags().await {
+        for m in self.list_local_model_tags().await {
             let sz = model_size_hint(&m);
             let sec = is_security_model(&m);
             pool.push(("lemonade".to_string(), m, sz, sec));
@@ -1272,7 +1272,7 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
             run_passive: Some(true),
             ai_triage: args.get("ai_triage").and_then(|v| v.as_bool()),
             ai_model: None,
-            ollama_url: None,
+            inference_url: None,
             session_cookie: args.get("session_cookie").and_then(|v| v.as_str()).map(String::from),
         };
         let result = crate::vega::run_campaign(opts).await.map_err(|e| anyhow!(e))?;

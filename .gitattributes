@@ -1,1 +1,6 @@
 deploy/*.sh text eol=lf
+
+# Source is LF in the repo (core.autocrlf handles the Windows working tree).
+*.rs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf

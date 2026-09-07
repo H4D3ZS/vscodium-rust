@@ -11,8 +11,11 @@
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+// `.pathname` yields `/C:/...` on Windows, which `join` then mangles into
+// `C:\C:\...` — use fileURLToPath so the drive-letter path is real.
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CHECKED_DIRS = ['src/components', 'src/store'];
 const PATTERNS = [
     /from\s+['"]@tauri-apps\/api/,
@@ -45,7 +48,8 @@ for (const dir of CHECKED_DIRS) {
     for (const file of walk(join(ROOT, dir))) {
         const src = readFileSync(file, 'utf8');
         const hit = PATTERNS.some((re) => re.test(src)) || BRIDGE_IMPORT.test(src);
-        if (hit) violations.push(relative(ROOT, file));
+        // Forward slashes so the baseline is identical on Windows and CI.
+        if (hit) violations.push(relative(ROOT, file).split('\\').join('/'));
     }
 }
 

@@ -1,6 +1,6 @@
 //! Local LLM assist for Vega — payload expansion + false-positive triage.
 //!
-//! Uses the IDE's local Ollama endpoint (offline-first). Wraps prompts in
+//! Uses the IDE's local local backend endpoint (offline-first). Wraps prompts in
 //! "QA stability test" framing to reduce model refusals (see LocalLLMSecurityAuditor pattern).
 
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiAssistConfig {
-    pub ollama_url: String,
+    pub inference_url: String,
     pub model: String,
     pub enabled: bool,
 }
@@ -16,10 +16,10 @@ pub struct AiAssistConfig {
 impl Default for AiAssistConfig {
     fn default() -> Self {
         Self {
-            // Default to the standard local Ollama endpoint. Vega reads this
+            // Default to the standard local local backend endpoint. Vega reads this
             // from EditorState at runtime, so the default is only used when
             // VegaAiAssist is constructed outside the normal boot flow.
-            ollama_url: "http://127.0.0.1:11434".into(),
+            inference_url: "http://127.0.0.1:13305".into(),
             // Default to a small model so triage runs on modest hardware and
             // fully offline. 2b–4b class models are the design target; anything
             // larger is a user upgrade, not a requirement.
@@ -43,7 +43,7 @@ pub struct VegaAiAssist {
 
 impl VegaAiAssist {
     pub fn new(config: AiAssistConfig) -> Self {
-        // Short connect timeout so a missing/offline Ollama fails fast and we
+        // Short connect timeout so a a missing/offline backend fails fast and we
         // fall back to heuristics instead of hanging the whole scan.
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(2))
@@ -64,7 +64,7 @@ impl VegaAiAssist {
         if !self.config.enabled {
             return false;
         }
-        let url = format!("{}/api/tags", self.config.ollama_url.trim_end_matches('/'));
+        let url = format!("{}/api/tags", self.config.inference_url.trim_end_matches('/'));
         matches!(
             self.client
                 .get(&url)
@@ -107,14 +107,14 @@ impl VegaAiAssist {
             "format": "json"
         });
 
-        let url = format!("{}/api/generate", self.config.ollama_url.trim_end_matches('/'));
+        let url = format!("{}/api/generate", self.config.inference_url.trim_end_matches('/'));
         let resp = self
             .client
             .post(&url)
             .json(&body)
             .send()
             .await
-            .map_err(|e| format!("ollama request: {e}"))?;
+            .map_err(|e| format!("local inference request failed: {e}"))?;
 
         let text = resp.text().await.map_err(|e| e.to_string())?;
         let parsed: serde_json::Value =
@@ -167,7 +167,7 @@ impl VegaAiAssist {
             "options": { "temperature": 0.0, "num_predict": 16 }
         });
 
-        let url = format!("{}/api/generate", self.config.ollama_url.trim_end_matches('/'));
+        let url = format!("{}/api/generate", self.config.inference_url.trim_end_matches('/'));
         let resp = match self.client.post(&url).json(&body).send().await {
             Ok(r) => r,
             Err(_) => return Ok(heuristic_verdict(alert_type, evidence)),
@@ -206,7 +206,7 @@ fn parse_verdict(raw: &str) -> Option<String> {
     }
 }
 
-/// Deterministic, model-free triage used when Ollama is offline or unhelpful.
+/// Deterministic, model-free triage used when the local model is offline or unhelpful.
 /// Conservative: only downgrades classes that are notoriously reflection-noisy,
 /// and confirms high-confidence evidence patterns.
 fn heuristic_verdict(alert_type: &str, evidence: &str) -> String {

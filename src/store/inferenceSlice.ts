@@ -1,20 +1,20 @@
 import type { StateCreator } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppState } from './index';
-import { normalizeOllamaUrl } from './utils';
-import { applyLocalOllamaAgentDefaults } from '../lib/localOllamaAgentDefaults';
+import { normalizeInferenceUrl } from './utils';
+import { applyLocalAgentDefaults } from '../lib/localAgentDefaults';
 import { boundedPush, MAX_MITM_LOGS } from '../domain/utils/boundedArray';
 
 // Throttle guard for checkLemonadeStatus — several components fire it on mount.
 let lastLemonadeCheckAt = 0;
 
 export interface InferenceSlice {
-    ollamaUrl: string;
-    ollamaStatus: 'idle' | 'checking' | 'running' | 'error';
-    ollamaConnectionMode: 'proxy' | 'direct';
-    ollamaMode: 'local' | 'cloud' | 'auto';
-    ollamaServerMode: 'local' | 'cloud' | 'remote';
-    customOllamaUrl: string;
+    inferenceUrl: string;
+    inferenceStatus: 'idle' | 'checking' | 'running' | 'error';
+    inferenceConnectionMode: 'proxy' | 'direct';
+    inferenceMode: 'local' | 'cloud' | 'auto';
+    inferenceServerMode: 'local' | 'cloud' | 'remote';
+    customInferenceUrl: string;
     llamaCppUrl: string;
     llamaCppStatus: 'idle' | 'checking' | 'running' | 'error';
     llamaCppModelPath: string;
@@ -58,13 +58,13 @@ export interface InferenceSlice {
     fccStatus: 'idle' | 'checking' | 'running' | 'error';
     fccEnabled: boolean;
 
-    setOllamaUrl: (url: string) => void;
-    setOllamaConnectionMode: (mode: 'proxy' | 'direct') => void;
-    setOllamaServerMode: (mode: 'local' | 'cloud' | 'remote') => void;
-    setCustomOllamaUrl: (url: string) => void;
-    syncOllamaEndpoint: () => Promise<void>;
-    checkOllamaStatus: () => Promise<void>;
-    pullOllamaModel: (name: string) => Promise<void>;
+    setInferenceUrl: (url: string) => void;
+    setInferenceConnectionMode: (mode: 'proxy' | 'direct') => void;
+    setInferenceServerMode: (mode: 'local' | 'cloud' | 'remote') => void;
+    setCustomInferenceUrl: (url: string) => void;
+    syncInferenceEndpoint: () => Promise<void>;
+    checkInferenceStatus: () => Promise<void>;
+    pullLocalModel: (name: string) => Promise<void>;
     setInferenceBackend: (backend: 'llama-cpp' | 'openai' | 'lemonade' | 'huggingface' | 'fcc') => void;
     setLlamaCppUrl: (url: string) => void;
     setLlamaCppModelPath: (path: string) => void;
@@ -105,55 +105,55 @@ export interface InferenceSlice {
     setAwsBedrockEndpoint: (v: string) => void;
 }
 
-/** Managed Cyber-Ifrit cloud Ollama (AMD MI300X gateway). */
-export const CYBERIFRIT_CLOUD_OLLAMA_URL = 'https://ai.cyberifrit.xyz';
-const LOCAL_OLLAMA_URL = 'http://127.0.0.1:13305';
+/** Managed Cyber-Ifrit cloud inference gateway (AMD MI300X). */
+export const CYBERIFRIT_CLOUD_INFERENCE_URL = 'https://ai.cyberifrit.xyz';
+const LOCAL_INFERENCE_URL = 'http://127.0.0.1:13305';
 
-function readStoredOllamaUrl(): string {
+function readStoredInferenceUrl(): string {
     try {
-        if (typeof localStorage === 'undefined') return LOCAL_OLLAMA_URL;
-        const raw = (localStorage.getItem('ollamaUrl') || '').trim();
-        if (!raw) return LOCAL_OLLAMA_URL;
-        return normalizeOllamaUrl(raw);
-    } catch { return LOCAL_OLLAMA_URL; }
+        if (typeof localStorage === 'undefined') return LOCAL_INFERENCE_URL;
+        const raw = (localStorage.getItem('inferenceUrl') || '').trim();
+        if (!raw) return LOCAL_INFERENCE_URL;
+        return normalizeInferenceUrl(raw);
+    } catch { return LOCAL_INFERENCE_URL; }
 }
 
-function readStoredOllamaServerMode(): 'local' | 'cloud' | 'remote' {
+function readStoredInferenceServerMode(): 'local' | 'cloud' | 'remote' {
     try {
-        const raw = localStorage.getItem('ollamaServerMode');
+        const raw = localStorage.getItem('inferenceServerMode');
         if (raw === 'auto') return 'cloud';
         if (raw === 'local' || raw === 'cloud' || raw === 'remote') return raw;
     } catch { /* ignore */ }
     return 'local';
 }
 
-function resolveOllamaUrlForMode(mode: 'local' | 'cloud' | 'remote', customUrl: string): string {
-    if (mode === 'local') return LOCAL_OLLAMA_URL;
-    if (mode === 'cloud') return CYBERIFRIT_CLOUD_OLLAMA_URL;
+function resolveInferenceUrlForMode(mode: 'local' | 'cloud' | 'remote', customUrl: string): string {
+    if (mode === 'local') return LOCAL_INFERENCE_URL;
+    if (mode === 'cloud') return CYBERIFRIT_CLOUD_INFERENCE_URL;
     const trimmed = customUrl.trim();
-    return trimmed ? normalizeOllamaUrl(trimmed) : LOCAL_OLLAMA_URL;
+    return trimmed ? normalizeInferenceUrl(trimmed) : LOCAL_INFERENCE_URL;
 }
 
-function readInitialCustomOllamaUrl(): string {
-    try { return localStorage.getItem('customOllamaUrl') || ''; } catch { return ''; }
+function readInitialCustomInferenceUrl(): string {
+    try { return localStorage.getItem('customInferenceUrl') || ''; } catch { return ''; }
 }
 
-const _initialOllamaMode = readStoredOllamaServerMode();
-const _initialCustomOllama = readInitialCustomOllamaUrl();
+const _initialInferenceMode = readStoredInferenceServerMode();
+const _initialCustomInference = readInitialCustomInferenceUrl();
 
 export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice> = (set, get) => ({
-    ollamaUrl: resolveOllamaUrlForMode(_initialOllamaMode, _initialCustomOllama),
-    ollamaStatus: 'idle',
-    ollamaConnectionMode: (localStorage.getItem('ollamaConnectionMode') as 'proxy' | 'direct') || 'proxy',
-    ollamaMode: _initialOllamaMode === 'local' ? 'local' : 'cloud',
-    ollamaServerMode: _initialOllamaMode,
-    customOllamaUrl: _initialCustomOllama,
+    inferenceUrl: resolveInferenceUrlForMode(_initialInferenceMode, _initialCustomInference),
+    inferenceStatus: 'idle',
+    inferenceConnectionMode: (localStorage.getItem('inferenceConnectionMode') as 'proxy' | 'direct') || 'proxy',
+    inferenceMode: _initialInferenceMode === 'local' ? 'local' : 'cloud',
+    inferenceServerMode: _initialInferenceMode,
+    customInferenceUrl: _initialCustomInference,
     llamaCppUrl: localStorage.getItem('llamaCppUrl') || 'http://localhost:8081',
     llamaCppStatus: 'idle',
     llamaCppModelPath: localStorage.getItem('llamaCppModelPath') || '',
     llamaCppNgl: parseInt(localStorage.getItem('llamaCppNgl') || '99'),
     llamaCppHadesEnabled: localStorage.getItem('llamaCppHadesEnabled') !== 'false',
-    // Lemonade is the priority local backend (faster than Ollama on most setups).
+    // Lemonade is the priority local backend (real llama.cpp).
     // Only applied when the user hasn't already chosen one.
     inferenceBackend: (localStorage.getItem('inferenceBackend') as 'llama-cpp' | 'openai' | 'lemonade' | 'huggingface' | 'fcc') || 'lemonade',
     availableModels: [],
@@ -195,61 +195,61 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
     setAiStatus: (aiStatus) => set({ aiStatus }),
     setTokenUsage: (tokenUsage) => set({ tokenUsage }),
 
-    setOllamaUrl: (url) => {
-        const normalized = normalizeOllamaUrl(url);
-        set({ ollamaUrl: normalized });
-        try { localStorage.setItem('ollamaUrl', normalized); } catch { }
+    setInferenceUrl: (url) => {
+        const normalized = normalizeInferenceUrl(url);
+        set({ inferenceUrl: normalized });
+        try { localStorage.setItem('inferenceUrl', normalized); } catch { }
         invoke('set_lemonade_url', { url: normalized }).catch(console.error);
     },
-    setOllamaConnectionMode: (mode) => {
+    setInferenceConnectionMode: (mode) => {
         const url = mode === 'proxy' ? 'http://127.0.0.1:1536' : 'http://127.0.0.1:13305';
-        set({ ollamaConnectionMode: mode, ollamaUrl: url });
+        set({ inferenceConnectionMode: mode, inferenceUrl: url });
         (async () => {
             try { await invoke('set_lemonade_url', { url }); } catch { }
             try { await get().refreshAvailableModels?.('lemonade'); } catch { }
-            try { await get().checkOllamaStatus?.(); } catch { }
+            try { await get().checkInferenceStatus?.(); } catch { }
         })();
-        try { localStorage.setItem('ollamaConnectionMode', mode); localStorage.setItem('ollamaUrl', url); } catch { }
+        try { localStorage.setItem('inferenceConnectionMode', mode); localStorage.setItem('inferenceUrl', url); } catch { }
     },
-    setOllamaServerMode: (mode) => {
-        const custom = get().customOllamaUrl || '';
-        const url = resolveOllamaUrlForMode(mode, custom);
-        if (get().ollamaServerMode === mode && get().ollamaUrl === url) return;
-        set({ ollamaServerMode: mode, ollamaUrl: url, ollamaMode: mode === 'local' ? 'local' : 'cloud' });
+    setInferenceServerMode: (mode) => {
+        const custom = get().customInferenceUrl || '';
+        const url = resolveInferenceUrlForMode(mode, custom);
+        if (get().inferenceServerMode === mode && get().inferenceUrl === url) return;
+        set({ inferenceServerMode: mode, inferenceUrl: url, inferenceMode: mode === 'local' ? 'local' : 'cloud' });
         try {
-            localStorage.setItem('ollamaServerMode', mode);
-            localStorage.setItem('ollamaUrl', url);
-            if (mode === 'cloud') localStorage.setItem('customOllamaUrl', CYBERIFRIT_CLOUD_OLLAMA_URL);
+            localStorage.setItem('inferenceServerMode', mode);
+            localStorage.setItem('inferenceUrl', url);
+            if (mode === 'cloud') localStorage.setItem('customInferenceUrl', CYBERIFRIT_CLOUD_INFERENCE_URL);
         } catch { /* ignore */ }
         if (mode === 'local') {
-            applyLocalOllamaAgentDefaults(get() as Parameters<typeof applyLocalOllamaAgentDefaults>[0]);
+            applyLocalAgentDefaults(get() as Parameters<typeof applyLocalAgentDefaults>[0]);
         }
-        void get().syncOllamaEndpoint?.();
+        void get().syncInferenceEndpoint?.();
     },
-    syncOllamaEndpoint: async () => {
-        const mode = get().ollamaServerMode;
-        const url = resolveOllamaUrlForMode(mode, get().customOllamaUrl || '');
-        set({ ollamaUrl: url, ollamaMode: mode === 'local' ? 'local' : 'cloud' });
+    syncInferenceEndpoint: async () => {
+        const mode = get().inferenceServerMode;
+        const url = resolveInferenceUrlForMode(mode, get().customInferenceUrl || '');
+        set({ inferenceUrl: url, inferenceMode: mode === 'local' ? 'local' : 'cloud' });
         try {
-            localStorage.setItem('ollamaUrl', url);
-            localStorage.setItem('ollamaServerMode', mode);
+            localStorage.setItem('inferenceUrl', url);
+            localStorage.setItem('inferenceServerMode', mode);
         } catch { /* ignore */ }
-        try { await invoke('set_lemonade_url', { url }); } catch (e) { console.warn('[Ollama] set_lemonade_url failed:', e); }
+        try { await invoke('set_lemonade_url', { url }); } catch (e) { console.warn('[inference] set_lemonade_url failed:', e); }
         try { await get().refreshAvailableModels?.('lemonade'); } catch { /* ignore */ }
-        try { await get().checkOllamaStatus?.(); } catch { /* ignore */ }
+        try { await get().checkInferenceStatus?.(); } catch { /* ignore */ }
     },
-    setCustomOllamaUrl: (url) => {
+    setCustomInferenceUrl: (url) => {
         const trimmed = url.trim();
-        set({ customOllamaUrl: trimmed });
-        try { localStorage.setItem('customOllamaUrl', trimmed); } catch { }
-        if (get().ollamaServerMode === 'remote') get().setOllamaServerMode?.('remote');
+        set({ customInferenceUrl: trimmed });
+        try { localStorage.setItem('customInferenceUrl', trimmed); } catch { }
+        if (get().inferenceServerMode === 'remote') get().setInferenceServerMode?.('remote');
     },
-    checkOllamaStatus: async () => {
-        set({ ollamaStatus: 'checking' });
-        try { const isRunning = await invoke<boolean>('check_lemonade_status'); set({ ollamaStatus: isRunning ? 'running' : 'error' }); }
-        catch { set({ ollamaStatus: 'error' }); }
+    checkInferenceStatus: async () => {
+        set({ inferenceStatus: 'checking' });
+        try { const isRunning = await invoke<boolean>('check_lemonade_status'); set({ inferenceStatus: isRunning ? 'running' : 'error' }); }
+        catch { set({ inferenceStatus: 'error' }); }
     },
-    pullOllamaModel: async (name) => {
+    pullLocalModel: async (name) => {
         set({ isPullingModel: true, pullProgress: 0 });
         try { await invoke('pull_lemonade_model', { name }); get().refreshAvailableModels('lemonade'); }
         catch (e) { console.error('Failed to pull model:', e); }
@@ -260,7 +260,7 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
         set({ inferenceBackend: backend });
         const st = get();
         if (backend === 'lemonade') {
-            applyLocalOllamaAgentDefaults(st as Parameters<typeof applyLocalOllamaAgentDefaults>[0]);
+            applyLocalAgentDefaults(st as Parameters<typeof applyLocalAgentDefaults>[0]);
         }
         if (backend === 'llama-cpp') {
             import('../tauri_bridge').then(({ invoke }) => invoke('set_lemonade_url', { url: st.llamaCppUrl }).catch(() => { }));
@@ -296,7 +296,7 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
         const { lemonadeUrl } = get();
         try {
             const keys: any = await invoke('get_api_keys').catch(() => ({}));
-            // Lemonade is the only local backend. 'Ollama' used to sit here and
+            // Lemonade is the only local backend. 'the local backend' used to sit here and
             // cost a failed round-trip on every refresh.
             const providers: string[] = ['Lemonade'];
             // Cloud subscription models only listed when signed in (local stays free).
@@ -340,33 +340,7 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
 
             for (const p of activeProviders) {
                 try {
-                    // Skip Ollama if it's not running (avoids repeated failed requests)
-                    if (p.toLowerCase() === 'ollama') {
-                        const ollamaStatus = get().ollamaStatus;
-                        if (ollamaStatus === 'error' || ollamaStatus === 'idle') {
-                            // Check if Ollama is actually reachable first
-                            try {
-                                const isRunning = await invoke<boolean>('check_lemonade_status');
-                                if (!isRunning) {
-                                    set({ ollamaStatus: 'error' });
-                                    continue;
-                                }
-                                set({ ollamaStatus: 'running' });
-                            } catch {
-                                set({ ollamaStatus: 'error' });
-                                continue;
-                            }
-                        }
-                    }
-                    if (p.toLowerCase() === 'ollama') {
-                        const raw = get().ollamaUrl || 'http://localhost:13305';
-                        const ollamaToUse = normalizeOllamaUrl(raw);
-                        await invoke('set_lemonade_url', { url: ollamaToUse });
-                        set({ ollamaUrl: ollamaToUse });
-                        try { localStorage.setItem('ollamaUrl', ollamaToUse); } catch { }
-                        const isLocal = /localhost|127\.|0\.0\.0\.0/.test(ollamaToUse);
-                        set({ ollamaConnectionMode: 'direct', ollamaMode: isLocal ? 'local' : 'cloud' });
-                    } else if (p.toLowerCase() === 'lemonade') {
+                    if (p.toLowerCase() === 'lemonade') {
                         // Lemonade uses its own URL — push it into the backend BEFORE
                         // list_provider_models runs, otherwise the engine resolves
                         // list_models("lemonade") against the stored/default base
@@ -376,7 +350,7 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                         try { localStorage.setItem('provider.lemonade.url', lemonadeUrlToUse); } catch { }
                         await invoke('set_lemonade_url', { url: lemonadeUrlToUse }).catch(() => { });
                     }
-                    // Show only ACTUALLY-INSTALLED Ollama models in the picker —
+                    // Show only ACTUALLY-INSTALLED the local backend models in the picker —
                     // do not flood it with registry pull-hints the user hasn't
                     // downloaded (that belongs in the pull/install wizard).
                     let models: string[] = await invoke<string[]>('list_provider_models', { provider: p });
@@ -393,7 +367,6 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                             allModels = [...allModels, ...fallback.map(m => ({ id: m, provider: p.toLowerCase() }))];
                         }
                     }
-                    if (p.toLowerCase() === 'ollama' && models.length > 0) set({ ollamaStatus: 'running' });
                     if (p.toLowerCase() === 'lemonade' && models.length > 0) set({ lemonadeStatus: 'running' });
                 } catch (e: any) {
                     const msg = typeof e === 'string' ? e : String(e ?? '');
@@ -403,7 +376,6 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                         msg.includes('not reachable') ||
                         msg.includes('error trying to connect');
                     if (!quiet) console.error(`Failed to fetch models for ${p}:`, e);
-                    if (p.toLowerCase() === 'ollama') set({ ollamaStatus: 'error' });
                     if (p.toLowerCase() === 'lemonade') set({ lemonadeStatus: 'error' });
                 }
             }

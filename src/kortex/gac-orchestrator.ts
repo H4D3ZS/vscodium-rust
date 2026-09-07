@@ -138,8 +138,115 @@ export interface LaunchExtras {
     slot_save_path?: string;
     /** Verbatim extra args appended to the launch line. */
     extra_args?: string[];
+    /**
+     * Speculative decoding — the software path around the memory-bandwidth
+     * wall. A comma-separated list from the ROCmFPX fork's `--spec-type` menu,
+     * in priority order. The big model verifies every drafted token, so the
+     * output is bit-identical to a plain run.
+     *   - `ngram-*` (`ngram-simple`, `ngram-map-k`, `ngram-map-k4v`,
+     *     `ngram-mod`, `ngram-cache`) — zero model, zero VRAM; guesses the
+     *     continuation from the prompt/context. Big win on code.
+     *   - `draft-mtp` — the model's own multi-token head (auto-discovered).
+     *   - `draft-eagle3` / `draft-simple` / `draft-dflash` / `draft-dspark` —
+     *     a separate small draft/EAGLE GGUF (needs `draft_model_path`).
+     */
+    spec_type?: string;
+    /** Draft / EAGLE-3 GGUF path — required for the `draft-simple`/`-eagle3`/
+     *  `-dflash`/`-dspark` types; optional for `draft-mtp`; unused for `ngram-*`. */
+    draft_model_path?: string;
+    /** Draft-model GPU layers. Default: all (it's tiny). Ignored without a draft model. */
+    draft_ngl?: number;
+    /** Tokens to speculate per step. Qwen3.8-27B MTP sweeps: 2 mixed, 3 code-heavy. */
+    draft_max?: number;
+    /** `--spec-draft-p-min`: MTP draft confidence gate. ~0.75 on a packed 16 GB card. */
+    draft_p_min?: number;
+    /** Persisted n-gram cache file for `ngram-cache` (`--lookup-cache-dynamic`). */
+    lookup_cache?: string;
+    /** `--n-cpu-moe`: MoE expert layers to keep in RAM instead of VRAM. The
+     *  knob that fits a Q4 35B-A3B on 16 GB (~20-24). No-op on a dense model. */
+    n_cpu_moe?: number;
     /** Seconds to wait for /health before returning. Default 60. 0 = don't wait. */
     wait_healthy_secs?: number;
+}
+
+/** Valid `--spec-type` names in the ROCmFPX fork (mirror of launcher.rs SPEC_TYPES). */
+export const SPEC_TYPES = [
+    'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache',
+    'draft-mtp', 'draft-eagle3', 'draft-simple', 'draft-dflash', 'draft-dspark',
+] as const;
+
+/** Read persisted speculative-decoding settings (off by default). The Rust
+ *  launcher filters unknown names and drops `draft-*` types with no model, so
+ *  this stays permissive and just forwards what the user picked. */
+export function specDecodeExtras(): Pick<LaunchExtras,
+    'spec_type' | 'draft_model_path' | 'draft_ngl' | 'draft_max' | 'draft_p_min' | 'lookup_cache'> {
+    try {
+        const raw = (localStorage.getItem('kortex.spec.type') || '').trim();
+        if (!raw) return {};
+        const type = raw
+            .split(',')
+            .map((s) => s.trim())
+            .filter((s) => (SPEC_TYPES as readonly string[]).includes(s))
+            .join(',');
+        if (!type) return {};
+        const isMtp = type.split(',').includes('draft-mtp');
+        const dm = localStorage.getItem('kortex.spec.draftModel') || undefined;
+        const ngl = Number(localStorage.getItem('kortex.spec.draftNgl') || '') || undefined;
+        // Community sweeps (sudoingX/qwen38-mtp): n-max 2 is the mixed-workload
+        // optimum for Qwen3.8-27B MTP; deeper loses on prose. Default to 2 for
+        // MTP unless the user set one.
+        const dmax = Number(localStorage.getItem('kortex.spec.draftMax') || '') || (isMtp ? 2 : undefined);
+        const pmin = Number(localStorage.getItem('kortex.spec.pMin') || '') || undefined;
+        const lc = localStorage.getItem('kortex.spec.lookupCache') || undefined;
+        return {
+            spec_type: type,
+            draft_model_path: /(?:^|,)draft-/.test(type) ? dm : undefined,
+            draft_ngl: ngl,
+            draft_max: dmax,
+            draft_p_min: isMtp ? pmin : undefined,
+            lookup_cache: type.split(',').includes('ngram-cache') ? lc : undefined,
+        };
+    } catch { return {}; }
+}
+
+export interface SpecAcceptance {
+    /** accepted / generated, 0..1. */
+    ratio: number;
+    /** Drafted tokens the target model kept. */
+    accepted: number;
+    /** Drafted tokens the target model checked. */
+    generated: number;
+    /** Mean tokens emitted per verify step (1.0 = speculation bought nothing). */
+    mean_accept_len: number;
+}
+
+/**
+ * Pull the most recent speculative-decoding acceptance stats out of a
+ * llama-server log tail. The ROCmFPX fork prints, per completed request:
+ *
+ *   draft acceptance = 0.54212 (   65 accepted /   120 generated), mean acceptance length =  2.15, ...
+ *
+ * Returns null when speculation is off or no such line is in the tail yet.
+ */
+export function parseSpecAcceptance(logLines: string[]): SpecAcceptance | null {
+    const re = /draft acceptance\s*=\s*([\d.]+)\s*\(\s*(\d+)\s*accepted\s*\/\s*(\d+)\s*generated\s*\)\s*,\s*mean acceptance length\s*=\s*([\d.]+)/i;
+    for (let i = logLines.length - 1; i >= 0; i--) {
+        const m = re.exec(logLines[i]);
+        if (!m) continue;
+        const ratio = Number(m[1]);
+        const accepted = Number(m[2]);
+        const generated = Number(m[3]);
+        const mean_accept_len = Number(m[4]);
+        if (![ratio, accepted, generated, mean_accept_len].every(Number.isFinite)) return null;
+        return { ratio, accepted, generated, mean_accept_len };
+    }
+    return null;
+}
+
+/** One-line readout for the inference panel, e.g. "spec: 54% kept · 2.15 tok/step". */
+export function formatSpecAcceptance(s: SpecAcceptance | null): string {
+    if (!s || s.generated <= 0) return '';
+    return `spec: ${Math.round(s.ratio * 100)}% kept · ${s.mean_accept_len.toFixed(2)} tok/step`;
 }
 
 const DEFAULT_PLAN_OPTS: Required<Pick<PlanOptions,
@@ -230,6 +337,13 @@ export async function launchServer(
         batchSize: extras.batch_size ?? null,
         flashAttn: extras.flash_attn ?? null,
         slotSavePath: extras.slot_save_path ?? null,
+        specType: extras.spec_type ?? null,
+        draftModelPath: extras.draft_model_path ?? null,
+        draftNgl: extras.draft_ngl ?? null,
+        draftMax: extras.draft_max ?? null,
+        draftPMin: extras.draft_p_min ?? null,
+        lookupCache: extras.lookup_cache ?? null,
+        nCpuMoe: extras.n_cpu_moe ?? null,
         extraArgs: extras.extra_args ?? null,
         waitHealthySecs: extras.wait_healthy_secs ?? null,
     });
@@ -279,7 +393,9 @@ export interface KortexBootResult {
  */
 export async function startKortexInference(opts: KortexBootOptions): Promise<KortexBootResult> {
     const plan = await quickPlan(opts.model_path, opts, opts.refresh_profile);
-    const server = await launchServer(plan, opts.model_path, opts.launch ?? {});
+    // Persisted spec-decode toggles apply unless the caller overrode them explicitly.
+    const launch: LaunchExtras = { ...specDecodeExtras(), ...(opts.launch ?? {}) };
+    const server = await launchServer(plan, opts.model_path, launch);
     const base_url = `http://${server.host}:${server.port}`;
     return { plan, server, base_url };
 }
@@ -320,7 +436,8 @@ export async function startLocalInference(opts: {
     launch?: LaunchExtras;
 }): Promise<KortexBootResult> {
     const plan = fullGpuPlan(opts.backend ?? 'vulkan', opts.vram_total_mb ?? 16384);
-    const server = await launchServer(plan, opts.model_path, opts.launch ?? {});
+    const launch: LaunchExtras = { ...specDecodeExtras(), ...(opts.launch ?? {}) };
+    const server = await launchServer(plan, opts.model_path, launch);
     const base_url = `http://${server.host}:${server.port}`;
     return { plan, server, base_url };
 }

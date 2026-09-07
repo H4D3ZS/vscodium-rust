@@ -148,14 +148,21 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
 
         import('monaco-editor').then((monaco) => {
             const bps = debugBreakpoints.filter((b) => b.path === path && b.enabled);
-            const decorations = bps.map((b) => ({
-                range: new monaco.Range(b.line, 1, b.line, 1),
-                options: {
-                    isWholeLine: true,
-                    glyphMarginClassName: 'codicon codicon-debug-breakpoint',
-                    glyphMarginHoverMessage: { value: `Breakpoint (line ${b.line})` },
-                },
-            }));
+            const decorations = bps.map((b) => {
+                const kind = b.logMessage
+                    ? { cls: 'codicon codicon-debug-breakpoint-log', label: `Logpoint: ${b.logMessage}` }
+                    : (b.condition || b.hitCondition)
+                        ? { cls: 'codicon codicon-debug-breakpoint-conditional', label: `Conditional breakpoint${b.condition ? `: ${b.condition}` : ''}${b.hitCondition ? ` (hit ${b.hitCondition})` : ''}` }
+                        : { cls: 'codicon codicon-debug-breakpoint', label: `Breakpoint (line ${b.line})` };
+                return {
+                    range: new monaco.Range(b.line, 1, b.line, 1),
+                    options: {
+                        isWholeLine: true,
+                        glyphMarginClassName: kind.cls,
+                        glyphMarginHoverMessage: { value: kind.label },
+                    },
+                };
+            });
             if (!bpDecorationsRef.current) {
                 bpDecorationsRef.current = editor.createDecorationsCollection(decorations);
             } else {
@@ -259,6 +266,29 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
             if (path && line && !path.startsWith('vscode://')) {
                 useStore.getState().toggleBreakpoint(path, line);
             }
+        });
+
+        // Shift+F9 = conditional breakpoint / logpoint (VS Code: "Edit Breakpoint")
+        editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F9, () => {
+            const path = useStore.getState().activeEditorPath
+                || useStore.getState().tabs.find((t) => t.id === useStore.getState().activeTabId)?.path;
+            const line = editor.getPosition()?.lineNumber;
+            if (!path || !line || path.startsWith('vscode://')) return;
+            const cur = useStore.getState().debugBreakpoints.find((b) => b.path === path && b.line === line);
+            const condition = window.prompt(
+                `Breakpoint @ line ${line}\nCondition (expression, blank = none):`,
+                cur?.condition || '',
+            );
+            if (condition === null) return; // cancelled
+            const hitCondition = window.prompt(
+                'Hit count (e.g. >5, %3, =10 — blank = none):',
+                cur?.hitCondition || '',
+            ) ?? '';
+            const logMessage = window.prompt(
+                'Log message — makes it a LOGPOINT that prints instead of stopping.\nUse {expr} for values. Blank = normal breakpoint:',
+                cur?.logMessage || '',
+            ) ?? '';
+            useStore.getState().editBreakpoint(path, line, { condition, hitCondition, logMessage });
         });
 
         // Gutter click toggles breakpoint (VS Code parity)

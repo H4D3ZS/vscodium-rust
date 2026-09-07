@@ -459,7 +459,7 @@ impl EditorState {
 
         let vfs_bridge = Arc::new(vfs_bridge::VfsBridge::new(root.clone()));
         let mcp_server = Arc::new(mcp_server::McpServer::new(sentient.ai_tools.clone()));
-        // The built-in MCP listener (:1537) only matters when an *external* MCP
+        // The built-in MCP listener (:1539) only matters when an *external* MCP
         // client wants to reach this IDE's tools — uncommon. Opt-in: it auto-
         // starts only if `<config>/mcp_builtin.enabled` exists (created by the
         // MCP Store's "Expose IDE tools" toggle). Skipped in lite mode regardless.
@@ -468,10 +468,10 @@ impl EditorState {
             let mcp_server_clone = mcp_server.clone();
             crate::event_sink::spawn_detached(async move {
                 tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
-                mcp_server_clone.start(1537).await;
+                mcp_server_clone.start(1539).await;
             });
         } else {
-            println!("[profile] built-in MCP listener (:1537) not auto-started (opt-in via mcp_builtin.enabled)");
+            println!("[profile] built-in MCP listener (:1539) not auto-started (opt-in via mcp_builtin.enabled)");
         }
 
 

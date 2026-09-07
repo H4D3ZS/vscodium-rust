@@ -1,7 +1,7 @@
 //! Multi-vector synthesis and discrepancy aggregator.
 //!
 //! Maintains a persistent in-memory findings log, assembles the context
-//! prompt for the local Ollama engine, and exposes Tauri commands for the
+//! prompt for the local model engine, and exposes Tauri commands for the
 //! TriageWorkbench UI canvas.
 //!
 //! DDD placement note: business state (`OrchestratorState`) lives here rather
@@ -108,10 +108,10 @@ pub struct OrchestratorState {
 }
 
 impl OrchestratorState {
-    pub fn new(workspace_root: PathBuf, config_dir: PathBuf, ollama_url: &str) -> Self {
+    pub fn new(workspace_root: PathBuf, config_dir: PathBuf, inference_url: &str) -> Self {
         let aim_path = config_dir.join("telemetry.aim");
         Self {
-            pipeline: TelemetryPipeline::new(aim_path, workspace_root, ollama_url),
+            pipeline: TelemetryPipeline::new(aim_path, workspace_root, inference_url),
             event_log: VecDeque::with_capacity(512),
             drift_log: Vec::new(),
             last_snapshot: None,
@@ -162,11 +162,11 @@ impl OrchestratorState {
             ));
         }
 
-        // 4. Send to Ollama for synthesis.
-        let ollama_json = self.pipeline.synthesize(&synthesis_events).await?;
+        // 4. Send to the local model for synthesis.
+        let local_json = self.pipeline.synthesize(&synthesis_events).await?;
 
         // 5. Parse the JSON response into a CanvasSnapshot.
-        let snapshot = parse_synthesis_response(&ollama_json, self.run_count)?;
+        let snapshot = parse_synthesis_response(&local_json, self.run_count)?;
 
         self.last_snapshot = Some(snapshot.clone());
         self.run_count += 1;
@@ -268,16 +268,16 @@ fn parse_synthesis_response(raw: &str, run_id: u64) -> Result<CanvasSnapshot, St
 /// Global handle — initialised once in setup, shared via `Arc<Mutex<>>`.
 pub type OrchestratorHandle = Arc<Mutex<OrchestratorState>>;
 
-pub fn init(workspace_root: PathBuf, config_dir: PathBuf, ollama_url: &str) -> OrchestratorHandle {
+pub fn init(workspace_root: PathBuf, config_dir: PathBuf, inference_url: &str) -> OrchestratorHandle {
     Arc::new(Mutex::new(OrchestratorState::new(
         workspace_root,
         config_dir,
-        ollama_url,
+        inference_url,
     )))
 }
 
 /// Trigger a full analysis cycle. Returns the new CanvasSnapshot.
-/// Blocks until Ollama responds. The Semaphore in TelemetryPipeline ensures
+/// Blocks until the local model responds. The Semaphore in TelemetryPipeline ensures
 /// this is safe to invoke concurrently — the second caller waits.
 #[tauri::command]
 pub async fn triage_run(

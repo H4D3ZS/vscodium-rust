@@ -1574,7 +1574,7 @@ const RightSidebar: React.FC = () => {
                     </div>
 
                     <div style={{ fontSize: '9px', opacity: 0.45, lineHeight: 1.4 }}>
-                        Vision sends screen captures to a local Ollama VL model. Thoughts runs a lightweight LLM
+                        Vision sends screen captures to a local VL model. Thoughts runs a lightweight LLM
                         for AIRI's background monologue. Both default to your local install — turn off to save GPU.
                     </div>
                 </div>

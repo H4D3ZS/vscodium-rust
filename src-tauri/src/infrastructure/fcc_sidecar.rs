@@ -1,7 +1,7 @@
 //! Free Claude Code sidecar — spawns and monitors the FCC Python proxy server.
 //!
 //! FCC routes Anthropic Messages API traffic from Claude Code / Codex through
-//! 19+ providers (Ollama, Lemonade, OpenRouter, etc.). The sidecar manages
+//! 19+ providers (Lemonade, OpenRouter, etc.). The sidecar manages
 //! the process lifecycle and provides health-check endpoints.
 
 use std::path::PathBuf;

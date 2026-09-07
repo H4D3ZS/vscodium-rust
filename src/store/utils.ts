@@ -1,6 +1,6 @@
 // Shared pure utilities used by slices. No Zustand imports here.
 
-function ollamaShouldInferScheme(s: string): boolean {
+function inferenceShouldInferScheme(s: string): boolean {
     const head = (s.split('/')[0].split('?')[0] || '').replace(/^\/+/, '');
     if (!head) return false;
     const lower = head.toLowerCase();
@@ -14,12 +14,12 @@ function ollamaShouldInferScheme(s: string): boolean {
     return tld.length >= 2;
 }
 
-export function normalizeOllamaUrl(raw: string): string {
+export function normalizeInferenceUrl(raw: string): string {
     const s = raw.trim().replace(/\/+$/, '');
     if (!s) return 'http://127.0.0.1:13305';
     if (/^https?:\/\//i.test(s)) return s;
     if (s.startsWith('//')) return `https:${s}`.replace(/\/+$/, '');
-    if (!ollamaShouldInferScheme(s)) return s;
+    if (!inferenceShouldInferScheme(s)) return s;
     const hostish = s.replace(/^\/+/, '');
     const lower = hostish.toLowerCase();
     const useHttp =

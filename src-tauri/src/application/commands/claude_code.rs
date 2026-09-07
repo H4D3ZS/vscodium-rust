@@ -203,7 +203,7 @@ Attached image(s) — use the Read tool to view:
         Some(m) => m,
         None => state.ai.current_model.lock().await.clone(),
     };
-    // A `…:latest` id persisted from Lemonade's Ollama-compat tag list is not
+    // A `…:latest` id persisted from Lemonade's native-/api-compat tag list is not
     // what the server or the Anthropic endpoint answers to.
     let model = super::ai::canonical_model_id(model.trim()).to_string();
     if model.trim().is_empty() {

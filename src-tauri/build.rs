@@ -129,13 +129,13 @@ fn main() {
         // libane_bridge.dylib is a prebuilt arm64-only binary. Linking it on
         // x86_64 (Intel Mac / Hackintosh) breaks the build; ANE hardware does
         // not exist there anyway, so ane.rs compiles its stub and
-        // ane_inference falls back to Ollama at runtime.
+        // ane_inference falls back to the local backend at runtime.
         if target_arch == "aarch64" && Path::new("libane_bridge.dylib").exists() {
             println!("cargo:rustc-link-search=native=.");
             println!("cargo:rustc-link-lib=dylib=ane_bridge");
         } else {
             println!(
-                "cargo:warning=ane_bridge link skipped (target_arch={target_arch}) — ANE is Apple Silicon-only; Ollama fallback active"
+                "cargo:warning=ane_bridge link skipped (target_arch={target_arch}) — ANE is Apple Silicon-only; local-backend fallback active"
             );
         }
 

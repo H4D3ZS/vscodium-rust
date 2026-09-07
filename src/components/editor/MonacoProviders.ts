@@ -72,22 +72,36 @@ export function registerMonacoProviders(
                     startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
                     startColumn: word.startColumn, endColumn: word.endColumn,
                 };
-                return {
-                    suggestions: (res?.items ?? []).map((item: any) => ({
-                        label: item.label,
-                        kind: lspKindToMonaco(item.kind ?? 1),
-                        insertText: item.insertText ?? item.textEdit?.newText ?? item.label,
-                        insertTextRules: item.insertTextFormat === 2 ? 4 : 0,
-                        detail: item.detail ?? '',
-                        documentation: { value: item.documentation?.value ?? item.documentation ?? '' },
-                        sortText: item.sortText ?? item.label,
-                        filterText: item.filterText ?? item.label,
-                        preselect: item.preselect ?? false,
-                        range,
-                    })),
-                    incomplete: false,
-                };
-            } catch { return { suggestions: [] }; }
+                const lspItems = (res?.items ?? []).map((item: any) => ({
+                    label: item.label,
+                    kind: lspKindToMonaco(item.kind ?? 1),
+                    insertText: item.insertText ?? item.textEdit?.newText ?? item.label,
+                    insertTextRules: item.insertTextFormat === 2 ? 4 : 0,
+                    detail: item.detail ?? '',
+                    documentation: { value: item.documentation?.value ?? item.documentation ?? '' },
+                    sortText: item.sortText ?? item.label,
+                    filterText: item.filterText ?? item.label,
+                    preselect: item.preselect ?? false,
+                    range,
+                }));
+                let snips: any[] = [];
+                try {
+                    const { snippetSuggestions, hasSnippets } = await import('../../application/editor/snippets');
+                    if (hasSnippets()) snips = snippetSuggestions(lang, monaco, range);
+                } catch { /* snippets module optional */ }
+                return { suggestions: [...lspItems, ...snips], incomplete: false };
+            } catch {
+                // LSP failed — still offer snippets.
+                try {
+                    const { snippetSuggestions, hasSnippets } = await import('../../application/editor/snippets');
+                    const word = model.getWordUntilPosition(position);
+                    const range = {
+                        startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
+                        startColumn: word.startColumn, endColumn: word.endColumn,
+                    };
+                    return { suggestions: hasSnippets() ? snippetSuggestions(lang, monaco, range) : [] };
+                } catch { return { suggestions: [] }; }
+            }
         },
     });
 

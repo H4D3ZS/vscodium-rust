@@ -9,15 +9,23 @@
 //!   * a fixed calling contract + optional GBNF grammar for reliable tool calls
 //!     on a 3B-active model (`contract`),
 //!   * a synthetic `expand` tool that rehydrates one full schema on demand —
-//!     the "context lives compressed and expands when needed" model.
+//!     the "context lives compressed and expands when needed" model,
+//!   * **tool-output compression** (`tool_output`): large tool *results* are
+//!     shape-crushed before they re-enter the prompt, with the original stashed
+//!     for a `recall({"id": …})` — the input-side lever Headroom calls
+//!     SmartCrusher / CodeCompressor / CCR, done deterministically,
+//!   * **output-verbosity steering** (`response_steer`): a terse response
+//!     contract + effort-routed `max_tokens` ceiling, cutting *decode* tokens.
 //!
 //! No embeddings, no retrieval, no model calls. Pure structure walking, behind
 //! an explicit opt-in (`KORTEX_HARNESS=1`) so the default proxy path is
 //! byte-for-byte unchanged.
 
 pub mod contract;
+pub mod response_steer;
 pub mod stash;
 pub mod tool_digest;
+pub mod tool_output;
 pub mod turn_stash;
 
 use serde_json::{json, Value};
@@ -29,8 +37,9 @@ use tool_digest::{approx_tokens, digest_tools, ToolDigest};
 const DEFAULT_CORE_TOOLS: &[&str] = &[
     "read_file", "read", "write_file", "write", "edit_file", "edit",
     "bash", "run_terminal_cmd", "grep", "glob", "list_dir", "codebase_search",
-    // `expand` must never be compacted — it's how everything else comes back.
-    "expand",
+    // `expand` must never be compacted — it's how a schema comes back; `recall`
+    // likewise — it's how a compacted tool output (`tool_output`) comes back.
+    "expand", "recall",
 ];
 
 #[derive(Debug, Clone)]
@@ -58,11 +67,11 @@ impl Default for HarnessConfig {
 }
 
 impl HarnessConfig {
+    /// The one call site (`autonomous.rs`) is already gated on `is_native_api`
+    /// (Antigravity/Lemonade — local only), so this ships **on by default**
+    /// there; `KORTEX_HARNESS=0` still turns it off per-workspace.
     pub fn from_env() -> Self {
-        let on = matches!(
-            std::env::var("KORTEX_HARNESS").ok().as_deref(),
-            Some("1") | Some("true") | Some("on")
-        );
+        let on = crate::domain::ai::env_flag::on("KORTEX_HARNESS", true);
         Self {
             enabled: on,
             constrain_grammar: matches!(
@@ -83,31 +92,68 @@ pub struct HarnessReport {
     pub tools_compacted: usize,
     pub approx_tokens_before: usize,
     pub approx_tokens_after: usize,
+    /// Tool-result payload compression (`tool_output`).
+    pub tool_output: tool_output::ToolOutputReport,
+    /// Output-verbosity steering (`response_steer`).
+    pub steer: response_steer::SteerReport,
 }
 
 impl HarnessReport {
+    /// Tokens saved on the prompt: tool-schema compaction + tool-output crush.
     pub fn saved(&self) -> usize {
         self.approx_tokens_before
             .saturating_sub(self.approx_tokens_after)
+            + self.tool_output.approx_tokens_saved()
     }
 }
 
 /// Rewrite an OpenAI `/v1/chat/completions` body in place. Idempotent and
 /// defensive: any unexpected shape leaves `body` untouched and returns
 /// `applied = false`.
+///
+/// Three independent, individually-idempotent passes run in order:
+///   1. tool-schema compaction (this module) — only when a large `tools` array
+///      is present,
+///   2. tool-output crush (`tool_output`) — whenever a big tool result is in
+///      `messages`, regardless of (1),
+///   3. output-verbosity steering (`response_steer`) — always, on the response.
 pub fn compress_openai_request(body: &mut Value, cfg: &HarnessConfig) -> HarnessReport {
     let mut report = HarnessReport::default();
     if !cfg.enabled {
         return report;
     }
+
+    compress_tool_schemas(body, cfg, &mut report);
+    if report.tools_compacted > 0 {
+        crate::domain::ai::reliability_stats::bump("HARNESS_SCHEMA_COMPACTED");
+    }
+    report.tool_output = tool_output::compress_tool_messages(body, &tool_output::ToolOutputConfig::from_env());
+    if report.tool_output.messages_compacted > 0 {
+        crate::domain::ai::reliability_stats::bump("HARNESS_TOOL_OUTPUT_COMPACTED");
+    }
+    report.steer = response_steer::steer_response(body, &response_steer::SteerConfig::from_env());
+    if report.steer.directive_injected {
+        // Not `applied` — that stays true on an idempotent resend too, and this
+        // counter should reflect new applications, not repeats of the same turn.
+        crate::domain::ai::reliability_stats::bump("HARNESS_STEER_APPLIED");
+    }
+    if report.tool_output.messages_compacted > 0 || report.steer.applied {
+        report.applied = true;
+    }
+    report
+}
+
+/// Pass 1: compact a large `tools` array into a signature block + `expand`.
+/// Sets fields on `report` in place; a no-op on any shape without enough tools.
+fn compress_tool_schemas(body: &mut Value, cfg: &HarnessConfig, report: &mut HarnessReport) {
     let Some(obj) = body.as_object_mut() else {
-        return report;
+        return;
     };
 
     // Already processed? (our marker survives a resend of the same turn.)
     if obj.get("_kortex_harness").is_some() {
         report.applied = true;
-        return report;
+        return;
     }
 
     let model = obj
@@ -118,7 +164,7 @@ pub fn compress_openai_request(body: &mut Value, cfg: &HarnessConfig) -> Harness
 
     let tools = match obj.get("tools").and_then(Value::as_array) {
         Some(t) if t.len() > 4 => t.clone(),
-        _ => return report, // nothing worth compressing
+        _ => return, // nothing worth compressing
     };
     report.tools_in = tools.len();
     report.approx_tokens_before = approx_tokens(&serde_json::to_string(&tools).unwrap_or_default());
@@ -146,7 +192,7 @@ pub fn compress_openai_request(body: &mut Value, cfg: &HarnessConfig) -> Harness
     }
 
     if compacted.is_empty() {
-        return report; // everything fit in the core/extra budget already
+        return; // everything fit in the core/extra budget already
     }
 
     // Build the compact signature block.
@@ -204,7 +250,6 @@ pub fn compress_openai_request(body: &mut Value, cfg: &HarnessConfig) -> Harness
     report.tools_compacted = compacted.len();
     report.approx_tokens_after = approx_tokens(&serde_json::to_string(&inline).unwrap_or_default())
         + approx_tokens(&block);
-    report
 }
 
 /// Look up a full schema previously stashed by `compress_openai_request`, so an
@@ -374,9 +419,20 @@ mod tests {
 
     #[test]
     fn small_tool_arrays_untouched() {
+        // Isolate the schema-compaction axis: tool_output/steer now default on
+        // independently (see `ToolOutputConfig`/`SteerConfig::from_env`), so
+        // pin them off here to test what this case actually means — a small
+        // tool array isn't compacted.
+        let _g = stash::test_lock();
+        std::env::set_var("KORTEX_HARNESS_TOOL_OUTPUT", "0");
+        std::env::set_var("KORTEX_HARNESS_STEER", "0");
         let mut b = req_with(3);
         let cfg = HarnessConfig { enabled: true, ..Default::default() };
         let r = compress_openai_request(&mut b, &cfg);
+        std::env::remove_var("KORTEX_HARNESS_TOOL_OUTPUT");
+        std::env::remove_var("KORTEX_HARNESS_STEER");
+        assert_eq!(r.tools_compacted, 0);
+        assert_eq!(r.tools_inline_out, 0);
         assert!(!r.applied);
     }
 }

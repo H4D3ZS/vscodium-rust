@@ -15,10 +15,34 @@ native process, not an Electron main thread.
 - **Local inference via [Lemonade](https://github.com/lemonade-sdk/lemonade)** — an
   OpenAI-compatible server (`:13305`) running real llama.cpp, tuned for local hardware
   (AMD included). It's the only backend; bring your own API key for a hosted model if
-  you want one. Prompts can route through **kortex**: an `.aim` workspace-context
-  proxy (`:1536`, from the [kortex submodule](https://github.com/H4D3ZS/kortex),
-  AGPL-3.0, spawned as a separate process) plus an in-process KV-slot cache
-  (`:1537`) that skips re-prefilling repeated prompt prefixes.
+  you want one. Optional **two-model split**: a big reasoner on the bundled
+  ROCmFPX server keeps the main loop, and a small fast **Operator**
+  (`qwen3.5:4b` by default, on Lemonade) runs sub-agents and the APEX
+  specialist bank — `KORTEX_OPERATOR_MODEL` / `KORTEX_OPERATOR_URL`, or the
+  fields in the *Kortex ROCmFPX* panel. See
+  [`docs/kortex-lemonade-architecture.md`](docs/kortex-lemonade-architecture.md).
+  Prompts can route through **kortex** (from the
+  [kortex submodule](https://github.com/H4D3ZS/kortex), AGPL-3.0):
+  - **KV-slot cache** (`:1537`) — an in-process reverse proxy in front of the
+    backend that skips re-prefilling repeated prompt prefixes (KDKVC). Opt-in:
+    the *Kortex Services* panel's **Start** button, or `kvcache.autostart=1`.
+  - **AIM retrieval proxy** (`:1536`) — an in-process router (`aim-proxy`).
+    On Start it builds a dense `.aim` catalog of the workspace (via the
+    Lemonade embedder), then embeds each request's last user turn, searches
+    the catalog, and prepends only the chunks that clear the gate — so the
+    model gets *less, more relevant* context instead of the whole repo.
+    Falls back to a plain pass-through if the catalog is empty or a search
+    overruns its latency budget. Opt-in (panel **Start**, or
+    `kortex.retrieval.autostart=1`).
+  - **VFS daemon** (`:1538`) — a sidecar process managing `.aim` memory and file
+    watching. Auto-starts on boot.
+  - **Speculative decoding** — for the bundled ROCmFPX backend, the *Kortex
+    ROCmFPX* panel exposes a decode-speed picker (prompt-lookup n-grams — no
+    model, no VRAM — and/or the model's MTP head). The full model verifies
+    every drafted token, so output is unchanged; the panel shows the live
+    acceptance rate. See [`docs/kortex-decode-throughput.md`](docs/kortex-decode-throughput.md).
+    Set `KORTEX_COMPUTE_TRACE=<path>` and `tools/compute-bench/reduce_trace.py`
+    turns a session into a measured prefill-savings receipt.
 - **Agentic by default** — multi-turn tool loop with verify-before-done, a shadow
   workspace for safe edits, background agents for long work.
 - **Local-first** — code and model traffic stay on your machine unless you point a

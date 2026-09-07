@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use super::types::*;
-use super::sentient::{Sentient, OLLAMA_ESSENTIAL_TOOLS};
+use super::sentient::{Sentient, LOCAL_ESSENTIAL_TOOLS};
 
 /// Depth of nested [`Sentient::autonomous_loop`] calls started by the `task`
 /// tool. Process-global on purpose: the IDE runs one top-level agent at a time,
@@ -87,6 +87,140 @@ fn resolve_domain_tools(task_desc: &str) -> Option<&'static [&'static str]> {
 /// Result of slash command handling.
 enum SlashResult { Handled(String), Continue }
 
+/// Detect a collapse into punctuation / line-noise ("morse code"): a weak
+/// quant loses coherence and falls into a high-frequency symbol attractor
+/// (`/\.,;'"=|_-` …). Not necessarily periodic, so `degenerate_loop_start`
+/// misses it. Trips when the tail window is overwhelmingly non-word symbols
+/// with almost no real words; returns the offset where the collapse began.
+fn symbol_collapse_start(text: &str) -> Option<usize> {
+    const WINDOW: usize = 400;
+    const MIN_LEN: usize = 200;
+    if text.len() < MIN_LEN {
+        return None;
+    }
+    // char-safe tail
+    let mut start = text.len().saturating_sub(WINDOW);
+    while start > 0 && !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    let tail = &text[start..];
+
+    let is_noise = |c: char| {
+        matches!(
+            c,
+            '/' | '\\' | '.' | ',' | ';' | ':' | '\'' | '"' | '=' | '|' | '_'
+                | '-' | '<' | '>' | '~' | '^' | '*' | '`' | '(' | ')' | '[' | ']'
+                | '{' | '}' | '+' | '#' | '@' | '!' | '?' | '&' | '%' | '$'
+        )
+    };
+    let alnum = tail.chars().filter(|c| c.is_alphanumeric()).count();
+    let noise = tail.chars().filter(|&c| is_noise(c)).count();
+    let total = tail.chars().count().max(1);
+
+    // A "word" = 3+ consecutive alphabetic chars with a vowel.
+    let words = tail
+        .split(|c: char| !c.is_alphabetic())
+        .filter(|w| w.len() >= 3 && w.chars().any(|c| "aeiouAEIOU".contains(c)))
+        .count();
+
+    if noise * 100 / total >= 55 && alnum * 100 / total <= 20 && words <= 2 {
+        // Collapse confirmed. Keep everything up to and including the last real
+        // word (3+ letters with a vowel) plus its trailing punctuation; the
+        // rest is line-noise.
+        let mut last_word_end = 0usize;
+        let (mut cur_len, mut cur_vowel) = (0usize, false);
+        for (i, c) in text.char_indices() {
+            if c.is_alphabetic() {
+                cur_len += 1;
+                if "aeiouAEIOU".contains(c) {
+                    cur_vowel = true;
+                }
+            } else {
+                if cur_len >= 3 && cur_vowel {
+                    last_word_end = i;
+                }
+                cur_len = 0;
+                cur_vowel = false;
+            }
+        }
+        if cur_len >= 3 && cur_vowel {
+            last_word_end = text.len();
+        }
+        let mut cut = last_word_end;
+        for (i, c) in text[last_word_end..].char_indices() {
+            if c.is_whitespace()
+                || matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '}' | '"' | '\'')
+            {
+                cut = last_word_end + i + c.len_utf8();
+            } else {
+                break;
+            }
+        }
+        return Some(cut.min(text.len()));
+    }
+    None
+}
+
+/// Detect a degenerate repetition loop in a growing generation buffer.
+///
+/// A ~2.5-bit quant of a large MoE can lock into repeating a phrase, a line,
+/// or a whole sentence in its reasoning — the "Thought for 2m…" hang with no
+/// tool call. The inter-token watchdog never fires (tokens *are* flowing) and
+/// the tool-call stuck-loop guard never sees it (no tool calls yet), so the
+/// turn burns the entire `max_tokens` budget on garbage.
+///
+/// This scans the tail for a repeating period `p` (covers single-char, word,
+/// line and paragraph loops in one check): if `tail[-p..] == tail[-2p..-p] ==
+/// tail[-3p..-2p]`, the text is cycling. Returns the byte offset in `text`
+/// where the cycling began, so the caller can keep the clean prefix and drop
+/// the degenerate tail.
+fn degenerate_loop_start(text: &str) -> Option<usize> {
+    // Only look once there's enough tail to be sure it's a loop, not a list.
+    const WINDOW: usize = 1600;
+    const MIN_PERIOD: usize = 12;
+    const MAX_PERIOD: usize = 400;
+    const MIN_REPEATS: usize = 3;
+
+    let bytes = text.as_bytes();
+    let n = bytes.len();
+    if n < MIN_PERIOD * (MIN_REPEATS + 1) {
+        return None;
+    }
+    let win_start = n.saturating_sub(WINDOW);
+    let tail = &bytes[win_start..];
+    let tn = tail.len();
+
+    let max_p = MAX_PERIOD.min(tn / (MIN_REPEATS + 1));
+    for p in MIN_PERIOD..=max_p {
+        // Compare the last `p` bytes against the preceding blocks of `p`.
+        let last = &tail[tn - p..];
+        let mut repeats = 1usize;
+        while (repeats + 1) * p <= tn
+            && &tail[tn - (repeats + 1) * p..tn - repeats * p] == last
+        {
+            repeats += 1;
+        }
+        if repeats >= MIN_REPEATS {
+            // Extend the periodic region backward byte-by-byte to the true start
+            // of the cycle (block stepping can leave a partial period attached to
+            // the clean prefix).
+            let mut start_in_tail = tn - repeats * p;
+            while start_in_tail > 0 && tail[start_in_tail - 1] == tail[start_in_tail - 1 + p] {
+                start_in_tail -= 1;
+            }
+            // Keep one clean copy of the repeated unit; drop everything after it.
+            let cut_in_tail = (start_in_tail + p).min(tn);
+            let mut cut = (win_start + cut_in_tail).min(n);
+            // Land on a UTF-8 boundary.
+            while cut > 0 && !text.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            return Some(cut);
+        }
+    }
+    None
+}
+
 impl Sentient {
     pub async fn autonomous_loop(
         self: Arc<Self>,
@@ -130,7 +264,7 @@ impl Sentient {
         }
 
         // Detect "local quantized model" providers early — used throughout the
-        // function for budget decisions. Ollama, the antigravity local proxy,
+        // function for budget decisions. The native /api backends (the antigravity local proxy,
         // AND the local DeepSeek-ANE server (llama.cpp / MLX on Apple Silicon)
         // all share the same constraints: limited context, smaller model so
         // the tool catalog must be trimmed, prompts kept lean.
@@ -313,7 +447,7 @@ impl Sentient {
 
         // ── Kortex AIM Brain Injection ────────────────────────────────────────
         // The compact gist is ~100 tokens. Always inject for ALL providers —
-        // even 8K-context Ollama models can afford it. Only the verbose full
+        // even 8K-context local models can afford it. Only the verbose full
         // knowledge summary (thousands of tokens) is gated to cloud models.
         let (tree_before, aim_indexed_files) = self
             .memory_store
@@ -416,11 +550,11 @@ impl Sentient {
                     // view_file — near-zero upfront footprint instead of the full map.
                     let gist_spans = self.memory_store.query_relevant_spans(&query_for_spans, 6, 60).await;
                     project_memory.push_str(&format!(
-                        "\n### BRAIN (Kortex AIM gist — {} files indexed, zero-grep)\n\
+                        "\n### BRAIN (Kortex AIM gist — {}, zero-grep)\n\
                          This is a MINIMAL gist: only the spans relevant to the current request.\n\
                          For anything not listed, call `aim_query_spans(\"<symbol/topic>\")` or `view_file`\n\
                          — do NOT grep/list_files to orient.\n",
-                        indexed_count,
+                        super::prefix_cache::indexed_hint(indexed_count),
                     ));
                     if !gist_spans.is_empty() {
                         project_memory.push_str(&format!("{}\n", gist_spans));
@@ -577,8 +711,8 @@ impl Sentient {
         // YOLO mode: count consecutive nudges to prevent infinite spin
         let mut yolo_nudges: u32 = 0;
         // Trigger Phase-Wrap every N iterations to compress context → .aim.
-        // Local/Ollama models have small context windows — wrap aggressively to prevent truncation.
-        // Phase-Wrap cadence. Wrapping every 3 iterations on small Ollama models
+        // Local/local models have small context windows — wrap aggressively to prevent truncation.
+        // Phase-Wrap cadence. Wrapping every 3 iterations on small local models
         // was catastrophic — it dropped the model into "[system, gist, mission]"
         // before it ever finished a single tool chain, which is why local tunes
         // (abliterated, neuraldevil, etc.) started emitting LaTeX letter-spam
@@ -630,7 +764,7 @@ impl Sentient {
             }
         }
         // Scale context limit to the model's actual context window.
-        // Ollama models: use num_ctx * ~4 chars/token as the budget.
+        // local models: use num_ctx * ~4 chars/token as the budget.
         // Cloud models: 500k chars (generous, they handle it).
         let context_limit = if is_local_provider {
             let num_ctx = Self::recommended_num_ctx(&req.model);
@@ -714,7 +848,7 @@ impl Sentient {
             }
         }
 
-        // For Ollama AND Lemonade: trim tools to a focused essential set.
+        // For local backends: trim tools to a focused essential set.
         // Local models have limited context — 60+ tools wastes 8-12k tokens on schemas alone.
         // We keep only the ~20 tools a coding agent actually needs most.
         let is_small_model = is_local_provider || Self::is_small_model_name(&req.model);
@@ -723,7 +857,7 @@ impl Sentient {
                 let name = t["function"]["name"].as_str()
                     .or_else(|| t["name"].as_str())
                     .unwrap_or("");
-                OLLAMA_ESSENTIAL_TOOLS.contains(&name)
+                LOCAL_ESSENTIAL_TOOLS.contains(&name)
             });
 
             // Task-aware secondary filter: reduce tool set further based on task domain.
@@ -898,11 +1032,11 @@ impl Sentient {
             let mode = req.mode.as_deref().unwrap_or("Fast");
             let zero_grep_planning = if aim_indexed_files > 0 {
                 format!(
-                    "CORE OBJECTIVE: AUTONOMOUS RESEARCH & PREP with AIM zero-grep ({} files indexed). \
+                    "CORE OBJECTIVE: AUTONOMOUS RESEARCH & PREP with AIM zero-grep ({}). \
                      1. Use ### BRAIN + `view_file` + `aim_query_spans` + `semantic_search` — do NOT glob/grep/list/shell-ls to orient. \
                      2. Build `implementation_plan.md` / `task.md` from what you already know + targeted file reads. \
                      3. If the request is actionable, proceed to execution immediately.",
-                    aim_indexed_files
+                    super::prefix_cache::indexed_hint(aim_indexed_files)
                 )
             } else {
                 "CORE OBJECTIVE: You are in AUTONOMOUS RESEARCH & PREP mode. \
@@ -912,10 +1046,10 @@ impl Sentient {
             };
             let zero_grep_sentient = if aim_indexed_files > 0 {
                 format!(
-                    "CORE OBJECTIVE: SENTIENT mode — NON-STOP EXECUTION. AIM zero-grep active ({} files). \
+                    "CORE OBJECTIVE: SENTIENT mode — NON-STOP EXECUTION. AIM zero-grep active ({}). \
                      PHASE 1 (KNOW): Use ### BRAIN — no glob/grep/list/shell tree walks. \
                      PHASE 2 (DO): Write/fix/build. PHASE 3 (SHIP): Verify with cargo/npm tests.",
-                    aim_indexed_files
+                    super::prefix_cache::indexed_hint(aim_indexed_files)
                 )
             } else {
                 "CORE OBJECTIVE: You are in SENTIENT mode — NON-STOP PURE EXECUTION. \
@@ -954,9 +1088,9 @@ impl Sentient {
 
             let fs_awareness = if aim_indexed_files > 0 {
                 format!(
-                    "AIM BRAIN active ({} files indexed). Structure is in ### BRAIN — do NOT list_files/grep to orient. \
+                    "AIM BRAIN active ({}). Structure is in ### BRAIN — do NOT list_files/grep to orient. \
                      Use `view_file`, `aim_query_spans`, or `semantic_search`; grep only with a specific symbol/string.",
-                    aim_indexed_files
+                    super::prefix_cache::indexed_hint(aim_indexed_files)
                 )
             } else {
                 "You may use `list_files`, `grep`, `search_codebase`, and `semantic_search` to explore.".to_string()
@@ -1027,6 +1161,22 @@ impl Sentient {
                     system_prompt, repo_map
                 )
             };
+
+            // Guardrail (see prefix_cache.rs): a clock time / uuid / nonce in the
+            // system prompt moves the KV-cache prefix's first differing byte on
+            // every turn — measured ~78x cold-prefill penalty on the 35B here.
+            // The detector is cheap; run it and shout if something slipped in.
+            if let Some(frag) = super::prefix_cache::prefix_volatility(&system_prompt) {
+                eprintln!(
+                    "[prefix-cache] WARNING: volatile fragment in system prompt (`{}`) — \
+                     this defeats KV-cache reuse and re-prefills the whole prompt every turn",
+                    frag.chars().take(48).collect::<String>()
+                );
+                self.emit_event(
+                    "ai-prefix-volatility",
+                    json!({ "fragment": frag }),
+                );
+            }
 
             if let Some(sys_msg) = messages.iter_mut().find(|m| m.role == "system") {
                 let existing = sys_msg.content.as_ref().map(|c| c.to_text()).unwrap_or_default();
@@ -1248,14 +1398,14 @@ impl Sentient {
                 messages.push(ChatMessage {
                     role: "system".to_string(),
                     content: Some(MessageContent::Text(format!(
-                        "### [ZERO-GREP ENFORCED] AIM index active — {} files\n\
+                        "### [ZERO-GREP ENFORCED] AIM index active ({})\n\
                          ### BRAIN already contains the project tree — do NOT re-discover it.\n\
                          **Blocked (orientation only):**root `list_files`, `list_dir_tree`, shell `ls`/`dir`/`find`/`tree`, \
                          broad grep (TODO/FIXME/import/.*), repo-wide `**/*` globs.\n\
                          **Still allowed — use freely when needed:**targeted `grep` (specific symbol/string), \
                          scoped `glob` (e.g. `backend/**/*.py`), `search_codebase`, `semantic_search`, \
                          `view_file`, `run_command` for build/test/git.",
-                        aim_indexed_files
+                        super::prefix_cache::indexed_hint(aim_indexed_files)
                     ))),
                     ..Default::default()
                 });
@@ -1388,7 +1538,7 @@ impl Sentient {
             }
 
             // Emergency context overflow guard: catches intra-phase bloat that slips
-            // between scheduled phase-wraps. Small Ollama models (8K ctx) can overflow
+            // between scheduled phase-wraps. Small local models (8K ctx) can overflow
             // within a single 12-iteration phase if tool results are large.
             {
                 let estimated = Self::estimate_messages_tokens(&messages);
@@ -1460,7 +1610,7 @@ impl Sentient {
                 crate::agent_harness::compress_old_tool_results(&mut messages, keep);
             }
 
-            let ollama_openai_compat = if active_provider.to_lowercase() == "lemonade" {
+            let openai_compat = if active_provider.to_lowercase() == "lemonade" {
                 true // Lemonade is OpenAI-compatible only (/api/v1/chat/completions)
             } else if active_provider.to_lowercase() == "openmodel" {
                 false // OpenModel uses Anthropic-compatible format for DeepSeek
@@ -1559,7 +1709,7 @@ impl Sentient {
             // Kortex AIM `### BRAIN` context, prior-memory (`hades_ctx`), and the
             // PLAN/REFLECTION directives. Taking only the *first* one (the old
             // behaviour) silently dropped the AIM brain on cloud models, which is why
-            // AIM VFS worked on local (Ollama) but not on Claude. Concatenate ALL
+            // AIM VFS worked on local models but not on Claude. Concatenate ALL
             // system messages so the full AIM context reaches the cloud model.
             let system_msg = {
                 let joined = messages
@@ -1666,26 +1816,42 @@ impl Sentient {
                 println!("[AI] Knowledge-only query — keeping tools available but not forcing a tool call.");
             }
 
-            // Ollama + Lemonade: preflight trim so pasted specs + tool schemas fit
+            // local backends: preflight trim so pasted specs + tool schemas fit
             // inside num_ctx. Without this, small local models get the full 24K+
             // system prompt and silently produce empty streams.
-            let preftrim_provider = active_provider.to_lowercase();
-            if preftrim_provider == "lemonade" || preftrim_provider == "huggingface" {
-                let num_ctx = Self::recommended_num_ctx(&active_model);
-                let est = Self::estimate_messages_tokens(&messages);
-                let tool_overhead = if tools.is_empty() { 512 } else { 6_000 };
-                let max_prompt_tokens = num_ctx
-                    .saturating_mul(70)
-                    .saturating_div(100)
-                    .saturating_sub(tool_overhead);
-                if est > max_prompt_tokens {
+            // ── Context budget (single source of truth; see context_budget.rs) ──
+            // Fit the assembled prompt to the model's window before we pay to
+            // send it: keep the system prompt + current turn, shed the oldest
+            // tool results first. Runs for every provider — a cloud model just
+            // has a much bigger window so `fit` is usually a no-op there.
+            {
+                use crate::domain::ai::context_budget::{self, ContextBudget};
+                let out_reserve = req
+                    .reasoning_budget
+                    .map(|b| b as usize + 2_048)
+                    .unwrap_or(if is_chat_mode { 1_536 } else { 4_096 });
+                let budget = ContextBudget::resolve(
+                    &active_model,
+                    Self::recommended_num_ctx(&active_model),
+                    out_reserve,
+                );
+                let tools_tokens = if tools.is_empty() {
+                    0
+                } else {
+                    context_budget::estimate_tokens(&serde_json::to_string(&tools).unwrap_or_default())
+                };
+                let report = context_budget::fit(&mut messages, tools_tokens, budget);
+                if report.dropped_messages > 0 || !report.fit {
                     println!(
-                        "[AI] Preflight trim: ~{} tok + ~{} tools > {} budget (num_ctx={}, provider={})",
-                        est, tool_overhead, max_prompt_tokens, num_ctx, active_provider
+                        "[AI] context budget: {} -> {} tok (ceiling {}, window {}, dropped {}{})",
+                        report.before_tokens,
+                        report.after_tokens,
+                        report.ceiling,
+                        report.window,
+                        report.dropped_messages,
+                        if report.fit { "" } else { ", STILL OVER" }
                     );
-                    messages = self
-                        .trim_context(messages, max_prompt_tokens.saturating_mul(4))
-                        .await;
+                    self.emit_event("ai-context-budget", serde_json::to_value(&report).unwrap_or_default());
                 }
             }
 
@@ -1821,7 +1987,7 @@ impl Sentient {
                 let is_webchat = active_provider.to_lowercase().starts_with("webchat");
                 let supports_native_tools = !force_text_tool_protocol && !is_small_model && !is_webchat && {
                     let m = active_model.to_lowercase();
-                    // All modern Ollama models ≥8B support OpenAI-compatible function calling.
+                    // All modern local models ≥8B support OpenAI-compatible function calling.
                     // Only legacy/specialty models need the text-JSON fallback.
                     m.contains("qwen") || m.contains("llama3") || m.contains("llama-3")
                         || m.contains("mistral") || m.contains("mixtral") || m.contains("mistral-nemo")
@@ -1836,9 +2002,9 @@ impl Sentient {
                         || m.contains("phi3") || m.contains("phi-3")
                 };
 
-                let mut ollama_system = system_msg.clone();
+                let mut local_system = system_msg.clone();
 
-                // Local / OpenAI-compat self-hosted servers (Ollama, Lemonade, HF
+                // Local / OpenAI-compat self-hosted servers (llama.cpp, Lemonade, HF
                 // router, vLLM, LM Studio, LiteLLM) may serve small models that lack
                 // reliable native function-calling. Inject the agent-mode + text-JSON
                 // tool protocol for them too, gated by `supports_native_tools` below,
@@ -1850,17 +2016,17 @@ impl Sentient {
                         | "litellm" | "lite-llm" | "lite_llm"
                 );
                 if is_local_openai_compat || is_webchat {
-                    // Gemma 4 thinking mode — Ollama handles chat template; we only prefix system.
-                    if Self::is_gemma4_model(&active_model) && !is_chat_mode && !ollama_system.starts_with("<|think|>") {
-                        ollama_system = format!("<|think|>\n{ollama_system}");
+                    // Gemma 4 thinking mode — the server handles the chat template; we only prefix system.
+                    if Self::is_gemma4_model(&active_model) && !is_chat_mode && !local_system.starts_with("<|think|>") {
+                        local_system = format!("<|think|>\n{local_system}");
                     }
                     if is_chat_mode {
-                        ollama_system.push_str(
+                        local_system.push_str(
                             "\n\nIMPORTANT: You are in CHAT mode. Respond naturally with plain text only. \
                             Do NOT output any JSON blocks or tool calls."
                         );
                     } else if !supports_native_tools && !turn_tools.is_empty() {
-                        ollama_system.push_str(
+                        local_system.push_str(
                             "\n\n### AUTONOMOUS AGENT MODE\n\
                             You are a local coding agent. Be terse, concrete, tool-first. \
                             Do NOT explain or plan in prose — ACT immediately with tools.\n\
@@ -1888,12 +2054,12 @@ impl Sentient {
                                 (tool["name"].as_str().unwrap_or(""), tool["description"].as_str().unwrap_or(""), String::new())
                             };
                             if params.is_empty() {
-                                ollama_system.push_str(&format!("- `{}`: {}\n", name, desc));
+                                local_system.push_str(&format!("- `{}`: {}\n", name, desc));
                             } else {
-                                ollama_system.push_str(&format!("- `{}` ({}) — {}\n", name, params, desc));
+                                local_system.push_str(&format!("- `{}` ({}) — {}\n", name, params, desc));
                             }
                         }
-                        ollama_system.push_str("\nUse tools until the task is done. Never stop early.");
+                        local_system.push_str("\nUse tools until the task is done. Never stop early.");
                     }
                 }
 
@@ -1930,7 +2096,7 @@ impl Sentient {
                             0,
                             ChatMessage {
                                 role: "system".to_string(),
-                                content: Some(MessageContent::Text(ollama_system.clone())),
+                                content: Some(MessageContent::Text(local_system.clone())),
                                 tool_calls: None,
                                 tool_call_id: None,
                                 metadata: None,
@@ -1939,7 +2105,7 @@ impl Sentient {
                 } else {
                     for m in &mut final_messages {
                         if m.role == "system" {
-                            m.content = Some(MessageContent::Text(ollama_system.clone()));
+                            m.content = Some(MessageContent::Text(local_system.clone()));
                             break;
                         }
                     }
@@ -1955,18 +2121,18 @@ impl Sentient {
                     });
                 }
 
-                // For Ollama: lower temperature improves tool call reliability on most models.
-                // Gemma 4 uses publisher defaults (temp 1.0) — see ollama_sampling().
-                let (ollama_temp, _, _) = Self::ollama_sampling(
+                // For the native /api path: lower temperature improves tool call reliability on most models.
+                // Gemma 4 uses publisher defaults (temp 1.0) — see local_sampling().
+                let (local_temp, _, _) = Self::local_sampling(
                     &active_model,
                     is_chat_mode,
                     req.temperature,
                 );
-                let ollama_predict = Self::ollama_num_predict(&active_model, is_chat_mode);
+                let local_predict = Self::local_num_predict(&active_model, is_chat_mode);
 
                 let is_vision = Self::is_vision_model(&active_model);
-                let ollama_messages =
-                    Self::build_ollama_messages(&final_messages, is_vision, ollama_openai_compat);
+                let local_messages =
+                    Self::build_local_messages(&final_messages, is_vision, openai_compat);
 
                 let is_local_inference = matches!(
                     active_provider.to_lowercase().as_str(),
@@ -1975,25 +2141,25 @@ impl Sentient {
 
                 let mut base = json!({
                     "model": active_model,
-                    "messages": ollama_messages,
+                    "messages": local_messages,
                     "stream": true,
                 });
                 if use_top_level_system {
-                    if !ollama_system.trim().is_empty() {
-                        base["system"] = json!(ollama_system);
+                    if !local_system.trim().is_empty() {
+                        base["system"] = json!(local_system);
                     }
                     base["max_tokens"] = json!(16000);
                     // Opus 4.8 gateways reject non-default sampling params on some routes.
                     if !is_opus_48_model(&active_model) {
-                        base["temperature"] = json!(ollama_temp);
+                        base["temperature"] = json!(local_temp);
                     }
                 } else {
-                    base["temperature"] = json!(ollama_temp);
+                    base["temperature"] = json!(local_temp);
                 }
                 if is_local_inference && active_provider.to_lowercase() != "lemonade" {
-                    // num_ctx/num_predict must live under `options` for Ollama (/v1 and /api).
-                    // Lemonade is strict OpenAI-compat and rejects Ollama-only fields.
-                    base["options"] = Self::ollama_inference_options(&active_model, ollama_temp, ollama_predict);
+                    // num_ctx/num_predict must live under `options` for the native /api path.
+                    // Lemonade is strict OpenAI-compat and rejects native-/api-only fields.
+                    base["options"] = Self::local_inference_options(&active_model, local_temp, local_predict);
                     base["keep_alive"] = json!(crate::gpu_offload::keep_alive());
                 }
                 // Prevent repetition loops (model stuck printing the same character).
@@ -2003,6 +2169,26 @@ impl Sentient {
                 if is_local_inference && !is_chat_mode {
                     base["frequency_penalty"] = json!(0.3);
                     base["presence_penalty"] = json!(0.2);
+                    // OpenAI-style penalties alone don't break a hard verbatim
+                    // loop on an aggressively-quantised local model (a ~2.5-bit
+                    // 35B repeating a whole sentence in its reasoning). Add
+                    // llama.cpp's DRY sampler + a real repeat penalty; the
+                    // ROCmFPX server reads these straight off the request body
+                    // (server-task.cpp) and the Kortex proxy forwards them
+                    // unchanged. DRY targets exact repetition without the
+                    // "pushes toward '/'" damage a high repeat_penalty does on
+                    // its own, so it stays safe on prose. Servers that don't
+                    // know these fields ignore them.
+                    base["repeat_penalty"] = json!(1.15);
+                    base["repeat_last_n"] = json!(320);
+                    base["dry_multiplier"] = json!(0.8);
+                    base["dry_base"] = json!(1.75);
+                    base["dry_allowed_length"] = json!(2);
+                    base["dry_penalty_last_n"] = json!(-1); // whole context window
+                    // top_p 1.0 (no nucleus truncation) + a low temperature is a
+                    // known loop recipe on low-bit quants — clamp the tail.
+                    base["top_p"] = json!(0.95);
+                    base["min_p"] = json!(0.05);
                 }
                 // Ensure max_tokens is always set for local inference to prevent
                 // infinite generation loops.
@@ -2014,7 +2200,7 @@ impl Sentient {
                 base
             };
 
-            // Anthropic streaming is slightly different, but we'll focus on OpenAI/Ollama first
+            // Anthropic streaming is slightly different, but we'll focus on OpenAI-compat first
             if active_provider.to_lowercase() == "anthropic" {
                 payload["stream"] = json!(true);
             }
@@ -2049,12 +2235,12 @@ impl Sentient {
             }
 
             // Local backends share payload construction, tool_choice, and auth.
-            let is_ollama = active_provider.to_lowercase() == "antigravity"
+            let is_native_api = active_provider.to_lowercase() == "antigravity"
                 || active_provider.to_lowercase() == "lemonade";
             // All non-small local models support native OpenAI-style tool calls.
             // Previously this was gated on a keyword allowlist which caused large capable
             // models (gemma4:27b, phi-4, etc.) to fall back to the slower MD-JSON protocol.
-            let supports_native_tools_payload = !is_ollama || {
+            let supports_native_tools_payload = !is_native_api || {
                 !Self::is_small_model_name(&active_model)
             };
 
@@ -2079,12 +2265,12 @@ impl Sentient {
                 tools.truncate(15);
             }
 
-            // Always inject tools for Ollama/Lemonade — even small models need
+            // Always inject tools for local backends — even small models need
             // tool schemas so the model knows what tools exist. The
             // supports_native_tools_payload flag only controls tool_choice,
             // not whether tools are present in the payload.
             let tools_to_inject = !tools.is_empty() && !is_chat_mode && (
-                supports_native_tools_payload || is_ollama
+                supports_native_tools_payload || is_native_api
             );
             if tools_to_inject {
                 if active_provider.to_lowercase() == "anthropic" || active_provider.to_lowercase() == "openmodel" {
@@ -2152,7 +2338,7 @@ impl Sentient {
                     // fold the long tail of tool schemas into a compact Hermes
                     // signature block + `expand` tool so a big catalog fits a
                     // small n_ctx. No-op unless the env flag is set.
-                    if is_ollama {
+                    if is_native_api {
                         let hcfg = crate::kortex_harness::HarnessConfig::from_env();
                         if hcfg.enabled {
                             let rpt = crate::kortex_harness::compress_openai_request(&mut payload, &hcfg);
@@ -2172,14 +2358,14 @@ impl Sentient {
                 }
             }
 
-            // Force tool use for Ollama-compatible local models (Ollama + Lemonade)
+            // Force tool use for local models on the native /api path (llama.cpp / Lemonade)
             // — prevents them from outputting code as plain text instead of tool calls.
             // Skip for small models (<14B) — they can't reliably produce tool calls
             // when forced, and will output text instead. Let them use native calling
             // naturally or fall back to JSON text parsing.
             // Use a 14B threshold here (not 7B) because forced tool_choice with
             // 31 tool schemas overwhelms models under ~14B params.
-            let forced_tool_choice = is_ollama && !tools.is_empty() && !is_chat_mode
+            let forced_tool_choice = is_native_api && !tools.is_empty() && !is_chat_mode
                 && supports_native_tools_payload
                 // Once we've seen this model ignore native tool calling, forcing
                 // tool_choice=required just makes it emit malformed calls.
@@ -2197,14 +2383,14 @@ impl Sentient {
             }
 
             if active_provider.to_lowercase() == "lemonade" {
-                let (ollama_temp, _, _) = Self::ollama_sampling(
+                let (local_temp, _, _) = Self::local_sampling(
                     &active_model,
                     is_chat_mode,
                     req.temperature,
                 );
-                let ollama_predict = Self::ollama_num_predict(&active_model, is_chat_mode);
-                if !ollama_openai_compat {
-                    Self::ensure_ollama_payload(&mut payload, &active_model, ollama_temp, ollama_predict);
+                let local_predict = Self::local_num_predict(&active_model, is_chat_mode);
+                if !openai_compat {
+                    Self::ensure_native_payload(&mut payload, &active_model, local_temp, local_predict);
                 }
             }
 
@@ -2268,9 +2454,9 @@ impl Sentient {
                 "highwayapi" | "interfaceai" | "jiekou"
             ) {
                 request = apply_highway_auth(request, &provider_key);
-            } else if is_ollama {
-                let ollama_base = self.resolved_local_base(&req).await;
-                let k = self.local_bearer_for_base(&ollama_base);
+            } else if is_native_api {
+                let local_base = self.resolved_local_base(&req).await;
+                let k = self.local_bearer_for_base(&local_base);
                 if !k.trim().is_empty() {
                     request = request.bearer_auth(k.trim());
                 }
@@ -2318,7 +2504,7 @@ impl Sentient {
                 } else if provider_lc == "anthropic" {
                     "https://api.anthropic.com/v1/messages".to_string()
                 } else {
-                    endpoint.replace(":1536", ":11434")
+                    endpoint.replace(":1536", ":13305")
                 };
 
                 println!("[AI] Proxy port 1536 unreachable, retrying directly on fallback: {}", fallback_endpoint);
@@ -2330,8 +2516,8 @@ impl Sentient {
                 } else if matches!(provider_lc.as_str(), "highwayapi" | "interfaceai" | "jiekou") {
                     fallback_request = apply_highway_auth(fallback_request, &provider_key);
                 } else if provider_lc == "lemonade" || provider_lc == "antigravity" {
-                    let ollama_base = self.resolved_local_base(&req).await;
-                    let k = self.local_bearer_for_base(&ollama_base);
+                    let local_base = self.resolved_local_base(&req).await;
+                    let k = self.local_bearer_for_base(&local_base);
                     if !k.trim().is_empty() {
                         fallback_request = fallback_request.bearer_auth(k.trim());
                     }
@@ -2402,7 +2588,7 @@ impl Sentient {
                 }
                 
                 // Fallback for local models that don't natively support tools via
-                // API — Lemonade (real llama.cpp) as well as Ollama. Guarded by the
+                // API — Lemonade (real llama.cpp) as well as other native /api servers. Guarded by the
                 // error text, so it only fires when the server actually says so.
                 let tool_unsupported_400 = status.as_u16() == 400
                     && (body.contains("does not support tools")
@@ -2444,10 +2630,10 @@ impl Sentient {
                     };
                     if let serde_json::Value::Object(ref mut map) = payload {
                         if let Some(msgs) = map.get_mut("messages") {
-                            *msgs = json!(Self::build_ollama_messages(
+                            *msgs = json!(Self::build_local_messages(
                                 &messages,
                                 Self::is_vision_model(&active_model),
-                                ollama_openai_compat,
+                                openai_compat,
                             ));
                         }
                         let retry_ctx = Self::recommended_num_ctx(&active_model);
@@ -2516,7 +2702,7 @@ impl Sentient {
             let mut stream = response.bytes_stream();
             let mut line_buffer = String::new();
             
-            // Progress tracking for Ollama
+            // Progress tracking for local inference
             let start_time = std::time::Instant::now();
             let mut tokens_count = 0;
             let mut last_progress_emit = std::time::Instant::now();
@@ -2527,7 +2713,7 @@ impl Sentient {
             );
 
             // Show the prefill/generation HUD for ALL local OpenAI-compat servers,
-            // not just Ollama. Without this a Lemonade turn looks frozen during the
+            // not just the native /api path. Without this a Lemonade turn looks frozen during the
             // (potentially minute-long) prompt prefill on weak GPUs.
             let emit_progress = matches!(
                 active_provider.to_lowercase().as_str(),
@@ -2537,7 +2723,7 @@ impl Sentient {
             );
 
             if emit_progress {
-                self.emit_event("ollama-progress", json!({
+                self.emit_event("inference-progress", json!({
                     "progress": 2,
                     "status": "prefill",
                     "elapsed_secs": 0,
@@ -2572,6 +2758,9 @@ impl Sentient {
             // Monotonic fingerprint of everything that grows with generated tokens.
             // Keepalives/pings don't touch any of these, so they can't reset the clock.
             let mut max_activity: usize = 0;
+            // Degenerate-loop guard: last combined buffer length we scanned, so
+            // the O(window·period) check only runs every ~600 new chars.
+            let mut last_loop_scan_len: usize = 0;
             loop {
                 let activity: usize = tokens_count
                     + full_content.len()
@@ -2587,6 +2776,48 @@ impl Sentient {
                     token_deadline = std::time::Instant::now()
                         + std::time::Duration::from_secs(WARM_TOKEN_SECS);
                 }
+
+                // Catch a degenerate stream before it burns the whole
+                // max_tokens budget: a verbatim repetition lock, OR a collapse
+                // into punctuation / line-noise (the "morse code" failure on a
+                // low-bit quant). Scan whichever buffer is carrying the
+                // generation; on a hit, drop the bad tail (keep the clean
+                // prefix) and salvage the turn via the stall path.
+                let combined_len = full_content.len() + reasoning_buf.len();
+                if combined_len >= 400 && combined_len - last_loop_scan_len >= 600 {
+                    last_loop_scan_len = combined_len;
+                    let buf_name = if reasoning_buf.len() >= full_content.len() {
+                        "reasoning"
+                    } else {
+                        "content"
+                    };
+                    let buf = if buf_name == "reasoning" { &reasoning_buf } else { &full_content };
+                    let hit = degenerate_loop_start(buf)
+                        .map(|cut| ("cycling", cut))
+                        .or_else(|| symbol_collapse_start(buf).map(|cut| ("collapsed to line-noise", cut)));
+                    if let Some((why, cut)) = hit {
+                        let before = buf.len();
+                        if buf_name == "reasoning" {
+                            reasoning_buf.truncate(cut);
+                        } else {
+                            full_content.truncate(cut);
+                        }
+                        println!(
+                            "[{}] DEGENERATE STREAM: {} buffer {} — cut {} bytes ({}→{}), salvaging turn.",
+                            request_id, buf_name, why, before - cut, before, cut
+                        );
+                        self.emit_event("ai-repetition-loop", json!({
+                            "buffer": buf_name,
+                            "reason": why,
+                            "dropped_bytes": before - cut,
+                            "model": active_model,
+                            "provider": active_provider,
+                        }));
+                        stream_stalled = true;
+                        break;
+                    }
+                }
+
                 let now = std::time::Instant::now();
                 if now >= token_deadline {
                     // No new tokens within the budget. Only flag a stall (→ salvage +
@@ -2678,7 +2909,7 @@ impl Sentient {
                     if let Ok(val) = serde_json::from_str::<Value>(json_str) {
                         let mut delta_to_emit = None;
 
-                        // OpenAI/Ollama v1 format — ONLY if not already handled by Ollama native
+                        // OpenAI v1 format — ONLY if not already handled by native /api
                         if val["message"]["content"].is_null() {
                             if let Some(content) = val["choices"][0]["delta"]["content"].as_str() {
                                 if !content.is_empty() {
@@ -2749,7 +2980,7 @@ impl Sentient {
                             }
                         }
                             
-                            // Emit progress every 500ms for Ollama
+                            // Emit progress every 500ms for local inference
                             if emit_progress && last_progress_emit.elapsed().as_millis() >= 500 {
                                 let elapsed = start_time.elapsed().as_secs();
                                 let tokens_per_sec = if elapsed > 0 { tokens_count as f64 / elapsed as f64 } else { 1.0 };
@@ -2758,7 +2989,7 @@ impl Sentient {
                                 
                                 let progress_pct = ((tokens_count as f64 / estimated_total_tokens as f64) * 100.0).min(99.0) as u32;
                                 
-                                self.emit_event("ollama-progress", serde_json::json!({
+                                self.emit_event("inference-progress", serde_json::json!({
                                     "progress": progress_pct,
                                     "tokens_per_sec": tokens_per_sec.round(),
                                     "elapsed_secs": elapsed,
@@ -2768,7 +2999,7 @@ impl Sentient {
 
                                 last_progress_emit = std::time::Instant::now();
                             }
-                        // Ollama native /api/chat — thinking models stream `message.thinking`
+                        // native /api /api/chat — thinking models stream `message.thinking`
                         // long before `message.content`; without this the UI looks frozen for minutes.
                         if let Some(thinking) = val["message"]["thinking"].as_str() {
                             if !thinking.is_empty() {
@@ -2799,7 +3030,7 @@ impl Sentient {
                                     && last_progress_emit.elapsed().as_millis() >= 500
                                 {
                                     let elapsed = start_time.elapsed().as_secs();
-                                    self.emit_event("ollama-progress", json!({
+                                    self.emit_event("inference-progress", json!({
                                         "progress": 15,
                                         "status": "thinking",
                                         "elapsed_secs": elapsed,
@@ -2810,7 +3041,7 @@ impl Sentient {
                                 }
                             }
                         }
-                        // Ollama native format — answer tokens
+                        // native /api format — answer tokens
                         if let Some(content) = val["message"]["content"].as_str() {
                             if content.is_empty() {
                                 // thinking-only chunk; already handled above
@@ -2832,7 +3063,7 @@ impl Sentient {
                                 cb(content);
                             }
                             
-                            // Emit progress every 500ms for Ollama (native format)
+                            // Emit progress every 500ms for local inference (native format)
                             if emit_progress && last_progress_emit.elapsed().as_millis() >= 500 {
                                 let elapsed = start_time.elapsed().as_secs();
                                 let tokens_per_sec = if elapsed > 0 { tokens_count as f64 / elapsed as f64 } else { 1.0 };
@@ -2841,7 +3072,7 @@ impl Sentient {
                                 
                                 let progress_pct = ((tokens_count as f64 / estimated_total_tokens as f64) * 100.0).min(99.0) as u32;
                                 
-                                self.emit_event("ollama-progress", serde_json::json!({
+                                self.emit_event("inference-progress", serde_json::json!({
                                     "progress": progress_pct,
                                     "tokens_per_sec": tokens_per_sec.round(),
                                     "elapsed_secs": elapsed,
@@ -2923,9 +3154,9 @@ impl Sentient {
                                 }
                             }
                         }
-                        // Extract Ollama native /api/chat tool calls.
+                        // Extract native /api /api/chat tool calls.
                         //
-                        // This is the critical path for local and remote Ollama
+                        // This is the critical path for local and remote native /api servers
                         // servers that return chunks shaped like:
                         // { "message": { "tool_calls": [{ "function": { ... } }] } }
                         //
@@ -2959,7 +3190,7 @@ impl Sentient {
                                     .map(|s| s.to_string())
                                     .unwrap_or_else(|| {
                                         format!(
-                                            "ollama_call_{}_{}",
+                                            "local_call_{}_{}",
                                             iteration,
                                             native_tool_calls.len() + 1
                                         )
@@ -3101,7 +3332,7 @@ impl Sentient {
             // Empty-stream detection: if the provider returned a 2xx response but
             // ZERO data lines (no content, no reasoning, no tool calls), the model
             // is effectively unreachable in its current form — most commonly the
-            // named model is not actually loaded on the local server (Ollama/
+            // named model is not actually loaded on the local server (the local backend/
             // Lemonade/lmstudio), or the request shape is rejected silently. Rather
             // than render a blank "(no response)" turn that looks like the agent is
             // broken, fail loudly with an actionable message. This is the single
@@ -3163,7 +3394,7 @@ impl Sentient {
                 let final_tokens_per_sec = if total_elapsed > 0 { tokens_count as f64 / total_elapsed as f64 } else { 0.0 };
                 
                 {
-                    self.emit_event("ollama-progress", serde_json::json!({
+                    self.emit_event("inference-progress", serde_json::json!({
                         "progress": 100,
                         "tokens_per_sec": final_tokens_per_sec.round(),
                         "elapsed_secs": total_elapsed,
@@ -3873,7 +4104,7 @@ impl Sentient {
                 // action, reframe the authorization and retry on the SAME model.
                 // We deliberately do NOT switch the user's chosen model — the
                 // operator picked it on purpose; silently swapping to a local
-                // Ollama model is surprising and unwanted. Same model, just nudged.
+                // local model is surprising and unwanted. Same model, just nudged.
                 if (prompt_demands_action || is_offensive_engagement)
                     && Self::is_refusal(&final_text, is_offensive_engagement)
                     && refusal_reframes < MAX_REFUSAL_REFRAMES
@@ -4501,6 +4732,92 @@ impl Sentient {
         Ok(SlashResult::Continue)
     }
 
+}
+
+#[cfg(test)]
+mod degenerate_loop_tests {
+    use super::degenerate_loop_start;
+
+    #[test]
+    fn clean_prose_is_not_flagged() {
+        let s = "I need to explore the repository structure and then analyze the files \
+                 for potential problems. Let me start by listing the top-level directories \
+                 and reading the manifest so I understand how the crate is laid out.";
+        assert_eq!(degenerate_loop_start(s), None);
+    }
+
+    #[test]
+    fn a_repeated_sentence_is_caught_and_cut_after_one_copy() {
+        let sentence = "The user wants me to audit the entire codebase for bugs, dead code, \
+                        and architectural issues. I need to explore the repository. ";
+        let looped = format!("Okay. {}{}{}{}{}", sentence, sentence, sentence, sentence, sentence);
+        let cut = degenerate_loop_start(&looped).expect("loop must be detected");
+        // At least three of the five copies are dropped...
+        assert!(looped.len() - cut >= 3 * sentence.len(), "cut {} kept too much", cut);
+        // ...and no more than one copy is kept.
+        assert!(looped[..cut].matches("audit the entire codebase").count() <= 1);
+    }
+
+    #[test]
+    fn single_char_spam_is_caught() {
+        let s = format!("working{}", "x".repeat(500));
+        let cut = degenerate_loop_start(&s).expect("char spam must be detected");
+        assert!(cut <= "working".len() + 12);
+    }
+
+    #[test]
+    fn a_short_numbered_list_is_not_a_loop() {
+        let s = "1. first item here\n2. second item here\n3. third item here\n4. fourth item\n";
+        assert_eq!(degenerate_loop_start(s), None);
+    }
+
+    #[test]
+    fn cut_lands_on_a_utf8_boundary() {
+        let unit = "café ✓ ";
+        let s = unit.repeat(60);
+        let cut = degenerate_loop_start(&s).expect("detected");
+        assert!(s.is_char_boundary(cut));
+    }
+}
+
+#[cfg(test)]
+mod symbol_collapse_tests {
+    use super::symbol_collapse_start;
+
+    #[test]
+    fn morse_code_line_noise_is_caught() {
+        let lead = "Let me start by listing the directory contents so I understand the layout. ";
+        let noise = r#"\n\/. `` \\/ .\\n// \./ // \n/// /// // \n// \n// .. ///\n// .. . /. //\n/. . /. //\n \\\. / \\/. \\\. '/.'/;/;'/,'; = ,= ,= ,= "=","=","=",== =""#;
+        let s = format!("{lead}{}", noise.repeat(4));
+        let cut = symbol_collapse_start(&s).expect("collapse must be detected");
+        assert!(cut <= lead.len() + 40, "cut {cut} kept too much noise");
+        assert!(s.is_char_boundary(cut));
+    }
+
+    #[test]
+    fn normal_prose_and_code_are_not_flagged() {
+        assert_eq!(
+            symbol_collapse_start(
+                "I'll read src/main.rs, check the imports, and run `cargo test` to see \
+                 what breaks. The error mentions a lifetime, so it's probably in the \
+                 borrow at line 42 — let me look there first."
+            ),
+            None
+        );
+        // A dense but legitimate snippet: still has real words.
+        assert_eq!(
+            symbol_collapse_start(
+                "let x = foo(&bar[0..n], |a, b| a.cmp(&b)).map(|v| v * 2).sum::<i64>(); \
+                 assert_eq!(x, expected_total_here);"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn short_buffers_are_ignored() {
+        assert_eq!(symbol_collapse_start("//// .... ==="), None);
+    }
 }
 
 #[cfg(test)]

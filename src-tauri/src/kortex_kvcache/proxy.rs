@@ -514,6 +514,11 @@ async fn handle_intercepted(
         store.longest_prefix(&tokens)
     };
 
+    // Prefix tokens actually restored from a slot (0 on miss or failed restore).
+    // Feeds the compute-trace so a live run yields a measured prefill-savings
+    // receipt, not just the model in tools/compute-bench.
+    let mut prefix_hit_tokens: u32 = 0;
+
     if let Some(m) = prefix_hit.clone() {
         // Restore the slot before forwarding. If restore fails, fall through
         // to a normal request — llama-server will just prefill from scratch.
@@ -521,6 +526,7 @@ async fn handle_intercepted(
         match state.client.restore_slot(&filename).await {
             Ok(r) => {
                 let n_restored = r.n_restored.unwrap_or(m.prefix_token_count);
+                prefix_hit_tokens = n_restored;
                 tracing::info!(
                     "[kortex-kvcache] HIT sha={} ({} tokens restored)",
                     &m.sha[..8],
@@ -538,6 +544,20 @@ async fn handle_intercepted(
     } else {
         tracing::info!("[kortex-kvcache] MISS ({} tokens)", tokens.len());
         state.store.lock().await.record_miss();
+    }
+
+    // Best-effort compute-trace line (no-op unless KORTEX_COMPUTE_TRACE is set).
+    if super::trace::compute_trace_path().is_some() {
+        let kind_str = match kind {
+            IntercepKind::Chat => "chat",
+            IntercepKind::Completion => "completion",
+        };
+        super::trace::append(&super::trace::TraceRecord::new(
+            uuid::Uuid::new_v4().to_string(),
+            kind_str,
+            tokens.len() as u32,
+            prefix_hit_tokens,
+        ));
     }
 
     let _ = is_stream; // streaming vs non-streaming both go through the same path

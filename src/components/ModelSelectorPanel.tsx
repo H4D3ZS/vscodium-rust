@@ -23,7 +23,7 @@ const ModelSelectorPanel: React.FC = () => {
         setLoading(true);
         try {
             // Probe the active inference backend first instead of always trying
-            // Ollama. This avoids a wasted network round-trip (and a confusing
+            // the local backend. This avoids a wasted network round-trip (and a confusing
             // error) when the user is on Lemonade or another backend.
             const backend = localStorage.getItem('inferenceBackend') || 'lemonade';
             let modelList: ModelInfo[] = [];
@@ -98,7 +98,7 @@ const ModelSelectorPanel: React.FC = () => {
     };
 
     if (loading) {
-        return <div style={{ padding: 16, opacity: 0.6 }}>Loading models from Ollama/Lemonade...</div>;
+        return <div style={{ padding: 16, opacity: 0.6 }}>Loading models from Lemonade...</div>;
     }
 
     if (error) {
@@ -123,7 +123,7 @@ const ModelSelectorPanel: React.FC = () => {
     return (
         <div style={{ maxWidth: 680 }}>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
-                Local Ollama Models (12b and below)
+                Local Models (12b and below)
             </div>
 
             <div className="settings-card">
@@ -175,7 +175,7 @@ const ModelSelectorPanel: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {models.length === 0? (
                         <div style={{ opacity: 0.5, fontSize: 12, padding: 8 }}>
-                            No models found. Run: <code>ollama pull qwen3.5:12b</code>
+                            No models found. Run: <code>load a model into the local server</code>
                         </div>
                     ): (
                         models.map((model) => (
@@ -216,7 +216,7 @@ const ModelSelectorPanel: React.FC = () => {
                         <strong>Speed:</strong> ~12-15 tokens/sec on M1 CPU (faster with ANE acceleration)
                     </p>
                     <p style={{ margin: 0 }}>
-                        <strong>Pull new models:</strong> Run <code style={{ background: '#ffffff10', padding: '2px 4px', borderRadius: 2 }}>ollama pull mistral:7b</code>
+                        <strong>Pull new models:</strong> Run <code style={{ background: '#ffffff10', padding: '2px 4px', borderRadius: 2 }}>load a model into the local server</code>
                     </p>
                 </div>
             </div>

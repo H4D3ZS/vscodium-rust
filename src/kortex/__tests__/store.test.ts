@@ -63,7 +63,7 @@ describe('Zustand Store Preferences & Kortex Integrations', () => {
   it('correctly initializes GAC and KV cache default values', () => {
     const state = useStore.getState();
     expect(state.kortexGacEnabled).toBe(true);
-    expect(state.kortexVramTotalMb).toBe(8192);
+    expect(state.kortexVramTotalMb).toBe(16384);
     expect(state.kortexTheta).toBe(0.85);
     expect(state.kortexBackend).toBe('vulkan');
     expect(state.kvCacheEnabled).toBe(true);
@@ -80,6 +80,25 @@ describe('Zustand Store Preferences & Kortex Integrations', () => {
     state.setKortexVramTotalMb(16384);
     expect(localStorage.getItem('kortex.vramTotalMb')).toBe('16384');
     expect(useStore.getState().kortexVramTotalMb).toBe(16384);
+  });
+
+  it('picking a lemonade|-tagged model does NOT yank the backend off llama-cpp (Kortex)', () => {
+    const state = useStore.getState();
+
+    // User selects the Kortex ROCmFPX backend.
+    state.setInferenceBackend('llama-cpp');
+    expect(useStore.getState().inferenceBackend).toBe('llama-cpp');
+
+    // A model-list refresh re-applies the persisted tag, which carries a
+    // `lemonade|` prefix because agent.ts maps Kortex's routingProvider to
+    // 'lemonade'. This must not flip the backend back to 'lemonade'.
+    state.setAgentModel('lemonade|Escha-W2-35B-A3B-ROCmFP2.gguf');
+    expect(useStore.getState().inferenceBackend).toBe('llama-cpp');
+
+    // But from a non-local backend, a lemonade| pick still aligns to lemonade.
+    state.setInferenceBackend('openai');
+    state.setAgentModel('lemonade|some-local-model');
+    expect(useStore.getState().inferenceBackend).toBe('lemonade');
   });
 
   it('proposePendingChange supports both oldContent and originalContent formats', () => {

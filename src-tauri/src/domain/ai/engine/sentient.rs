@@ -19,7 +19,7 @@ use crate::tool_invoker::ToolInvoker;
 use crate::rules_engine::RulesEngine;
 use crate::workflow_engine::WorkflowEngine;
 
-/// Tools always exposed to local Ollama models (which have small context
+/// Tools always exposed to local local models (which have small context
 /// windows and degrade with large tool lists). This is the single source of
 /// truth — the autonomous loop's tool filter references it.
 ///
@@ -27,7 +27,7 @@ use crate::workflow_engine::WorkflowEngine;
 /// Removing them would gut the red-team / pentest / bug-bounty playbooks. A
 /// regression test (`tests::local_essentials_keep_offensive_tools`) enforces
 /// their presence.
-pub(crate) const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
+pub(crate) const LOCAL_ESSENTIAL_TOOLS: &[&str] = &[
     // Frontend/Cursor-style schemas passed in from src/tool_registry.ts.
     "bash", "file_read", "file_write", "file_edit", "glob",
     "list_directory", "web_fetch", "web_search", "git_status", "git_diff",
@@ -91,7 +91,7 @@ pub struct Sentient {
     /// whenever the user picks the Lemonade inference backend or changes its
     /// port in Settings. Defaults to `http://localhost:13305`.
     pub(crate) lemonade_url: tokio::sync::Mutex<String>,
-    /// Caps concurrent Ollama HTTP calls from this process so one desktop seat
+    /// Caps concurrent local backend HTTP calls from this process so one desktop seat
     /// does not trip nginx `limit_conn` on a shared reverse proxy.
     pub(crate) local_http_sem: Arc<Semaphore>,
     pub(crate) _browser_state: Arc<crate::browser::BrowserState>,
@@ -737,10 +737,10 @@ fn _assert_sentient_sync() {
 
 #[cfg(test)]
 mod tests {
-    use super::OLLAMA_ESSENTIAL_TOOLS;
+    use super::LOCAL_ESSENTIAL_TOOLS;
 
     /// REGRESSION GUARD: offensive-security tools must remain available to
-    /// local Ollama models. They are a core IDE strength; dropping them from
+    /// local local models. They are a core IDE strength; dropping them from
     /// the essential set would hide them from small models and break the
     /// red-team / pentest / bug-bounty workflows.
     #[test]
@@ -767,8 +767,8 @@ mod tests {
             "deep_security_audit",
         ] {
             assert!(
-                OLLAMA_ESSENTIAL_TOOLS.contains(&tool),
-                "{tool} must stay in OLLAMA_ESSENTIAL_TOOLS (offensive-security strength)"
+                LOCAL_ESSENTIAL_TOOLS.contains(&tool),
+                "{tool} must stay in LOCAL_ESSENTIAL_TOOLS (offensive-security strength)"
             );
         }
     }
@@ -776,8 +776,8 @@ mod tests {
     /// The AIM zero-grep tools must also stay available to local models.
     #[test]
     pub(crate) fn local_essentials_keep_aim_tools() {
-        assert!(OLLAMA_ESSENTIAL_TOOLS.contains(&"aim_pack_context"));
-        assert!(OLLAMA_ESSENTIAL_TOOLS.contains(&"aim_query_spans"));
+        assert!(LOCAL_ESSENTIAL_TOOLS.contains(&"aim_pack_context"));
+        assert!(LOCAL_ESSENTIAL_TOOLS.contains(&"aim_query_spans"));
     }
 
     use super::model_in_catalog;

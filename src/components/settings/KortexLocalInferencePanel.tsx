@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
+import { KortexReliabilityPanel } from './KortexReliabilityPanel';
 
 /**
  * Kortex ROCmFPX — the local AMD-GPU backend.
@@ -108,7 +109,32 @@ export function KortexLocalInferencePanel() {
     const setLlamaCppModelPath = useStore(s => (s as any).setLlamaCppModelPath);
     const inferenceBackend = useStore(s => s.inferenceBackend);
     const setInferenceBackend = useStore(s => (s as any).setInferenceBackend);
+    const setAgentModel = useStore(s => (s as any).setAgentModel);
+    const availableModels = useStore(s => (s as any).availableModels as any[]);
+    const refreshAvailableModels = useStore(s => (s as any).refreshAvailableModels);
     const activeRoot = useStore(s => (s as any).activeRoot as string | undefined);
+
+    // Turn a GGUF file path into the chat-toolbar model tag. Prefer an existing
+    // Lemonade entry (fuzzy match on quant + a name fragment) so the toolbar
+    // shows it selected; else fall back to a bare `lemonade|<basename>`.
+    const tagForGguf = useCallback((path: string): string => {
+        const base = (path.split(/[\\/]/).pop() || '').replace(/\.gguf$/i, '');
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const nb = norm(base);
+        const quant = (base.match(/i?q\d(_[a-z0-9]+)*|bf16|f16/i) || [''])[0].toLowerCase();
+        const list = (availableModels || []).map((m: any) => (typeof m === 'string' ? { id: m, provider: 'lemonade' } : m));
+        const hit = list.find((m: any) => {
+            const id = String(m.id || m.name || '');
+            const ni = norm(id);
+            if (quant && !ni.includes(norm(quant))) return false;
+            // share a 6+ char run of the base name
+            for (let i = 0; i + 6 <= nb.length; i += 3) {
+                if (ni.includes(nb.slice(i, i + 6))) return true;
+            }
+            return false;
+        });
+        return hit ? `${(hit.provider || 'lemonade')}|${hit.id}` : `lemonade|${base}`;
+    }, [availableModels]);
 
     const [modelPath, setModelPath] = useState<string>(() => {
         try { return localStorage.getItem('kortex.localModelPath') || ''; } catch { return ''; }
@@ -116,7 +142,31 @@ export function KortexLocalInferencePanel() {
     const [phase, setPhase] = useState<Phase>('idle');
     const [msg, setMsg] = useState('');
     const [modelLabel, setModelLabel] = useState('');
+    type LocalGguf = { repo: string; file: string; quant: string; path: string; size_mb: number; aux: boolean };
+    const [localGgufs, setLocalGgufs] = useState<LocalGguf[]>([]);
+    const [ggufsLoading, setGgufsLoading] = useState(false);
     const [statsLine, setStatsLine] = useState('');
+    const [specLine, setSpecLine] = useState('');
+    const [specType, setSpecType] = useState<string>(() => {
+        try { return localStorage.getItem('kortex.spec.type') || ''; } catch { return ''; }
+    });
+    // Draft model GGUF for the draft-* speculators that load a separate model
+    // (draft-simple / draft-eagle3 / draft-dflash / draft-dspark). draft-mtp is
+    // auto-discovered and needs no path. Read by specDecodeExtras().
+    const [draftModel, setDraftModel] = useState<string>(() => {
+        try { return localStorage.getItem('kortex.spec.draftModel') || ''; } catch { return ''; }
+    });
+    // Operator = the small fast model on Lemonade that runs sub-agents + APEX
+    // while this (the reasoner) keeps the main loop. Env-backed on the Rust side.
+    const [opModel, setOpModel] = useState<string>(() => {
+        try { return localStorage.getItem('kortex.operator.model') || ''; } catch { return ''; }
+    });
+    const [opUrl, setOpUrl] = useState<string>(() => {
+        try { return localStorage.getItem('kortex.operator.url') || ''; } catch { return ''; }
+    });
+    const [nCpuMoe, setNCpuMoe] = useState<number>(() => {
+        try { return parseInt(localStorage.getItem('kortex.nCpuMoe') || '0') || 0; } catch { return 0; }
+    });
     const [showDetails, setShowDetails] = useState(false);
     const [showLog, setShowLog] = useState(false);
     const startedByUs = useRef(false);
@@ -160,6 +210,33 @@ export function KortexLocalInferencePanel() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Push the Operator override to the Rust process (env-backed) whenever it
+    // changes; blank = clear the override / use the default.
+    useEffect(() => {
+        const t = setTimeout(() => {
+            try { localStorage.setItem('kortex.operator.model', opModel); } catch { /* */ }
+            try { localStorage.setItem('kortex.operator.url', opUrl); } catch { /* */ }
+            invoke('kortex_set_operator', { model: opModel || null, url: opUrl || null }).catch(() => { /* engine offline */ });
+        }, 400);
+        return () => clearTimeout(t);
+    }, [opModel, opUrl]);
+
+    const scanGgufs = useCallback(async () => {
+        setGgufsLoading(true);
+        // Refresh the Lemonade list too so tagForGguf can match against it.
+        try { await refreshAvailableModels?.('lemonade'); } catch { /* */ }
+        try {
+            const rows = await invoke<LocalGguf[]>('kortex_gac_list_local_ggufs', { extraDir: null });
+            setLocalGgufs(rows || []);
+        } catch { /* leave list empty */ }
+        finally { setGgufsLoading(false); }
+    }, [refreshAvailableModels]);
+
+    // Scan the local GGUF caches the first time the details panel is opened.
+    useEffect(() => {
+        if (showDetails && localGgufs.length === 0 && !ggufsLoading) void scanGgufs();
+    }, [showDetails, localGgufs.length, ggufsLoading, scanGgufs]);
+
     useEffect(() => {
         if (phase !== 'running') {
             if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -170,6 +247,11 @@ export function KortexLocalInferencePanel() {
                 const { getKvCacheStats, summarizeKvCache } = await import('../../kortex/kvcache-orchestrator');
                 const s = await getKvCacheStats();
                 if (s) setStatsLine(summarizeKvCache(s));
+            } catch { /* ignore */ }
+            try {
+                const gac = await import('../../kortex/gac-orchestrator');
+                const acc = gac.parseSpecAcceptance(await gac.getServerLog(120));
+                setSpecLine(gac.formatSpecAcceptance(acc));
             } catch { /* ignore */ }
         };
         void tick();
@@ -194,16 +276,29 @@ export function KortexLocalInferencePanel() {
         // llama-cpp; without it, a stale model tag gets sent to the wrong server.
         if (modelPath) setLlamaCppModelPath?.(modelPath);
         setInferenceBackend?.('llama-cpp');
-    }, [setLlamaCppUrl, setLlamaCppModelPath, setInferenceBackend, modelPath]);
+        // Sync the chat model picker to what this server actually loaded, so the
+        // toolbar isn't still showing a stale tag (e.g. the old Escha model)
+        // that would trigger a *second* model load on Lemonade.
+        if (modelPath) setAgentModel?.(tagForGguf(modelPath));
+    }, [setLlamaCppUrl, setLlamaCppModelPath, setInferenceBackend, setAgentModel, tagForGguf, modelPath]);
 
     const start = useCallback(async () => {
         abortRef.current = false;
-        setPhase('starting'); setStatsLine(''); setMsg('');
+        setPhase('starting'); setStatsLine(''); setSpecLine(''); setMsg('');
         try {
             const kv = await import('../../kortex/kvcache-orchestrator');
             const gac = await import('../../kortex/gac-orchestrator');
             const base = await resolveBase();
             if (!base) throw new Error('Could not resolve a cache directory.');
+
+            // The ngram-cache speculator wants a file to persist learned
+            // n-grams between restarts; park it next to the KV slots.
+            // startLocalInference reads kortex.spec.* from localStorage.
+            try {
+                if (specType.split(',').includes('ngram-cache')) {
+                    localStorage.setItem('kortex.spec.lookupCache', `${base}/ngram-cache.bin`);
+                }
+            } catch { /* ignore */ }
 
             // Where the actual llama-server lives (the KV-cache proxy fronts it).
             let upstream = UPSTREAM_URL;
@@ -232,6 +327,9 @@ export function KortexLocalInferencePanel() {
                         ctx_size: 32768,
                         slot_save_path: `${base}/slots`,
                         wait_healthy_secs: 0,
+                        // MoE expert offload — set for a Q4 35B-A3B on 16 GB
+                        // (dense weights on GPU, expert FFNs to RAM). 0 = off.
+                        n_cpu_moe: nCpuMoe > 0 ? nCpuMoe : undefined,
                         extra_args: ['--jinja', '--cache-type-k', 'q4_0', '--cache-type-v', 'q4_0'],
                     },
                 });
@@ -267,9 +365,23 @@ export function KortexLocalInferencePanel() {
                 proxy_port: proxyPort || 1537,
                 max_bytes: (vramMb && vramMb > 0 ? vramMb : 16384) * 1024 * 1024,
             });
-            const boundPort = await kv.startKvCache(opts).catch((e) => {
-                if (String(e).includes('already running')) return proxyPort || 1537;
-                throw e;
+            const boundPort = await kv.startKvCache(opts).catch(async (e) => {
+                if (!String(e).includes('already running')) throw e;
+                // A proxy is already up — but is it fronting THIS server? If it
+                // was started earlier pointing at Lemonade (:13305), agent
+                // traffic would hit a *second* model there, loading it into the
+                // same 16 GB VRAM as our llama-server. Restart it on the right
+                // upstream so only one model is resident.
+                try {
+                    const cur = await kv.getKvCacheStatus();
+                    const curUp = (cur?.upstream_url || '').replace(/\/$/, '');
+                    if (curUp && curUp !== upstream.replace(/\/$/, '')) {
+                        setMsg(`Prefix cache was fronting ${curUp} — repointing to ${upstream}…`);
+                        await kv.stopKvCache().catch(() => { /* */ });
+                        return await kv.startKvCache(opts);
+                    }
+                } catch { /* fall through to reuse */ }
+                return proxyPort || 1537;
             });
 
             const proxyUrl = `http://127.0.0.1:${boundPort}`;
@@ -281,7 +393,7 @@ export function KortexLocalInferencePanel() {
             setPhase('error');
             setMsg(String((e as any)?.message ?? e));
         }
-    }, [llamaCppUrl, modelPath, vramMb, serverBinary, proxyPort, resolveBase, useBackend]);
+    }, [llamaCppUrl, modelPath, vramMb, serverBinary, proxyPort, specType, resolveBase, useBackend]);
 
     const stop = useCallback(async () => {
         abortRef.current = true;
@@ -367,6 +479,9 @@ export function KortexLocalInferencePanel() {
             {running && statsLine && (
                 <div style={{ fontSize: 10, marginTop: 3, marginLeft: 18, opacity: 0.6, fontFamily: 'var(--vscode-editor-font-family, monospace)' }}>{statsLine}</div>
             )}
+            {running && specLine && (
+                <div style={{ fontSize: 10, marginTop: 2, marginLeft: 18, opacity: 0.6, fontFamily: 'var(--vscode-editor-font-family, monospace)' }}>{specLine}</div>
+            )}
             {showLog && rest && (
                 <pre style={{
                     fontSize: 10, lineHeight: 1.35, margin: '6px 0 0 18px', padding: 8, maxHeight: 110, overflow: 'auto',
@@ -378,7 +493,37 @@ export function KortexLocalInferencePanel() {
             {/* details: compact, only on demand */}
             {showDetails && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10, marginLeft: 18 }}>
-                    <label style={label}>Model file (.gguf)</label>
+                    <div style={{ ...row, alignItems: 'center' }}>
+                        <label style={{ ...label, flex: 1 }}>
+                            Downloaded models {ggufsLoading ? '(scanning…)' : localGgufs.length ? `(${localGgufs.filter(g => !g.aux).length})` : ''}
+                        </label>
+                        <button type="button" style={{ ...btn, padding: '2px 8px' }} disabled={running || ggufsLoading}
+                            onClick={scanGgufs} title="Re-scan the HF / Lemonade caches">↻</button>
+                    </div>
+                    <select style={{ ...inputStyle, flex: 'none', width: '100%' }} disabled={running}
+                        value={localGgufs.some(g => g.path === modelPath) ? modelPath : ''}
+                        onChange={e => {
+                            const p = e.target.value;
+                            if (!p) return;
+                            setModelPath(p);
+                            try { localStorage.setItem('kortex.localModelPath', p); } catch { /* */ }
+                            // Point the whole chat at this model right away — not only on
+                            // Start — so the toolbar reflects it and no stale tag routes
+                            // a second model onto Lemonade.
+                            setLlamaCppModelPath?.(p);
+                            setInferenceBackend?.('llama-cpp');
+                            setAgentModel?.(tagForGguf(p));
+                        }}>
+
+                        <option value="">{localGgufs.length ? '— pick a downloaded GGUF —' : '(none found — pull one via Lemonade, or use the path below)'}</option>
+                        {localGgufs.filter(g => !g.aux).map(g => (
+                            <option key={g.path} value={g.path}>
+                                {g.repo} · {g.quant || 'gguf'} · {(g.size_mb / 1024).toFixed(1)} GB
+                            </option>
+                        ))}
+                    </select>
+
+                    <label style={label}>…or a model file path (.gguf)</label>
                     <div style={row}>
                         <input style={inputStyle} value={modelPath} placeholder="auto-detected"
                             onChange={e => setModelPath(e.target.value)} disabled={running} />
@@ -386,6 +531,18 @@ export function KortexLocalInferencePanel() {
                             const p = await pickFile([{ name: 'GGUF', extensions: ['gguf'] }]); if (p) setModelPath(p);
                         }}>…</button>
                     </div>
+                    {/(^|[^a-z0-9])(i?q1|i?q2|q2_k)([^a-z0-9]|$)/i.test(modelPath) && (
+                        <div style={{ ...label, color: 'var(--vscode-errorForeground, #f7768e)', marginTop: 0 }}>
+                            ⚠ 2-bit quant — expect malformed tool calls and incoherent runs.
+                            Only run this if nothing larger fits.
+                        </div>
+                    )}
+                    {/(^|[^a-z0-9])(i?q3|q3_k)([^a-z0-9]|$)/i.test(modelPath) && (
+                        <div style={{ ...label, opacity: 0.7, marginTop: 0 }}>
+                            3-bit — the practical ceiling for a 27B on 16 GB (Q4 won't fit).
+                            Occasional tool-call slips; MTP + lenient-JSON parsing catch most.
+                        </div>
+                    )}
                     <label style={label}>Server engine</label>
                     <div style={row}>
                         <input style={inputStyle} value={serverBinary} placeholder="auto (bundled ROCmFPX)"
@@ -400,6 +557,78 @@ export function KortexLocalInferencePanel() {
                     <input type="number" min={2048} step={512} style={{ ...inputStyle, flex: 'none', width: 120 }}
                         value={vramMb || 16384} disabled={running}
                         onChange={e => setVramMb?.(parseInt(e.target.value) || 16384)} />
+
+                    <label style={label}>MoE expert offload (`--n-cpu-moe`, 0 = off)</label>
+                    <input type="number" min={0} max={64} step={1} style={{ ...inputStyle, flex: 'none', width: 120 }}
+                        value={nCpuMoe} disabled={running}
+                        onChange={e => {
+                            const v = Math.max(0, Math.min(64, parseInt(e.target.value) || 0));
+                            setNCpuMoe(v);
+                            try { localStorage.setItem('kortex.nCpuMoe', String(v)); } catch { /* */ }
+                        }} />
+                    <div style={{ ...label, opacity: 0.55, marginTop: 0 }}>
+                        For a Q4 <b>MoE</b> (35B-A3B) on 16&nbsp;GB: try 20–24. Spills that
+                        many layers' experts to RAM so the model fits. No effect on a dense model.
+                    </div>
+
+                    <label style={label}>Speculative decoding (decode-speed, output unchanged)</label>
+                    <select style={{ ...inputStyle, flex: 'none', width: '100%' }} value={specType} disabled={running}
+                        onChange={e => {
+                            setSpecType(e.target.value);
+                            try { localStorage.setItem('kortex.spec.type', e.target.value); } catch { /* ignore */ }
+                        }}>
+                        <option value="">Off</option>
+                        <option value="ngram-simple">Prompt lookup — code (no model, no VRAM)</option>
+                        <option value="ngram-cache">Prompt lookup + persistent cache</option>
+                        <option value="ngram-simple,draft-mtp">Lookup + MTP head</option>
+                        <option value="draft-mtp">MTP head only (auto-detected)</option>
+                        <option value="draft-dflash">DFlash v2 draft model (block diffusion)</option>
+                        <option value="draft-eagle3">EAGLE-3 draft head</option>
+                        <option value="draft-simple">Draft model (separate small GGUF)</option>
+                    </select>
+                    <div style={{ ...label, opacity: 0.55, marginTop: 0 }}>
+                        The full model verifies every drafted token — same output, more tokens per pass.
+                        Applies on next Start.
+                    </div>
+                    {/(^|,)draft-(simple|eagle3|dflash|dspark)/.test(specType) && (
+                        <>
+                            <label style={label}>Draft model (.gguf) — required for this speculator</label>
+                            <div style={row}>
+                                <input style={inputStyle} value={draftModel} disabled={running}
+                                    placeholder="path to the draft / DFlash GGUF"
+                                    onChange={e => {
+                                        setDraftModel(e.target.value);
+                                        try { localStorage.setItem('kortex.spec.draftModel', e.target.value); } catch { /* */ }
+                                    }} />
+                                <button type="button" style={btn} disabled={running} onClick={async () => {
+                                    const pth = await pickFile([{ name: 'GGUF', extensions: ['gguf'] }]);
+                                    if (pth) { setDraftModel(pth); try { localStorage.setItem('kortex.spec.draftModel', pth); } catch { /* */ } }
+                                }}>…</button>
+                            </div>
+                            <div style={{ ...label, opacity: 0.55, marginTop: 0 }}>
+                                DFlash v2 is a block-diffusion draft model (github.com/z-lab/dflash, MIT):
+                                a small model drafts several tokens in parallel, the reasoner verifies —
+                                output unchanged. Needs a GGUF matched to this model's tokenizer;
+                                draft-eagle3 / draft-simple take a small draft GGUF of the same family.
+                            </div>
+                        </>
+                    )}
+
+                    <label style={{ ...label, marginTop: 8 }}>Operator — small model on Lemonade (sub-agents, APEX)</label>
+                    <div style={row}>
+                        <input style={inputStyle} value={opModel} placeholder="qwen3.5:4b"
+                            onChange={e => setOpModel(e.target.value)} />
+                    </div>
+                    <div style={row}>
+                        <input style={inputStyle} value={opUrl} placeholder="http://localhost:13305"
+                            onChange={e => setOpUrl(e.target.value)} />
+                    </div>
+                    <div style={{ ...label, opacity: 0.55, marginTop: 0 }}>
+                        This box is the reasoner (big model). The Operator runs the tool-call grunt
+                        work on a separate Lemonade server. Blank = defaults.
+                    </div>
+
+                    <KortexReliabilityPanel />
                 </div>
             )}
         </div>

@@ -17,7 +17,7 @@ const isHighwayApiModel = (model: unknown): boolean =>
 
 /**
  * Use-case: fix stale localStorage model tags on boot.
- * WHY application layer? It's a business rule (cloud vs Ollama), not a UI concern.
+ * WHY application layer? It's a business rule (cloud vs the local backend), not a UI concern.
  */
 export async function validateStartupModel(): Promise<void> {
     try {
@@ -62,12 +62,12 @@ export async function validateStartupModel(): Promise<void> {
             try {
                 const best = await invoke<string>('detect_best_model');
                 if (best) {
-                    const tag = `Ollama|${best}`;
+                    const tag = `lemonade|${best}`;
                     st.setAgentModel?.(tag);
                     try { localStorage.setItem('agentModel', tag); } catch { /* */ }
                     console.log(`[validateStartupModel] offline auto-pick: ${best}`);
                 }
-            } catch { /* Ollama offline */ }
+            } catch { /* local backend offline */ }
         }
     } catch (e) {
         console.warn('[validateStartupModel] skipped:', e);

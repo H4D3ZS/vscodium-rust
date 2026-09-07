@@ -8,7 +8,7 @@ import { useStore } from '../../store';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  LoginModal — HeroUI pilot. Sign in to unlock cloud models. Local models
-//  (Lemonade/Ollama) never need this; the modal only appears when opened from
+//  (Lemonade/the local backend) never need this; the modal only appears when opened from
 //  the Account panel or when a cloud model is used while signed out.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ const LoginModal: React.FC = () => {
                 </ModalHeader>
                 <ModalBody>
                     <p className="text-small text-default-500 -mt-1">
-                        Local models (Lemonade / Ollama) stay free and need no account. Signing in
+                        Local models (Lemonade) stay free and need no account. Signing in
                         unlocks powerful cloud models like <b>GLM-5.2</b> and <b>Qwen3.6-35B-MoE</b>.
                     </p>
 

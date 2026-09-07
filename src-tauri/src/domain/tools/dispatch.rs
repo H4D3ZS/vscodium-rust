@@ -44,6 +44,29 @@ impl AiTools {
         let canonical = Self::canonical_tool_name(name);
         let arguments = Self::normalize_tool_args(arguments);
         self.gate_tool_entitlement(canonical).await?;
+
+        // Deterministic pre-action authorization (KORTEX_AUTHZ). A Deny is a hard
+        // wall even if the model was subverted; Confirm is logged but allowed
+        // here (interactive confirmation lives in the UI layer), so the default
+        // autonomous loop is unchanged unless a deny threshold is configured.
+        let authz = crate::domain::ai::authorization::AuthzConfig::from_env();
+        if authz.enabled {
+            let d = crate::domain::ai::authorization::authorize(canonical, &arguments, &authz);
+            match d.decision {
+                crate::domain::ai::authorization::Decision::Deny => {
+                    crate::domain::ai::reliability_stats::bump("AUTHZ_DENIED");
+                    return Err(anyhow!("blocked by authorization policy: {}", d.reason));
+                }
+                crate::domain::ai::authorization::Decision::Confirm => {
+                    crate::domain::ai::reliability_stats::bump("AUTHZ_CONFIRMED");
+                    eprintln!("[authz] {} needs confirmation ({:?}) — allowed in autonomous mode", canonical, d.impact);
+                }
+                crate::domain::ai::authorization::Decision::Allow => {
+                    crate::domain::ai::reliability_stats::bump("AUTHZ_ALLOWED");
+                }
+            }
+        }
+
         let root = self.root_path.lock().await.clone();
         let _ = crate::cursor_compat::append_debug_log(
             std::path::Path::new(&root),
@@ -184,6 +207,7 @@ impl AiTools {
             "dependency_graph" => self.dependency_graph(arguments).await,
             "get_system_info" | "get_system_health" => self.handle_system_tool(canonical, arguments).await,
             "task_boundary" => self.handle_task_boundary(arguments).await,
+            "task_state" => self.handle_task_state(arguments).await,
             "create_canvas" => self.handle_create_canvas(arguments).await,
             "notify_user" => self.handle_notify_user(arguments).await,
             "use_skill" | "skill" => self.handle_use_skill(arguments).await,
@@ -234,7 +258,7 @@ impl AiTools {
             | "generate_exploit_artifact"
             | "apex_pentest_report" => self.handle_apex_tool(canonical, arguments).await,
 
-            // TS-parity workflow tools (also in OLLAMA_ESSENTIAL_TOOLS)
+            // TS-parity workflow tools (also in LOCAL_ESSENTIAL_TOOLS)
             "todo_write" | "task_create" | "task_update" | "task_list" | "task_get" => {
                 self.handle_task_tool(canonical, arguments).await
             }
@@ -253,7 +277,56 @@ impl AiTools {
                 "ok": result.is_ok(),
             }),
         );
-        result
+
+        // Provenance quarantine (KORTEX_PROVENANCE): content fetched from outside
+        // the workspace is DATA, not instructions. Wrap the text result of
+        // external-fetch tools in a labelled, break-out-proof fence + injection
+        // scan before it re-enters the model's context.
+        result.map(|v| Self::apply_provenance(canonical, v))
+    }
+
+    /// Tools whose output is untrusted external content.
+    fn is_external_tool(canonical: &str) -> bool {
+        matches!(
+            canonical,
+            "web_fetch" | "fetch" | "fetch_url" | "web_search" | "perplexity_ask"
+                | "perplexity_reason" | "browser_subagent" | "oast_interactions"
+                | "exploit_lookup"
+        )
+    }
+
+    /// Wrap the textual payload of an external tool result with a provenance
+    /// fence. No-op when provenance is off or the tool isn't external. Wraps a
+    /// string result, or a `content`/`result`/`text` string field of an object.
+    fn apply_provenance(canonical: &str, v: Value) -> Value {
+        if !Self::is_external_tool(canonical)
+            || !crate::domain::ai::provenance::ProvenanceConfig::from_env().enabled
+        {
+            return v;
+        }
+        use crate::domain::ai::provenance::{scan, tag, Trust};
+        let src = format!("tool:{canonical}");
+        let mut fence = |s: &str| -> String {
+            crate::domain::ai::reliability_stats::bump("PROVENANCE_FENCED");
+            if scan(s).is_suspicious() {
+                crate::domain::ai::reliability_stats::bump("PROVENANCE_INJECTION_FLAGGED");
+            }
+            tag(s, &src, Trust::Untrusted)
+        };
+        match v {
+            Value::String(s) => Value::String(fence(&s)),
+            Value::Object(mut map) => {
+                for key in ["content", "result", "text", "output", "answer"] {
+                    if let Some(Value::String(s)) = map.get(key) {
+                        let wrapped = fence(s);
+                        map.insert(key.to_string(), Value::String(wrapped));
+                        break;
+                    }
+                }
+                Value::Object(map)
+            }
+            other => other,
+        }
     }
 
     /// Cursor/TS `todo_write` / `task_*` — persist markdown task lists to disk.

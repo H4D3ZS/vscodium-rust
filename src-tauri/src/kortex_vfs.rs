@@ -24,7 +24,11 @@ pub struct VfsDaemonStatus {
     pub port: Option<u16>,
 }
 
-const VFS_PORT: u16 = 1537;
+/// aim-vfs daemon port. **Not** `:1537` — that belongs to the KDKVC KV-slot
+/// cache proxy (`kortex_kvcache`, the README's headline kortex feature). Kortex
+/// port map: `:1536` aim-proxy retrieval · `:1537` KV-slot cache ·
+/// `:1538` aim-vfs daemon · `:1539` built-in MCP.
+const VFS_PORT: u16 = 1538;
 
 /// Start the aim-vfs daemon as a sidecar process. Idempotent — returns
 /// the port if already running.

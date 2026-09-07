@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-/// The BugTraceAI model identifier for Ollama
+/// The BugTraceAI model identifier
 const BUGTRACE_MODEL: &str = "hf.co/BugTraceAI/BugTraceAI-Apex-G4-26B-Q4:latest";
 
 /// System prompt that unlocks full Apex reasoning
@@ -125,13 +125,13 @@ pub struct RedTeamReport {
 
 pub struct ApexRedTeam {
     client: Client,
-    ollama_url: Arc<Mutex<String>>,
+    inference_url: Arc<Mutex<String>>,
     model: Arc<Mutex<String>>,
     findings_history: Arc<Mutex<Vec<RedTeamFinding>>>,
 }
 
 impl ApexRedTeam {
-    pub fn new(ollama_url: &str) -> Self {
+    pub fn new(inference_url: &str) -> Self {
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(600))
@@ -140,7 +140,7 @@ impl ApexRedTeam {
 
         Self {
             client,
-            ollama_url: Arc::new(Mutex::new(ollama_url.to_string())),
+            inference_url: Arc::new(Mutex::new(inference_url.to_string())),
             // 26B BugTrace only fits the full tier (~15GB weights); lite/mid
             // machines fall back to the shared RAM-tiered threat model.
             model: Arc::new(Mutex::new(
@@ -158,9 +158,9 @@ impl ApexRedTeam {
         *self.model.lock().await = model.to_string();
     }
 
-    /// Set the Ollama URL
-    pub async fn set_ollama_url(&self, url: &str) {
-        *self.ollama_url.lock().await = url.to_string();
+    /// Set the inference URL
+    pub async fn set_inference_url(&self, url: &str) {
+        *self.inference_url.lock().await = url.to_string();
     }
 
     /// Execute a full red team scan on a code target
@@ -319,7 +319,7 @@ impl ApexRedTeam {
         )
     }
 
-    /// Query the Apex model via Ollama
+    /// Query the Apex model via the local backend
     async fn query_apex(&self, prompt: &str) -> Result<String, String> {
         // Share the global batch-engine gate so red-team scans never run
         // concurrently with APEX engines on low-RAM tiers.
@@ -329,7 +329,7 @@ impl ApexRedTeam {
             .await
             .map_err(|e| format!("[APEX-RT] Engine gate closed: {}", e))?;
 
-        let url = self.ollama_url.lock().await.clone();
+        let url = self.inference_url.lock().await.clone();
         let model = self.model.lock().await.clone();
 
         println!("[APEX-RT] Querying {} with model {}...", url, model);
@@ -367,7 +367,7 @@ impl ApexRedTeam {
 
         result["response"].as_str()
             .map(|s| s.to_string())
-            .ok_or_else(|| "[APEX-RT] No response field in Ollama output".to_string())
+            .ok_or_else(|| "[APEX-RT] No response field in model output".to_string())
     }
 
     /// Parse the <thinking> block and structured findings from the Apex response

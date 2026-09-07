@@ -42,22 +42,22 @@ impl Sentient {
         vec![]
     }
 
-    pub(crate) fn is_cyberifrit_managed_ollama_url(url: &str) -> bool {
+    pub(crate) fn is_cyberifrit_managed_inference_url(url: &str) -> bool {
         let u = url.to_lowercase();
         u.contains("ai.cyberifrit.xyz") || u.contains("api.cyberifrit.xyz")
     }
 
-    pub(crate) fn ollama_auth_hint(base_url: &str, status_code: u16) -> &'static str {
-        if Self::is_cyberifrit_managed_ollama_url(base_url) {
+    pub(crate) fn local_auth_hint(base_url: &str, status_code: u16) -> &'static str {
+        if Self::is_cyberifrit_managed_inference_url(base_url) {
             return match status_code {
                 401 => "Sign in to Cyber-Ifrit (Settings → Account) to use Cyber-Ifrit Cloud.",
-                402 => "Your plan does not include Cyber-Ifrit Cloud. Start the free 1-day trial, subscribe to Pro+, or use Local Ollama / your own API keys.",
+                402 => "Your plan does not include Cyber-Ifrit Cloud. Start the free 1-day trial, subscribe to Pro+, or use a local backend / your own API keys.",
                 403 => "Cyber-Ifrit Cloud access denied. Sync Settings → Account or upgrade your plan.",
                 _ => "Cyber-Ifrit Cloud auth failed — sign in and sync Settings → Account.",
             };
         }
         match status_code {
-            401 | 403 => "Server replied with auth failure. If your Ollama proxy requires a bearer token, paste it in Settings → Providers.",
+            401 | 403 => "Server replied with auth failure. If your local proxy requires a bearer token, paste it in Settings → Providers.",
             402 => "Connected, but this endpoint rejected the request (HTTP 402). Check your subscription or proxy policy.",
             _ => "Server returned a non-2xx status. See the body preview below.",
         }
@@ -66,7 +66,7 @@ impl Sentient {
     /// Resolve the local backend base URL: request override first, then the
     /// configured Lemonade server. Lemonade is the only local backend.
     pub(crate) async fn resolved_local_base(&self, req: &AiRequest) -> String {
-        if let Some(u) = req.ollama_url.as_ref().filter(|u| !u.trim().is_empty()) {
+        if let Some(u) = req.inference_url.as_ref().filter(|u| !u.trim().is_empty()) {
             return u.trim_end_matches('/').to_string();
         }
         self.lemonade_base().await
@@ -205,7 +205,7 @@ impl Sentient {
                 }
 
                 // Cloud goes DIRECT — never auto-route through the local :1536 AIM proxy.
-                // The proxy is for LOCAL Ollama context injection; sending a cloud request
+                // The proxy is for LOCAL model context injection; sending a cloud request
                 // through it double-injects context the IDE already adds in-process AND
                 // hangs the request to the 60s timeout if the proxy is up but not
                 // forwarding (the cause of "Gemini just times out / takes a minute").
@@ -301,13 +301,13 @@ impl Sentient {
             // Local DeepSeek V2 running on Apple Silicon (M1/M2/M3) via either
             // llama.cpp + Metal or MLX-LM. Both expose an OpenAI-compatible
             // server. Default port is 8080 (llama-server), overridable via
-            // the DEEPSEEK_ANE_URL env var or `ollama_url` field on the
+            // the DEEPSEEK_ANE_URL env var or `inference_url` field on the
             // request (we reuse the field for any local OpenAI-compatible
             // endpoint to avoid threading another override through the API).
             "deepseek-ane" | "deepseek_ane" | "ds2-ane" => {
                 let base = std::env::var("DEEPSEEK_ANE_URL")
                     .ok()
-                    .or_else(|| req.ollama_url.clone())
+                    .or_else(|| req.inference_url.clone())
                     .unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
                 let base = base.trim().trim_end_matches('/').to_string();
                 // Accept either bare host (http://127.0.0.1:8080) or fully
@@ -328,11 +328,11 @@ impl Sentient {
                 "https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions".to_string()
             }
             "antigravity" => "http://127.0.0.1:1536/v1/chat/completions".to_string(),
-            // vLLM — OpenAI-compat server, URL from ollama_url field or env
+            // vLLM — OpenAI-compat server, URL from inference_url field or env
             "vllm" => {
                 let base = std::env::var("VLLM_URL")
                     .ok()
-                    .or_else(|| req.ollama_url.clone())
+                    .or_else(|| req.inference_url.clone())
                     .unwrap_or_else(|| "http://127.0.0.1:8000".to_string());
                 let base = base.trim().trim_end_matches('/').to_string();
                 if base.ends_with("/v1/chat/completions") { base }
@@ -343,7 +343,7 @@ impl Sentient {
             "lmstudio" | "lm-studio" | "lm_studio" => {
                 let base = std::env::var("LMSTUDIO_URL")
                     .ok()
-                    .or_else(|| req.ollama_url.clone())
+                    .or_else(|| req.inference_url.clone())
                     .unwrap_or_else(|| "http://127.0.0.1:1234".to_string());
                 let base = base.trim().trim_end_matches('/').to_string();
                 if base.ends_with("/v1/chat/completions") { base }
@@ -354,7 +354,7 @@ impl Sentient {
             "litellm" | "lite-llm" | "lite_llm" => {
                 let base = std::env::var("LITELLM_URL")
                     .ok()
-                    .or_else(|| req.ollama_url.clone())
+                    .or_else(|| req.inference_url.clone())
                     .unwrap_or_else(|| "http://127.0.0.1:4000".to_string());
                 let base = base.trim().trim_end_matches('/').to_string();
                 if base.ends_with("/v1/chat/completions") { base }
@@ -364,9 +364,9 @@ impl Sentient {
             "lemonade" => {
                 // Real lemonade-server serves its OpenAI-compatible API under
                 // /api/v1/ (chat: /api/v1/chat/completions); it does NOT speak
-                // Ollama's native /api/chat. Cloud/proxied deployments may only
+                // the native /api/chat path. Cloud/proxied deployments may only
                 // expose /v1/ — the request layer retries on /v1 after a 404.
-                let raw = req.ollama_url.clone()
+                let raw = req.inference_url.clone()
                     .filter(|u| !u.trim().is_empty())
                     .unwrap_or_else(|| self.lemonade_base_blocking());
                 let base = Self::strip_lemonade_v1(&raw);
@@ -387,13 +387,13 @@ impl Sentient {
                 "https://api.openmodel.ai/v1/messages".to_string()
             }
             // Hugging Face Inference Router — OpenAI-compatible.
-            // Base comes from env, then req.ollama_url (set by the frontend
+            // Base comes from env, then req.inference_url (set by the frontend
             // when inferenceBackend === 'huggingface'), then the default.
             "huggingface" => {
                 let base = std::env::var("HUGGINGFACE_BASE_URL")
                     .ok()
                     .filter(|s| !s.trim().is_empty())
-                    .or_else(|| req.ollama_url.clone())
+                    .or_else(|| req.inference_url.clone())
                     .unwrap_or_else(|| "https://router.huggingface.co/v1".to_string());
                 let base = base.trim().trim_end_matches('/').to_string();
                 if base.ends_with("/v1/chat/completions") { base }
@@ -960,7 +960,7 @@ impl Sentient {
 
             if let Some(end) = end_idx {
                 let candidate = &content[actual_start..end];
-                if let Ok(val) = serde_json::from_str::<Value>(candidate) {
+                if let Some(val) = parse_lenient_json(candidate) {
                     let old_len = tools.len();
                     self.parse_single_json_item_to_tools(val, tools);
                     if tools.len() > old_len {
@@ -975,14 +975,14 @@ impl Sentient {
 
     pub(crate) fn parse_json_to_tools(&self, json_block: &str, tools: &mut Vec<ToolCall>) {
         // Try parsing the full block first (valid if it's one object or an array)
-        if let Ok(val) = serde_json::from_str::<Value>(json_block) {
+        if let Some(val) = parse_lenient_json(json_block) {
             self.parse_single_json_item_to_tools(val, tools);
         } else {
             // Try splitting by newline for NDJSON inside the block
             for line in json_block.lines() {
                 let line = line.trim();
                 if !line.is_empty() {
-                    if let Ok(val) = serde_json::from_str::<Value>(line) {
+                    if let Some(val) = parse_lenient_json(line) {
                         self.parse_single_json_item_to_tools(val, tools);
                     }
                 }
@@ -1067,4 +1067,201 @@ impl Sentient {
         summary
     }
 
+}
+
+/// Parse a JSON value, strict first, then with a light repair pass. Weak /
+/// heavily-quantised local models routinely emit *near*-JSON tool calls —
+/// `{"tool": "list_dir", arguments:{path:'C:\Users\x'}}` — that `serde_json`
+/// rejects outright, so the call is dropped and the model hallucinates the
+/// result instead. The repair only runs after a strict parse fails, and if it
+/// still doesn't parse we return `None` and nothing downstream changes.
+pub(crate) fn parse_lenient_json(src: &str) -> Option<Value> {
+    let src = src.trim();
+    if src.is_empty() {
+        return None;
+    }
+    if let Ok(v) = serde_json::from_str::<Value>(src) {
+        return Some(v);
+    }
+    let repaired = relaxed_json_repair(src);
+    serde_json::from_str::<Value>(&repaired).ok()
+}
+
+/// Best-effort JSON normaliser. Single pass over `chars` (all structural
+/// tokens are ASCII, so char indexing is safe):
+///   * bare identifier keys           `arguments:` → `"arguments":`
+///   * single-quoted strings          `'x'` → `"x"`
+///   * trailing commas                `{"a":1,}` → `{"a":1}`
+///   * lone backslashes in strings    `"C:\Users"` → `"C:\\Users"`
+/// Intentionally conservative — anything it can't classify passes through.
+fn relaxed_json_repair(src: &str) -> String {
+    let cs: Vec<char> = src.chars().collect();
+    let n = cs.len();
+    let mut out = String::with_capacity(src.len() + 16);
+    let mut i = 0;
+    let mut last_significant = '\0';
+
+    let is_key_start = |c: char| c.is_ascii_alphabetic() || c == '_' || c == '$';
+    let is_key_char =
+        |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$' || c == '.' || c == '-';
+    let valid_escape =
+        |c: char| matches!(c, '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't' | 'u');
+
+    let copy_quoted = |out: &mut String, cs: &[char], i: &mut usize, quote: char| {
+        out.push('"');
+        *i += 1;
+        while *i < cs.len() {
+            let d = cs[*i];
+            if d == '\\' {
+                let next = cs.get(*i + 1).copied().unwrap_or('\0');
+                if quote == '\'' && next == '\'' {
+                    // `\'` inside a single-quoted string is just an apostrophe.
+                    out.push('\'');
+                    *i += 2;
+                } else if valid_escape(next) {
+                    out.push('\\');
+                    out.push(next);
+                    *i += 2;
+                } else {
+                    out.push_str("\\\\");
+                    *i += 1;
+                }
+                continue;
+            }
+            if d == quote {
+                out.push('"');
+                *i += 1;
+                break;
+            }
+            if d == '"' && quote == '\'' {
+                out.push_str("\\\"");
+                *i += 1;
+                continue;
+            }
+            out.push(d);
+            *i += 1;
+        }
+    };
+
+    while i < n {
+        let c = cs[i];
+        match c {
+            '"' | '\'' => {
+                copy_quoted(&mut out, &cs, &mut i, c);
+                last_significant = '"';
+            }
+            '}' | ']' => {
+                if last_significant == ',' {
+                    while out.ends_with([' ', '\n', '\r', '\t']) {
+                        out.pop();
+                    }
+                    if out.ends_with(',') {
+                        out.pop();
+                    }
+                }
+                out.push(c);
+                last_significant = c;
+                i += 1;
+            }
+            ' ' | '\n' | '\r' | '\t' => {
+                out.push(c);
+                i += 1;
+            }
+            _ if (last_significant == '{' || last_significant == ',') && is_key_start(c) => {
+                let start = i;
+                let mut j = i;
+                while j < n && is_key_char(cs[j]) {
+                    j += 1;
+                }
+                let mut k = j;
+                while k < n && matches!(cs[k], ' ' | '\n' | '\r' | '\t') {
+                    k += 1;
+                }
+                if k < n && cs[k] == ':' {
+                    out.push('"');
+                    out.extend(&cs[start..j]);
+                    out.push('"');
+                    i = j;
+                    last_significant = '"';
+                } else {
+                    out.push(c);
+                    last_significant = c;
+                    i += 1;
+                }
+            }
+            _ => {
+                out.push(c);
+                last_significant = c;
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod lenient_json_tests {
+    use super::parse_lenient_json;
+
+    #[test]
+    fn strict_json_passes_through() {
+        let v = parse_lenient_json(r#"{"tool":"grep","arguments":{"pattern":"foo"}}"#).unwrap();
+        assert_eq!(v["tool"], "grep");
+        assert_eq!(v["arguments"]["pattern"], "foo");
+    }
+
+    #[test]
+    fn bare_keys_are_quoted() {
+        let v = parse_lenient_json(r#"{"tool": "list_dir", arguments:{path:"src"}}"#).unwrap();
+        assert_eq!(v["tool"], "list_dir");
+        assert_eq!(v["arguments"]["path"], "src");
+    }
+
+    #[test]
+    fn single_quotes_become_double() {
+        let v = parse_lenient_json("{'tool':'grep','arguments':{'pattern':'x'}}").unwrap();
+        assert_eq!(v["tool"], "grep");
+        assert_eq!(v["arguments"]["pattern"], "x");
+    }
+
+    #[test]
+    fn lone_backslashes_in_a_windows_path_are_escaped() {
+        // The exact shape from the failing screenshot.
+        let v = parse_lenient_json(
+            r#"{"tool": "list_dir", arguments:{path:"C:\Users\hades\src-tauri\src\domain\ai"}}"#,
+        )
+        .unwrap();
+        assert_eq!(v["arguments"]["path"], r"C:\Users\hades\src-tauri\src\domain\ai");
+    }
+
+    #[test]
+    fn trailing_commas_are_dropped() {
+        let v = parse_lenient_json(r#"{"tool":"grep","arguments":{"pattern":"x",},}"#).unwrap();
+        assert_eq!(v["tool"], "grep");
+    }
+
+    #[test]
+    fn valid_escapes_inside_strings_are_preserved() {
+        let v = parse_lenient_json(r#"{"tool":"write","arguments":{"content":"line1\nline2\t\"q\""}}"#)
+            .unwrap();
+        assert_eq!(v["arguments"]["content"], "line1\nline2\t\"q\"");
+    }
+
+    #[test]
+    fn unicode_in_strings_survives() {
+        let v = parse_lenient_json(r#"{tool:"echo", arguments:{msg:"café ✓ 日本語"}}"#).unwrap();
+        assert_eq!(v["arguments"]["msg"], "café ✓ 日本語");
+    }
+
+    #[test]
+    fn garbage_returns_none() {
+        assert!(parse_lenient_json("### FILE LISTING ###  \\n/./ `.`").is_none());
+        assert!(parse_lenient_json("").is_none());
+    }
+
+    #[test]
+    fn apostrophe_escaped_inside_a_single_quoted_string() {
+        let v = parse_lenient_json(r"{'tool':'run','arguments':{'cmd':'echo it\'s fine'}}").unwrap();
+        assert_eq!(v["arguments"]["cmd"], "echo it's fine");
+    }
 }

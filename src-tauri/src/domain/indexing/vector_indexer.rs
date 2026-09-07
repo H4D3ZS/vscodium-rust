@@ -56,7 +56,7 @@ pub struct VectorIndexer {
     indexing_progress: Arc<RwLock<IndexingProgress>>,
     ann: Arc<std::sync::Mutex<crate::ann_index::AnnIndex>>,
     /// Base URL for the embedding endpoint. Defaults to **Lemonade**
-    /// (`http://localhost:13305`), not Ollama — this machine has no Ollama, and
+    /// (`http://localhost:13305`) — this machine has no raw :11434 server, and
     /// pointing here at a dead host silently disabled `@codebase`,
     /// `semantic_search` and `search_codebase`, because a failed embed degrades
     /// to an empty result instead of an error anyone sees.

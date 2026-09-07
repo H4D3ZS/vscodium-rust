@@ -105,7 +105,7 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
     {
         id: 'vector-index',
         name: 'Semantic codebase index',
-        description: 'Flat ANN top-k + SQLite chunks with Ollama embeddings',
+        description: 'Flat ANN top-k + SQLite chunks with local embeddings',
         tier: 'wired',
         sources: ['cursor-retrieval', 'turbovec'],
         hadesPath: 'vector_indexer.rs, ann_index.rs, embeddings.rs',
@@ -203,7 +203,7 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
     {
         id: 'tab-model',
         name: 'Tab FIM autocomplete',
-        description: 'Ollama /api/generate FIM for coder models',
+        description: 'Local /api/generate FIM for coder models',
         tier: 'wired',
         sources: ['Tab model'],
         hadesPath: 'ai_commands.rs ai_inline_complete',

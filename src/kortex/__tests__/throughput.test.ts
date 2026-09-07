@@ -74,11 +74,11 @@ describe('summarizeThroughput rolling window', () => {
     it('tracks current_tps as the most recent sample', () => {
         recordCompletion({
             wall_clock_ms: 1000, output_tokens: 10, input_tokens: 20,
-            backend: 'ollama', cache_hit: false, tokens_skipped: 0, ts_unix_ms: 1,
+            backend: 'lemonade', cache_hit: false, tokens_skipped: 0, ts_unix_ms: 1,
         });
         recordCompletion({
             wall_clock_ms: 1000, output_tokens: 50, input_tokens: 20,
-            backend: 'ollama', cache_hit: false, tokens_skipped: 0, ts_unix_ms: 2,
+            backend: 'lemonade', cache_hit: false, tokens_skipped: 0, ts_unix_ms: 2,
         });
         const s = summarizeThroughput();
         // Last sample was 50 tokens / 1000 ms = 50 tok/s.
@@ -133,7 +133,7 @@ describe('summarizeThroughput cache + prefill aggregation', () => {
     it('returns NaN avg_prefill_tps when no sample has prefill_ms', () => {
         recordCompletion({
             wall_clock_ms: 1000, output_tokens: 10, input_tokens: 100,
-            backend: 'ollama', cache_hit: false, tokens_skipped: 0, ts_unix_ms: 1,
+            backend: 'lemonade', cache_hit: false, tokens_skipped: 0, ts_unix_ms: 1,
         });
         const s = summarizeThroughput();
         expect(Number.isNaN(s.avg_prefill_tps)).toBe(true);
@@ -160,7 +160,7 @@ describe('summarizeThroughput cache + prefill aggregation', () => {
     it('exposes the last sample on summary.last', () => {
         recordCompletion({
             wall_clock_ms: 500, output_tokens: 5, input_tokens: 0,
-            backend: 'ollama', cache_hit: true, tokens_skipped: 123, ts_unix_ms: 99,
+            backend: 'lemonade', cache_hit: true, tokens_skipped: 123, ts_unix_ms: 99,
             model_id: 'qwen3-coder.gguf',
         });
         const s = summarizeThroughput();

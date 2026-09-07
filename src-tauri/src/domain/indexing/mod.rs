@@ -8,6 +8,7 @@ pub mod context_indexer;
 pub mod embeddings;
 pub mod knowledge_distiller;
 pub mod ripgrep_search;
+pub mod tgrep_search;
 pub mod structural_blueprints;
 pub mod symbols;
 pub mod vector_indexer;

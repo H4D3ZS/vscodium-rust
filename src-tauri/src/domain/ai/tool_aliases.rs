@@ -174,6 +174,7 @@ pub fn canonical_tool_name(name: &str) -> &str {
         "search_skills" | "find_skill" => "search_skills",
         "spawn_subagent" | "subagent" => "spawn_subagent",
         "task_boundary" | "boundary" => "task_boundary",
+        "task_state" | "ledger" | "task_ledger" => "task_state",
         "notify_user" | "ask_user" => "notify_user",
         "get_system_health" | "system_health" => "get_system_health",
         "get_system_info" | "system_info" => "get_system_info",

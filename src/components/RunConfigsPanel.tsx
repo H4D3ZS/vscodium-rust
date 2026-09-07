@@ -82,6 +82,15 @@ const RunConfigsPanel: React.FC = () => {
         setBusy(c.name);
         setLastResult(null);
         try {
+            // preLaunchTask — VS Code runs the named task and waits before debugging.
+            const preName = (c as LaunchConfig & { preLaunchTask?: string }).preLaunchTask;
+            if (preName) {
+                const pre = tasks.find(t => t.label === preName);
+                if (pre) {
+                    setLastResult({ name: c.name, ok: true, message: `Running preLaunchTask "${preName}"…` });
+                    await runTask(pre);
+                }
+            }
             const resolved = {
                 ...c,
                 program: c.program ? substituteVars(c.program, { workspaceFolder: activeRoot || '', file: activeEditorPath || '' }) : undefined,
@@ -98,7 +107,7 @@ const RunConfigsPanel: React.FC = () => {
         } finally {
             setBusy(null);
         }
-    }, [activeRoot, activeEditorPath]);
+    }, [activeRoot, activeEditorPath, tasks, runTask]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>

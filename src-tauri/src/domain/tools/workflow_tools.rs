@@ -50,6 +50,54 @@ impl AiTools {
         Ok(json!({ "status": "success", "boundary": description }))
     }
 
+    /// `task_state` — the long-horizon state ledger (`domain::ai::state_ledger`),
+    /// keyed per workspace so it persists across turns in a session. The fix for
+    /// state drift: a durable goal/decisions/facts/questions log the model can
+    /// re-ground itself against instead of re-deriving settled calls wrongly.
+    pub(crate) async fn handle_task_state(&self, args: Value) -> Result<Value> {
+        use crate::domain::ai::state_ledger::with_ledger;
+        let root = self.root_path.lock().await.clone();
+        let key = root.to_string_lossy().to_string();
+        let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("status");
+        let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+        let out = with_ledger(&key, |l| -> Value {
+            match action {
+                "goal" => {
+                    l.set_goal(&text);
+                    json!({ "status": "success", "goal": l.goal() })
+                }
+                "decide" => {
+                    l.decide(&text);
+                    json!({ "status": "success", "recorded": "decision" })
+                }
+                "fact" => {
+                    l.fact(&text);
+                    json!({ "status": "success", "recorded": "fact" })
+                }
+                "ask" => {
+                    l.ask(&text);
+                    json!({ "status": "success", "recorded": "question" })
+                }
+                "resolve" => {
+                    let q = args.get("query").and_then(|v| v.as_str()).unwrap_or(&text);
+                    let resolved = l.resolve_question(q);
+                    json!({ "status": "success", "resolved": resolved })
+                }
+                _ => {
+                    l.tick();
+                    json!({
+                        "status": "success",
+                        "goal": l.goal(),
+                        "open_questions": l.open_questions(),
+                        "reground": l.reground(5),
+                    })
+                }
+            }
+        });
+        Ok(out)
+    }
+
     pub(crate) async fn handle_create_canvas(&self, args: Value) -> Result<Value> {
         let title = args.get("title").and_then(|v| v.as_str())
             .unwrap_or("Untitled Canvas");
@@ -153,10 +201,40 @@ impl AiTools {
         self.run_command(args).await
     }
 
+    /// Verify the implementation actually works — the programmatic verification
+    /// loop (`domain::ai::verify`), not the model's word for it. Behind
+    /// `KORTEX_VERIFY=1`: auto-detects the project's build/test commands and
+    /// actually runs them; `"verified"` reflects a real pass/fail, never an
+    /// assumed one. When the lever is off, keeps the historical stub (unchanged
+    /// default behavior — this tool always existed, it just didn't check anything).
     pub async fn verify_implementation(&self, args: Value) -> Result<Value> {
         let task = args.get("task").and_then(|v| v.as_str())
-            .unwrap_or("Verify implementation");
-        Ok(json!({ "status": "success", "task": task, "verified": true }))
+            .unwrap_or("Verify implementation").to_string();
+
+        let cfg = crate::domain::ai::verify::VerifyConfig::from_env();
+        if !cfg.enabled {
+            return Ok(json!({ "status": "success", "task": task, "verified": true }));
+        }
+
+        let root = self.root_path.lock().await.clone();
+        let runner = crate::domain::ai::verify::detect_runner(&root);
+        let checks = crate::domain::ai::verify::run_checks(&runner, &cfg);
+        let verified = crate::domain::ai::verify::accepts(&checks, &cfg);
+        crate::domain::ai::reliability_stats::bump("VERIFY_RUNS");
+        crate::domain::ai::reliability_stats::bump(if verified { "VERIFY_PASSED" } else { "VERIFY_FAILED" });
+        Ok(json!({
+            "status": if verified { "success" } else { "failed" },
+            "task": task,
+            "verified": verified,
+            "checks": checks.iter().map(|c| json!({
+                "kind": c.kind.label(),
+                "passed": c.passed,
+                "summary": c.summary,
+            })).collect::<Vec<_>>(),
+            "note": if verified { String::new() } else {
+                crate::domain::ai::verify::failure_feedback(&checks, &cfg)
+            },
+        }))
     }
 
     pub async fn create_mission_plan(&self, args: Value) -> Result<Value> {
@@ -189,6 +267,11 @@ impl AiTools {
     /// text. The child gets a fresh message list (just the task string), a tight
     /// iteration cap (`KORTEX_SUBAGENT_MAX_ITERS`, default 15), no root access,
     /// and may not spawn its own sub-agents. Plan §3.2.
+    ///
+    /// The child runs on the **Operator** (the small fast model on Lemonade),
+    /// not the reasoner — sub-agent work is tool-call grunt work, which is
+    /// exactly what the Operator is for. `KORTEX_OPERATOR_MODEL` /
+    /// `KORTEX_OPERATOR_URL` override; `KORTEX_SUBAGENT_MODEL` still works.
     pub(crate) async fn handle_subagent_task(&self, args: Value) -> Result<Value> {
         let task = args
             .get("task")
@@ -217,14 +300,26 @@ impl AiTools {
             .ok_or_else(|| anyhow!("task: editor state unavailable"))?;
 
         let engine = state.ai.engine.clone();
-        let model = match std::env::var("KORTEX_SUBAGENT_MODEL")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-        {
-            Some(m) => m,
-            None => state.ai.current_model.lock().await.clone(),
-        };
         drop(state); // don't hold the EditorState handle across the child run
+
+        // Run on the Operator (small model on Lemonade), resolved independently
+        // of the main backend — so a sub-agent still hits :13305 even when the
+        // reasoner's URL was repointed at the Kortex proxy in front of :8081.
+        let model = crate::gpu_offload::operator_model();
+        let operator_url = crate::gpu_offload::operator_url();
+
+        // Preflight: a sub-agent burns real iterations before it discovers the
+        // Operator is down. Fail fast with something actionable instead.
+        if let Err(why) = operator_preflight(&operator_url).await {
+            return Ok(json!({
+                "status": "rejected",
+                "error": format!(
+                    "Operator (small model) not reachable at {operator_url}: {why}. \
+                     Start Lemonade and load `{model}` (e.g. `lemonade-server pull …`), \
+                     or set KORTEX_OPERATOR_URL to a running server."
+                ),
+            }));
+        }
 
         let req = crate::ai_engine::AiRequest {
             provider: "lemonade".to_string(),
@@ -236,12 +331,24 @@ impl AiTools {
                 tool_call_id: None,
                 metadata: None,
             }],
-            temperature: Some(0.0),
+            // NOT zero: greedy / temp-0 decoding degenerates into repetition
+            // loops on the reasoning-tuned Qwen3.x small models (their cards
+            // say so explicitly). 0.6 is the community consensus for agentic
+            // work — low enough to stay on-task, past the greedy-loop cliff.
+            // The DRY + repeat-penalty sampler on the local path is the
+            // backstop. Override with KORTEX_OPERATOR_TEMP.
+            temperature: Some(
+                std::env::var("KORTEX_OPERATOR_TEMP")
+                    .ok()
+                    .and_then(|s| s.trim().parse::<f32>().ok())
+                    .filter(|t| (0.0..=2.0).contains(t))
+                    .unwrap_or(0.6),
+            ),
             autonomous: true,
             mode: Some("Subagent".to_string()),
             cyber_mode: None,
             root_access: Some(false),
-            ollama_url: None,
+            inference_url: Some(operator_url),
             tools: None,
             reasoning_budget: None,
             reasoning_effort: None,
@@ -283,4 +390,39 @@ impl AiTools {
             "result": result.trim(),
         }))
     }
+}
+
+/// Quick reachability check for the Operator's server. Tries the endpoints a
+/// lemonade-server / OpenAI-compat gateway exposes; any 2xx (or even a 401/403,
+/// which still means "server is there") counts as up. ~2.5s ceiling so a dead
+/// port fails fast instead of hanging the sub-agent.
+async fn operator_preflight(base: &str) -> std::result::Result<(), String> {
+    let root = base.trim_end_matches('/');
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(2500))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut last = String::from("no endpoint answered");
+    for path in ["/api/v1/models", "/v1/models", "/health", "/api/health"] {
+        match client.get(format!("{root}{path}")).send().await {
+            Ok(r) => {
+                let s = r.status();
+                if s.is_success() || s.as_u16() == 401 || s.as_u16() == 403 {
+                    return Ok(());
+                }
+                last = format!("HTTP {} at {path}", s.as_u16());
+            }
+            Err(e) => {
+                last = if e.is_connect() {
+                    "connection refused".to_string()
+                } else if e.is_timeout() {
+                    "timed out".to_string()
+                } else {
+                    e.to_string()
+                };
+            }
+        }
+    }
+    Err(last)
 }

@@ -19,7 +19,7 @@ export async function bootstrapEnterpriseGovernance(): Promise<void> {
         }>('enterprise_seed_cyber_policy', { orgName: null });
 
         if (policy?.offline_only) {
-            store.setOllamaServerMode?.('local');
+            store.setInferenceServerMode?.('local');
             try { localStorage.setItem('inferenceBackend', 'lemonade'); } catch { /* */ }
         }
         if (policy?.require_secure_mode) {

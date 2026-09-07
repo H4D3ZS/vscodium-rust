@@ -9,7 +9,7 @@ export const AI_ENGINEER_LEAD =
 export const AI_ENGINEER_PILLARS = [
     {
         title: 'Local-first',
-        desc: 'Ollama, your API keys, your checkpoints — sovereignty by default.',
+        desc: 'Local models, your API keys, your checkpoints — sovereignty by default.',
     },
     {
         title: 'PyTorch ML Studio',

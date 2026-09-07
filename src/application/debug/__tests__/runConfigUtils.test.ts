@@ -16,13 +16,33 @@ describe('runConfigUtils', () => {
         expect(parsed?.configurations[0].name).toBe('App');
     });
 
-    it('substitutes workspace and file variables', () => {
+    it('substitutes the full VS Code variable set', () => {
         const ctx = {
             workspaceFolder: 'C:/proj',
-            file: 'C:/proj/src/main.ts',
+            file: 'C:/proj/src/app/main.ts',
+            lineNumber: 42,
+            selectedText: 'foo',
         };
         expect(substituteVars('${workspaceFolder}/out', ctx)).toBe('C:/proj/out');
+        expect(substituteVars('${workspaceFolderBasename}', ctx)).toBe('proj');
+        expect(substituteVars('${fileBasename}', ctx)).toBe('main.ts');
         expect(substituteVars('${fileBasenameNoExtension}', ctx)).toBe('main');
+        expect(substituteVars('${fileExtname}', ctx)).toBe('.ts');
+        expect(substituteVars('${fileDirname}', ctx)).toBe('C:/proj/src/app');
+        expect(substituteVars('${relativeFile}', ctx)).toBe('src/app/main.ts');
+        expect(substituteVars('${relativeFileDirname}', ctx)).toBe('src/app');
+        expect(substituteVars('${lineNumber}', ctx)).toBe('42');
+        expect(substituteVars('${selectedText}', ctx)).toBe('foo');
+        // unknown + unresolvable tokens pass through
+        expect(substituteVars('${command:foo.bar}', ctx)).toBe('${command:foo.bar}');
+        expect(substituteVars('${notAThing}', ctx)).toBe('${notAThing}');
+    });
+
+    it('resolves ${env:NAME}', () => {
+        process.env.RC_TEST_VAR = 'hello';
+        expect(substituteVars('x-${env:RC_TEST_VAR}-y', {})).toBe('x-hello-y');
+        expect(substituteVars('${env:RC_MISSING_VAR}', {})).toBe('');
+        delete process.env.RC_TEST_VAR;
     });
 
     it('builds task command with quoted args', () => {

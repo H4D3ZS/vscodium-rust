@@ -284,7 +284,7 @@ export const createAgentToolsSlice: StateCreator<AppState, [], [], AgentToolsSli
             const { ensureAgentRuntime } = await import('../application/performance/ensureAgentRuntime');
             await ensureAgentRuntime();
             const state = get();
-            const provider = state.agentModel.includes('|') ? state.agentModel.split('|')[0] : 'ollama';
+            const provider = state.agentModel.includes('|') ? state.agentModel.split('|')[0] : 'lemonade';
             const model = state.agentModel.includes('|') ? state.agentModel.split('|')[1] : state.agentModel;
             await invoke('update_background_job', { id, progress: 15, status: 'running' });
             const resultText = await invoke<string>('ai_chat_oneshot', {
@@ -296,7 +296,7 @@ export const createAgentToolsSlice: StateCreator<AppState, [], [], AgentToolsSli
                     ],
                     autonomous: true, root_access: true,
                     mode: state.agentMode === 'Chat' ? 'Agent' : state.agentMode,
-                    ollama_url: state.ollamaUrl,
+                    inference_url: state.inferenceUrl,
                 },
             });
             await invoke('update_background_job', { id, progress: 100, status: 'done' });

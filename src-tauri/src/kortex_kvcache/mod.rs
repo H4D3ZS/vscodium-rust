@@ -20,6 +20,7 @@ pub mod llamacpp;
 pub mod proxy;
 pub mod response_cache;
 pub mod store;
+pub mod trace;
 pub mod types;
 
 use std::sync::{Arc, Mutex};
@@ -64,6 +65,19 @@ fn set_proxy(state: Option<Arc<proxy::ProxyState>>) {
 pub async fn kortex_kvcache_start(mut opts: KvCacheOptions) -> Result<u16, String> {
     if current_proxy().is_some() {
         return Err("kvcache proxy already running; stop it first".into());
+    }
+
+    // Apply the context-engine knobs to the process env *before* the proxy
+    // reads its config (`HarnessConfig`/`ResponseCache`/`AnchorConfig::from_env`
+    // run inside `ProxyState::new`). `None` leaves the var untouched.
+    for (val, var) in [
+        (opts.engine_harness, "KORTEX_HARNESS"),
+        (opts.engine_tier2, "KORTEX_TIER2"),
+        (opts.engine_kv_anchors, "KORTEX_KV_ANCHORS"),
+    ] {
+        if let Some(on) = val {
+            std::env::set_var(var, if on { "1" } else { "0" });
+        }
     }
     // If the caller didn't pre-stamp the model identity, derive it from the
     // upstream server's /props now. This is the load-time gate that prevents

@@ -46,6 +46,25 @@ pub fn stable_date_stamp() -> String {
     chrono::Local::now().format("%Y-%m-%d").to_string()
 }
 
+/// Coarse, cache-stable description of how large the AIM index is.
+///
+/// The exact file count changes every time the watcher ingests an edit, and it
+/// used to be interpolated into the system prompt as a literal number — so a
+/// background re-index mid-session moved the prefix's first differing byte and
+/// cost a full cold prefill. The model only needs "is the index warm and roughly
+/// how big", never the exact number. Buckets are wide enough that normal editing
+/// never crosses one.
+pub fn indexed_hint(n: usize) -> &'static str {
+    match n {
+        0 => "not yet indexed",
+        1..=200 => "a small project",
+        201..=1_000 => "a few hundred files",
+        1_001..=5_000 => "a few thousand files",
+        5_001..=20_000 => "a large project",
+        _ => "a very large project",
+    }
+}
+
 /// Whether `s` is safe to place in a cached prompt prefix.
 ///
 /// Catches the patterns that have actually broken the cache here: clock times
@@ -93,6 +112,17 @@ mod prefix_cache_tests {
     #[test]
     fn date_stamp_is_stable_within_a_session() {
         assert_eq!(stable_date_stamp(), stable_date_stamp());
+    }
+
+    /// The index count changes on every watcher ingest; the *hint* must not, or
+    /// a background re-index re-prefills the whole prompt. Editing a handful of
+    /// files must never cross a bucket.
+    #[test]
+    fn indexed_hint_is_stable_under_normal_editing() {
+        assert_eq!(indexed_hint(4_912), indexed_hint(4_925));
+        assert_eq!(indexed_hint(1_500), indexed_hint(1_480));
+        assert_eq!(indexed_hint(0), "not yet indexed");
+        assert_ne!(indexed_hint(0), indexed_hint(500)); // 0 -> warm is a real change
     }
 
     #[test]

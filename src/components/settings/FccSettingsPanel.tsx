@@ -94,7 +94,7 @@ const FccSettingsPanel: React.FC = () => {
             {/* Description */}
             <div style={{ fontSize: '12px', opacity: 0.7, lineHeight: 1.5 }}>
                 FCC is a proxy that routes Claude Code / Codex traffic through 19+ providers
-                (Ollama, Lemonade, OpenRouter, NVIDIA NIM, etc.). Enable it to use your Claude
+                (Lemonade, OpenRouter, NVIDIA NIM, etc.). Enable it to use your Claude
                 Code subscription with VSCodium-Rust.
             </div>
 

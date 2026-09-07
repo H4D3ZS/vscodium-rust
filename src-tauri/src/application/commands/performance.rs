@@ -77,7 +77,7 @@ pub async fn benchmark_ane(
         "ane_latency_ms": ane.map(|s| s * 1000.0),
         "cpu_latency_ms": cpu * 1000.0,
         "ane_available": ane.is_some(),
-        "note": "ANE wins on power and frees CPU/GPU during Ollama streams; decode tok/s is bandwidth-bound and unaffected",
+        "note": "ANE wins on power and frees CPU/GPU during local inference streams; decode tok/s is bandwidth-bound and unaffected",
     }))
 }
 

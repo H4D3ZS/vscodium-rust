@@ -20,7 +20,6 @@ export default defineConfig(() => {
         'fs/promises': resolve(import.meta.dirname, 'src/airi/fs-stub.ts'),
         fs: resolve(import.meta.dirname, 'src/airi/fs-stub.ts'),
         child_process: resolve(import.meta.dirname, 'src/airi/fs-stub.ts'),
-        ollama: resolve(import.meta.dirname, 'node_modules/ollama/dist/browser.mjs'),
       },
     },
     // Pre-bundle everything the (heavily React.lazy'd) app pulls in, so the dev

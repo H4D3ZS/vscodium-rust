@@ -6,7 +6,7 @@
  * Throughput" card and the RightSidebar inline tok/s indicator.
  *
  * Token counting strategy, in priority order:
- *   1. Backend-reported counts (Ollama: `eval_count` / `prompt_eval_count`;
+ *   1. Backend-reported counts (the local backend: `eval_count` / `prompt_eval_count`;
  *      llama.cpp `/completion` final chunk: `tokens_predicted` /
  *      `tokens_evaluated`). These are ground truth.
  *   2. Approximation `chars / 4` (rule of thumb for English/code). Used when

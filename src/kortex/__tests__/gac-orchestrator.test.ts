@@ -8,7 +8,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { summarizePlan, type TierPlan } from '../gac-orchestrator';
+import {
+    summarizePlan, parseSpecAcceptance, formatSpecAcceptance,
+    type TierPlan,
+} from '../gac-orchestrator';
 
 const samplePlan: TierPlan = {
     n_gpu_layers: 80,
@@ -76,5 +79,35 @@ describe('summarizePlan', () => {
         const s = summarizePlan(plan);
         expect(s).toContain('spread→GPU 0');
         expect(s).toContain('tight→CPU 0');
+    });
+});
+
+describe('parseSpecAcceptance', () => {
+    const line = 'slot      release: id  0 | draft acceptance = 0.54212 (   65 accepted /   120 generated), mean acceptance length =  2.15, acceptance rate per position = (0.90, 0.65, 0.40)';
+
+    it('extracts ratio, counts and mean acceptance length', () => {
+        const s = parseSpecAcceptance(['loading model', line, 'eval time = ...']);
+        expect(s).not.toBeNull();
+        expect(s!.ratio).toBeCloseTo(0.54212, 5);
+        expect(s!.accepted).toBe(65);
+        expect(s!.generated).toBe(120);
+        expect(s!.mean_accept_len).toBeCloseTo(2.15, 2);
+    });
+
+    it('returns the most recent line when several are present', () => {
+        const older = line.replace('0.54212', '0.100').replace('65 accepted', '10 accepted');
+        const s = parseSpecAcceptance([older, 'noise', line]);
+        expect(s!.accepted).toBe(65);
+    });
+
+    it('returns null when speculation never ran', () => {
+        expect(parseSpecAcceptance(['loading model', 'eval time = 10ms'])).toBeNull();
+        expect(parseSpecAcceptance([])).toBeNull();
+    });
+
+    it('formats a compact readout, empty when off or nothing generated', () => {
+        expect(formatSpecAcceptance(parseSpecAcceptance([line]))).toBe('spec: 54% kept · 2.15 tok/step');
+        expect(formatSpecAcceptance(null)).toBe('');
+        expect(formatSpecAcceptance({ ratio: 0, accepted: 0, generated: 0, mean_accept_len: 1 })).toBe('');
     });
 });

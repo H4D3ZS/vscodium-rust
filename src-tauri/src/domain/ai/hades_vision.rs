@@ -13,7 +13,7 @@ pub struct VisionState {
 #[allow(dead_code)]
 pub struct HadesVision {
     state: Arc<RwLock<VisionState>>,
-    ollama_url: String,
+    inference_url: String,
     local_model: String,
     cloud_model: String,
     use_cloud: Arc<RwLock<bool>>,
@@ -21,14 +21,14 @@ pub struct HadesVision {
 }
 
 impl HadesVision {
-    pub fn new(ollama_url: &str, local_model: &str, cloud_model: &str, use_cloud: bool) -> Self {
+    pub fn new(inference_url: &str, local_model: &str, cloud_model: &str, use_cloud: bool) -> Self {
         Self {
             state: Arc::new(RwLock::new(VisionState {
                 last_analysis: "Vision is stubbed to conserve memory".to_string(),
                 last_update: 0,
                 frames_captured: 0,
             })),
-            ollama_url: ollama_url.to_string(),
+            inference_url: inference_url.to_string(),
             local_model: local_model.to_string(),
             cloud_model: cloud_model.to_string(),
             use_cloud: Arc::new(RwLock::new(use_cloud)),
@@ -63,8 +63,8 @@ impl HadesVision {
 use std::sync::OnceLock;
 static HADES_VISION: OnceLock<Arc<HadesVision>> = OnceLock::new();
 
-pub fn init_hades_vision(_target_fps: u32, ollama_url: &str, local_model: &str, cloud_model: &str, use_cloud: bool) {
-    let _ = HADES_VISION.set(Arc::new(HadesVision::new(ollama_url, local_model, cloud_model, use_cloud)));
+pub fn init_hades_vision(_target_fps: u32, inference_url: &str, local_model: &str, cloud_model: &str, use_cloud: bool) {
+    let _ = HADES_VISION.set(Arc::new(HadesVision::new(inference_url, local_model, cloud_model, use_cloud)));
 }
 
 #[tauri::command]

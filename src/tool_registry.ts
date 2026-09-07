@@ -714,7 +714,7 @@ export const SpawnSubAgentTool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const ExploreRepositoryTool: ToolDef = {
     name: 'explore_repository',
-    description: `FastContext repository explorer — lightweight subagent that does parallel READ/GLOB/GREP and returns compact file citations. Use this INSTEAD of doing your own exploration when you need to find relevant code across a large codebase. Returns file paths, line ranges, and key snippets. Much faster and cheaper than manual exploration. Pull the model first: ollama pull hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M`,
+    description: `FastContext repository explorer — lightweight subagent that does parallel READ/GLOB/GREP and returns compact file citations. Use this INSTEAD of doing your own exploration when you need to find relevant code across a large codebase. Returns file paths, line ranges, and key snippets. Much faster and cheaper than manual exploration. Load FastContext-1.0-4B (Q4_K_M GGUF) into your local server first.`,
     inputSchema: {
         type: 'object',
         properties: {
@@ -1470,7 +1470,7 @@ export const SpecsToCodePipelineTool: ToolDef = {
         properties: {
             projectName: { type: 'string', description: 'Descriptive name for the project folder' },
             specs: { type: 'string', description: 'Complete technical specifications in Markdown format' },
-            provider: { type: 'string', description: 'Optional LLM provider (e.g., google, ollama:llama3)', default: 'google' }
+            provider: { type: 'string', description: 'Optional LLM provider (e.g., google, lemonade)', default: 'google' }
         },
         required: ['projectName', 'specs'],
     },
@@ -2101,7 +2101,7 @@ export const AimQuerySpansTool: ToolDef = {
 
 export const AimPackContextTool: ToolDef = {
     name: 'aim_pack_context',
-    description: `Build a compact, provider-neutral Kortex AIM context packet for a task. This combines the AIM trust envelope with exact source spans, suitable for OpenAI, Anthropic, Gemini, Ollama, Qwen, DeepSeek, and WebUI routing.`,
+    description: `Build a compact, provider-neutral Kortex AIM context packet for a task. This combines the AIM trust envelope with exact source spans, suitable for OpenAI, Anthropic, Gemini, Lemonade, Qwen, DeepSeek, and WebUI routing.`,
     inputSchema: {
         type: 'object',
         properties: {

@@ -3,7 +3,7 @@
 //! Different local servers expose different primitives:
 //!   - llama.cpp (and Lemonade's `llamacpp` recipe): `/tokenize` +
 //!     `/slots/{id}?action=save|restore` → full KDKVC KV-slot reuse (Tier `Kv`).
-//!   - Ollama, Lemonade Ryzen-AI/NPU: no slot API → response cache (Tier
+//!   - Lemonade Ryzen-AI/NPU: no slot API → response cache (Tier
 //!     `Response`, not yet implemented — safe passthrough for now).
 //!
 //! `resolve_tier` turns a requested [`CacheTier`] (usually `Auto`) into a

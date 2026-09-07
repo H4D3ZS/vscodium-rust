@@ -1,6 +1,7 @@
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
-import { applyLocalOllamaAgentDefaults } from '../../lib/localOllamaAgentDefaults';
+import { resolveKvCacheBaseDir, ensureKvCacheDirs } from '../../kortex/kvcache-orchestrator';
+import { applyLocalAgentDefaults } from '../../lib/localAgentDefaults';
 
 const MIGRATION_KEY = 'ide.offline-cyber-boot-v1';
 
@@ -12,8 +13,8 @@ export function applyOfflineCyberDefaults(): void {
     if (localStorage.getItem(MIGRATION_KEY)) return;
 
     const cloudOnboarded = localStorage.getItem('cyberifrit.cloudOnboarded') === '1';
-    if (!cloudOnboarded && localStorage.getItem('ollamaServerMode') !== 'cloud') {
-        localStorage.setItem('ollamaServerMode', 'local');
+    if (!cloudOnboarded && localStorage.getItem('inferenceServerMode') !== 'cloud') {
+        localStorage.setItem('inferenceServerMode', 'local');
         localStorage.setItem('inferenceBackend', 'lemonade');
     }
 
@@ -21,7 +22,7 @@ export function applyOfflineCyberDefaults(): void {
     localStorage.setItem('kvcache.enabled', '1');
     localStorage.setItem('ccet.enabled', '1');
     localStorage.setItem('indexing.enabled', '1');
-    localStorage.setItem('ollamaConnectionMode', 'proxy');
+    localStorage.setItem('inferenceConnectionMode', 'proxy');
 
     if (!localStorage.getItem('kortex.backend')) {
         localStorage.setItem('kortex.backend', isMac ? 'metal' : 'vulkan');
@@ -42,29 +43,6 @@ export function applyOfflineCyberDefaults(): void {
     localStorage.setItem(MIGRATION_KEY, '1');
 }
 
-async function ensureKvCacheDirs(baseDir: string): Promise<void> {
-    for (const sub of ['index', 'slots']) {
-        try {
-            await invoke('create_dir', { path: `${baseDir}/${sub}` });
-        } catch { /* already exists */ }
-    }
-}
-
-function resolveHomeDir(): string {
-    const env = typeof window !== 'undefined'
-        ? (window as { process?: { env?: { USERPROFILE?: string; HOME?: string } } }).process?.env
-        : undefined;
-    return env?.HOME || env?.USERPROFILE || '.';
-}
-
-async function resolveKvCacheBaseDir(): Promise<string> {
-    const stored = (() => {
-        try { return localStorage.getItem('kvcache.baseDir')?.trim() || ''; } catch { return ''; }
-    })();
-    if (stored) return stored;
-    return `${resolveHomeDir()}/.kortex/kvcache`;
-}
-
 async function probeAimProxy(): Promise<void> {
     const proxyUrl = 'http://127.0.0.1:1536/api/v1/models';
     try {
@@ -79,12 +57,12 @@ async function probeAimProxy(): Promise<void> {
         const direct = await fetch('http://127.0.0.1:13305/api/v1/models', { signal: AbortSignal.timeout(2500) });
         if (direct.ok) {
             console.warn(
-                '[offline-cyber] Ollama direct (:13305) OK but AIM proxy (:1536) offline. '
+                '[offline-cyber] local backend direct (:13305) OK but AIM proxy (:1536) offline. '
                 + 'Run `kortex/target/release/aim-proxy` for .aim context injection and KV prefix caching.',
             );
         }
     } catch {
-        console.warn('[offline-cyber] Ollama not reachable — start `ollama serve` for offline inference');
+        console.warn('[offline-cyber] local model server not reachable — start your local model server for offline inference');
     }
 }
 
@@ -95,9 +73,9 @@ async function probeAimProxy(): Promise<void> {
 function syncStoreFromOfflineDefaults(): void {
     const store = useStore.getState();
     try {
-        const mode = localStorage.getItem('ollamaServerMode') as 'local' | 'cloud' | 'remote' | null;
-        if (mode && store.ollamaServerMode !== mode) {
-            store.setOllamaServerMode?.(mode);
+        const mode = localStorage.getItem('inferenceServerMode') as 'local' | 'cloud' | 'remote' | null;
+        if (mode && store.inferenceServerMode !== mode) {
+            store.setInferenceServerMode?.(mode);
         }
         store.setKvCacheEnabled?.(localStorage.getItem('kvcache.enabled') !== '0');
         store.setKortexGacEnabled?.(localStorage.getItem('kortex.gacEnabled') !== '0');
@@ -118,8 +96,8 @@ export async function bootstrapOfflineCyberStack(opts?: { heavy?: boolean }): Pr
 
     const store = useStore.getState();
 
-    if (store.ollamaServerMode === 'local') {
-        applyLocalOllamaAgentDefaults(store);
+    if (store.inferenceServerMode === 'local') {
+        applyLocalAgentDefaults(store);
     }
 
     const mode = (() => {
@@ -131,8 +109,8 @@ export async function bootstrapOfflineCyberStack(opts?: { heavy?: boolean }): Pr
 
     if (!opts?.heavy) return;
 
-    if (store.ollamaServerMode === 'local') {
-        void store.syncOllamaEndpoint?.();
+    if (store.inferenceServerMode === 'local') {
+        void store.syncInferenceEndpoint?.();
     }
 
     if (isMac) {
@@ -160,6 +138,40 @@ export async function bootstrapOfflineCyberStack(opts?: { heavy?: boolean }): Pr
         const baseDir = await resolveKvCacheBaseDir();
         try { localStorage.setItem('kvcache.baseDir', baseDir); } catch { /* */ }
         await ensureKvCacheDirs(baseDir);
+
+        // Opt-in: put the KDKVC proxy (:1537) in front of the local backend on
+        // boot so "prompts route through kortex" happens transparently. Default
+        // OFF — the Kortex panel's Start button is the primary path.
+        let autostart = false;
+        try { autostart = localStorage.getItem('kvcache.autostart') === '1'; } catch { /* */ }
+        const base = (store.lemonadeUrl || store.inferenceUrl || '').replace(/\/$/, '');
+        const isLocal = /127\.0\.0\.1|localhost|0\.0\.0\.0/.test(base);
+        if (autostart && isLocal && base && !store.inferenceUrl.includes(`:${store.kvCacheProxyPort || 1537}`)) {
+            try {
+                const kv = await import('../../kortex/kvcache-orchestrator');
+                const port = await kv.startKvCache(
+                    kv.makeKvCacheOptions(baseDir, { upstream_url: base, proxy_port: store.kvCacheProxyPort || 1537 }),
+                ).catch((e) => { if (String(e).includes('already running')) return store.kvCacheProxyPort || 1537; throw e; });
+                const proxyUrl = `http://127.0.0.1:${port}`;
+                try { localStorage.setItem('kvcache.upstream', base); } catch { /* */ }
+                store.setInferenceUrl?.(proxyUrl);
+                store.setLemonadeUrl?.(proxyUrl);
+                try { await invoke('set_lemonade_url', { url: proxyUrl }); } catch { /* engine offline */ }
+                console.log(`[offline-cyber] KV-slot cache active — inference routes through :${port} -> ${base}`);
+            } catch (e) {
+                console.warn('[offline-cyber] KV-slot cache autostart skipped:', e);
+            }
+        }
+    }
+
+    // Opt-in: bring up the AIM retrieval proxy (:1536) now that the workspace
+    // root + backend are known. It builds a dense .aim catalog on first run.
+    let retrievalAutostart = false;
+    try { retrievalAutostart = localStorage.getItem('kortex.retrieval.autostart') === '1'; } catch { /* */ }
+    if (retrievalAutostart && store.activeRoot) {
+        void invoke('kortex_retrieval_start', { root: store.activeRoot })
+            .then((port) => console.log(`[offline-cyber] AIM retrieval proxy on :${port}`))
+            .catch((e) => console.warn('[offline-cyber] AIM retrieval autostart skipped:', e));
     }
 
     const currentModel = (store.agentModel || '').trim();
@@ -171,6 +183,6 @@ export async function bootstrapOfflineCyberStack(opts?: { heavy?: boolean }): Pr
                 store.setAgentModel?.(tag);
                 try { localStorage.setItem('agentModel', tag); } catch { /* */ }
             }
-        } catch { /* Ollama offline */ }
+        } catch { /* local backend offline */ }
     }
 }

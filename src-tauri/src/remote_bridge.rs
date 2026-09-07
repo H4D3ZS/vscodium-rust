@@ -332,7 +332,7 @@ async fn run_prompt(
         cyber_mode: None,
         root_access: Some(root_access),
         mode: Some(mode.to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,

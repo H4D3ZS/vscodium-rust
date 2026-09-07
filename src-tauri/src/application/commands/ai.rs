@@ -578,7 +578,7 @@ async fn lemonade_model_size_gb(client: &reqwest::Client, base: &str, model: &st
 
 /// Canonical Lemonade model id.
 ///
-/// Lemonade's Ollama-compatible `/api/tags` appends `:latest` to every name,
+/// Lemonade's native-/api-compatible `/api/tags` appends `:latest` to every name,
 /// while its native `/api/v1/models` and the Anthropic endpoint use the bare id.
 /// A `…:latest` value persisted from the tags list would otherwise fail every
 /// request, so normalize before comparing or dispatching.
@@ -934,7 +934,7 @@ fn simple_ai_request(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some(mode.to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1011,10 +1011,10 @@ pub async fn ai_chat(
     state.services.kairos.report_activity().await;
 
     // Ensure the local backend URL is on the request (agent loop bearer auth uses it).
-    if request.ollama_url.as_ref().map(|u| u.trim().is_empty()).unwrap_or(true) {
+    if request.inference_url.as_ref().map(|u| u.trim().is_empty()).unwrap_or(true) {
         let url = state.ai.engine.lemonade_base().await;
         if !url.trim().is_empty() {
-            request.ollama_url = Some(url);
+            request.inference_url = Some(url);
         }
     }
 
@@ -1219,10 +1219,10 @@ pub async fn ai_chat_oneshot(
 
     let engine = state.ai.engine.clone();
     let _silent = engine.enter_silent();
-    if request.ollama_url.as_ref().map(|u| u.trim().is_empty()).unwrap_or(true) {
+    if request.inference_url.as_ref().map(|u| u.trim().is_empty()).unwrap_or(true) {
         let url = state.ai.engine.lemonade_base().await;
         if !url.trim().is_empty() {
-            request.ollama_url = Some(url);
+            request.inference_url = Some(url);
         }
     }
     let result = engine
@@ -1339,7 +1339,7 @@ pub async fn ai_inline_complete(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Completion".to_string()),
-        ollama_url: comp_local_url,
+        inference_url: comp_local_url,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1400,7 +1400,7 @@ pub async fn predict_next_edit(
     let model_name = model_override
         .filter(|s| !s.trim().is_empty())
         .unwrap_or(current_model);
-    let (provider, model, ollama_url) = detect_provider(&model_name, provider.as_deref());
+    let (provider, model, inference_url) = detect_provider(&model_name, provider.as_deref());
 
     // Number the lines so the model can reference exact line numbers (1-based).
     let numbered: String = content
@@ -1451,7 +1451,7 @@ exists, return {{\"has_edit\":false}}. Never invent edits at the cursor itself."
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Completion".to_string()),
-        ollama_url,
+        inference_url,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1599,7 +1599,7 @@ pub async fn ai_generate_code(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Generate".to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1667,7 +1667,7 @@ pub async fn ai_refactor_code(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Refactor".to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1742,7 +1742,7 @@ pub async fn ai_debug_code(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Debug".to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1813,7 +1813,7 @@ pub async fn ai_multi_cursor_edit(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("MultiEdit".to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1891,7 +1891,7 @@ pub async fn ai_pr_review(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Review".to_string()),
-        ollama_url: None,
+        inference_url: None,
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,
@@ -1933,7 +1933,7 @@ pub async fn ai_get_context(
     let max = max_files.unwrap_or(5);
 
     // Semantic-first: use the vector index when embeddings are available
-    // (requires Ollama + an indexed workspace), then fall back to grep so the
+    // (requires a local backend + an indexed workspace), then fall back to grep so the
     // tool always returns something — and reports which method it used.
     if let Ok(hits) = state.memory.vector_indexer.search_codebase(&query, max).await {
         if !hits.is_empty() {
@@ -2215,6 +2215,33 @@ pub async fn set_lemonade_url(state: State<'_, std::sync::Arc<crate::EditorState
     state.memory.attachments.set_inference_url(url).await;
 
     Ok(())
+}
+
+/// Set the "Operator" — the small fast model (on Lemonade) that runs
+/// sub-agents and the Lite/Mid APEX bank while the reasoner keeps the main
+/// loop. Empty string clears the override (back to the built-in default).
+/// Backed by process env so `gpu_offload::operator_model()` / `operator_url()`
+/// pick it up without threading state.
+#[tauri::command]
+pub async fn kortex_set_operator(model: Option<String>, url: Option<String>) -> Result<(), String> {
+    match model.map(|s| s.trim().to_string()) {
+        Some(m) if !m.is_empty() => std::env::set_var("KORTEX_OPERATOR_MODEL", m),
+        _ => std::env::remove_var("KORTEX_OPERATOR_MODEL"),
+    }
+    match url.map(|s| s.trim().trim_end_matches('/').to_string()) {
+        Some(u) if !u.is_empty() => std::env::set_var("KORTEX_OPERATOR_URL", u),
+        _ => std::env::remove_var("KORTEX_OPERATOR_URL"),
+    }
+    Ok(())
+}
+
+/// Current Operator model + URL (after env / default resolution).
+#[tauri::command]
+pub async fn kortex_get_operator() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "model": crate::gpu_offload::operator_model(),
+        "url": crate::gpu_offload::operator_url(),
+    }))
 }
 
 /// Force the context indexer to rescan the active workspace. Powers the
@@ -2506,7 +2533,7 @@ mod lemonade_tuning_tests {
     const GEMMA_26B_Q2: &str = "gemma-4-26B-A4B-it-abliterated-GGUF-Q2_K";
     const GPT_OSS: &str = "GPT-OSS-Cybersecurity-20B-Merged-heretic-i1-GGUF-Q4_K_M";
 
-    /// Lemonade's Ollama-compat `/api/tags` appends `:latest`; its native
+    /// Lemonade's native-/api-compat `/api/tags` appends `:latest`; its native
     /// `/api/v1/models` and the Anthropic endpoint do not. A persisted tagged id
     /// must still resolve, or every request fails model validation.
     /// Lemonade labels EVERY downloaded llamacpp model `tool-calling`, including

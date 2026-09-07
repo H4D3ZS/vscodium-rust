@@ -13,7 +13,7 @@ use crate::process_ext::CommandExtHidden;
 
 /// Parse FastContext's trained text tool-call format — `READ(path)`, `GLOB(pat)`,
 /// `GREP(term)` (case-insensitive) — into `(internal_name, arg)` pairs. Used when
-/// the GGUF template doesn't emit native Ollama tool_calls.
+/// the GGUF template doesn't emit native /api tool_calls.
 fn parse_text_tool_calls(text: &str) -> Vec<(String, String)> {
     let re = regex::Regex::new(r#"(?i)\b(READ|GLOB|GREP|CODE_SEARCH|SEARCH)\s*\(\s*["']?([^"')]+?)["']?\s*\)"#).unwrap();
     let mut out = Vec::new();
@@ -956,7 +956,7 @@ impl AiTools {
                 mode: None,
                 cyber_mode: None,
                 root_access: Some(true),
-                ollama_url: None,
+                inference_url: None,
                 tools: None,
                 reasoning_budget: None,
                 reasoning_effort: None,
@@ -1047,7 +1047,7 @@ impl AiTools {
         let max_results = args["max_results"].as_u64().unwrap_or(10) as usize;
         let file_pattern = args["file_pattern"].as_str();
 
-        let ollama_url = {
+        let inference_url = {
             if let Some(state) = self.editor_state() {
                 state.ai.engine.resolved_local_base(&crate::ai_engine::AiRequest {
                     provider: "lemonade".to_string(),
@@ -1058,7 +1058,7 @@ impl AiTools {
                     mode: None,
                     cyber_mode: None,
                     root_access: None,
-                    ollama_url: None,
+                    inference_url: None,
                     tools: None,
                     reasoning_budget: None,
                     reasoning_effort: None,
@@ -1070,7 +1070,7 @@ impl AiTools {
                 // inference endpoint. This path is rare (tool invoked before
                 // state initialization) and the URL is cosmetic here since
                 // `explore_repository` uses it only for model discovery.
-                "http://127.0.0.1:11434".to_string()
+                "http://127.0.0.1:13305".to_string()
             }
         };
 
@@ -1080,7 +1080,7 @@ impl AiTools {
             .unwrap_or_default();
 
         // Resolve the actual installed FastContext tag (keeps `hf.co/` prefix etc.).
-        let models_url = format!("{}/api/tags", ollama_url);
+        let models_url = format!("{}/api/tags", inference_url);
         let fc_model: Option<String> = match client.get(&models_url).send().await {
             Ok(resp) => resp.json::<serde_json::Value>().await.ok().and_then(|body| {
                 body.get("models").and_then(|m| m.as_array()).and_then(|models| {
@@ -1100,7 +1100,7 @@ impl AiTools {
         };
 
         println!("[EXPLORE] Using FastContext subagent ({}) for: {}", model, query);
-        match self.run_fastcontext_loop(&client, &ollama_url, &model, query, file_pattern, max_results).await {
+        match self.run_fastcontext_loop(&client, &inference_url, &model, query, file_pattern, max_results).await {
             Ok(citations) if !citations.is_empty() => Ok(json!({
                 "status": "success",
                 "explorer": model,
@@ -1119,13 +1119,13 @@ impl AiTools {
     }
 
     /// Read-only agentic exploration loop. FastContext issues real READ/GLOB/GREP
-    /// tool calls (native Ollama tools, or its trained text format as fallback)
+    /// tool calls (native /api tools, or its trained text format as fallback)
     /// which we execute against the repo, looping until it emits `<final_answer>`
     /// citations. Returns parsed `path:line` citations.
     async fn run_fastcontext_loop(
         &self,
         client: &reqwest::Client,
-        ollama_url: &str,
+        inference_url: &str,
         model: &str,
         query: &str,
         file_pattern: Option<&str>,
@@ -1162,7 +1162,7 @@ impl AiTools {
             json!({ "role": "system", "content": system }),
             json!({ "role": "user", "content": format!("Query: {}", query) }),
         ];
-        let chat_url = format!("{}/api/chat", ollama_url);
+        let chat_url = format!("{}/api/chat", inference_url);
 
         for _turn in 0..6 {
             let body = json!({
@@ -1390,7 +1390,7 @@ impl AiTools {
             "explorer": "builtin",
             "query": query,
             "citations": citations,
-            "note": "FastContext not available — used built-in exploration. Pull FastContext for better results: ollama pull hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M"
+            "note": "FastContext not available — used built-in exploration. Pull FastContext-1.0-4B (Q4_K_M GGUF) into your local backend for better results"
         }))
     }
 
@@ -1415,7 +1415,7 @@ impl AiTools {
                 .await
                 .map_err(|e| anyhow!("{e}"))
         } else {
-            crate::image_gen::generate_with_ollama(prompt, &full)
+            crate::image_gen::generate_with_local_image(prompt, &full)
                 .await
                 .map_err(|e| anyhow!("{e}"))
         };
@@ -1466,7 +1466,7 @@ impl AiTools {
                 .await
                 .map_err(|e| anyhow!("{e}"))?
         } else {
-            match crate::image_gen::analyze_with_ollama(&full, question).await {
+            match crate::image_gen::analyze_with_local_vision(&full, question).await {
                 Ok(t) => t,
                 Err(_) if google_key.is_some() => {
                     crate::image_gen::analyze_with_gemini(google_key.unwrap(), &full, question)

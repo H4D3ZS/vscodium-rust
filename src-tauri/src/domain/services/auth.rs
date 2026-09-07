@@ -82,7 +82,7 @@ fn save_session(config_dir: &Path, s: &Session) -> Result<(), String> {
     std::fs::write(session_path(config_dir), json).map_err(|e| e.to_string())?;
     // Mirror the access token into api_keys.json as the `cyberifrit` key — that's
     // the ONLY place the AI engine looks for the cloud JWT (get_key_for_provider),
-    // so cloud Lemonade/Ollama requests carry it. Without this, a fully signed-in
+    // so cloud Lemonade requests carry it. Without this, a fully signed-in
     // user still gets 401 from the JWT gate. Runs on sign-in, sign-up, and refresh.
     mirror_cloud_token(config_dir, Some(&s.access_token));
     Ok(())

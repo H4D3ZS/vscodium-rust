@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 
 use crate::apex_red_team::{ApexRedTeam, RedTeamScanRequest, ScanDepth};
 
-// Default Ollama model assignments per engine live in `gpu_offload::apex_model`
+// Default local model assignments per engine live in `gpu_offload::apex_model`
 // — RAM-tiered (lite → 2b shared, mid → 7b shared, full → 12b/7b split).
 // Supabase per-engine overrides (below) still take precedence.
 
@@ -68,9 +68,9 @@ pub struct FailurePrediction {
 /// The central orchestrator for all APEX intelligence engines
 pub struct ApexOrchestrator {
     client: Client,
-    ollama_url: Arc<Mutex<String>>,
+    inference_url: Arc<Mutex<String>>,
     /// Lemonade (real llama.cpp, OpenAI-compatible) base URL for engines routed
-    /// off Ollama — e.g. the BugTrace CORE-Ultra tooling engine. Default :13305.
+    /// off the local backend — e.g. the BugTrace CORE-Ultra tooling engine. Default :13305.
     lemonade_url: Arc<Mutex<String>>,
     red_team: Arc<ApexRedTeam>,
     results_feed: Arc<Mutex<Vec<ApexResult>>>,
@@ -81,18 +81,18 @@ pub struct ApexOrchestrator {
 }
 
 impl ApexOrchestrator {
-    pub fn new(ollama_url: &str, workspace_root: Option<PathBuf>, config_dir: Option<PathBuf>) -> Self {
+    pub fn new(inference_url: &str, workspace_root: Option<PathBuf>, config_dir: Option<PathBuf>) -> Self {
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(600))
             .build()
             .unwrap_or_else(|_| Client::new());
 
-        let red_team = Arc::new(ApexRedTeam::new(ollama_url));
+        let red_team = Arc::new(ApexRedTeam::new(inference_url));
 
         Self {
             client,
-            ollama_url: Arc::new(Mutex::new(ollama_url.to_string())),
+            inference_url: Arc::new(Mutex::new(inference_url.to_string())),
             lemonade_url: Arc::new(Mutex::new(
                 std::env::var("LEMONADE_URL").unwrap_or_else(|_| "http://localhost:13305".to_string()),
             )),
@@ -125,10 +125,10 @@ impl ApexOrchestrator {
         crate::gpu_offload::apex_model(engine).to_string()
     }
 
-    /// Update the Ollama URL for all engines
-    pub async fn set_ollama_url(&self, url: &str) {
-        *self.ollama_url.lock().await = url.to_string();
-        self.red_team.set_ollama_url(url).await;
+    /// Update the inference URL for all engines
+    pub async fn set_inference_url(&self, url: &str) {
+        *self.inference_url.lock().await = url.to_string();
+        self.red_team.set_inference_url(url).await;
     }
 
     /// Update the Lemonade (llama.cpp) base URL used by Lemonade-backed engines.
@@ -495,7 +495,7 @@ impl ApexOrchestrator {
         });
 
         // Perf optimization
-        let perf_url = self.ollama_url.lock().await.clone();
+        let perf_url = self.inference_url.lock().await.clone();
         let perf_ws = self.workspace_root.lock().await.clone();
         let perf_cfg = self.config_dir.lock().await.clone();
         let perf_self = Self::new(&perf_url, perf_ws, perf_cfg);
@@ -506,7 +506,7 @@ impl ApexOrchestrator {
         });
 
         // Failure prediction
-        let pred_url = self.ollama_url.lock().await.clone();
+        let pred_url = self.inference_url.lock().await.clone();
         let pred_ws = self.workspace_root.lock().await.clone();
         let pred_cfg = self.config_dir.lock().await.clone();
         let pred_self = Self::new(&pred_url, pred_ws, pred_cfg);
@@ -516,7 +516,7 @@ impl ApexOrchestrator {
         });
 
         // Architect — stack recommendation for this module
-        let arch_url = self.ollama_url.lock().await.clone();
+        let arch_url = self.inference_url.lock().await.clone();
         let arch_ws = self.workspace_root.lock().await.clone();
         let arch_cfg = self.config_dir.lock().await.clone();
         let arch_self = Self::new(&arch_url, arch_ws, arch_cfg);
@@ -529,7 +529,7 @@ impl ApexOrchestrator {
         let arch_handle = tokio::spawn(async move { arch_self.architect_design(&arch_desc).await });
 
         // Threat anticipation
-        let threat_url = self.ollama_url.lock().await.clone();
+        let threat_url = self.inference_url.lock().await.clone();
         let threat_ws = self.workspace_root.lock().await.clone();
         let threat_cfg = self.config_dir.lock().await.clone();
         let threat_self = Self::new(&threat_url, threat_ws, threat_cfg);
@@ -540,7 +540,7 @@ impl ApexOrchestrator {
         });
 
         // Self-improve (single pass — full sweep must stay bounded)
-        let si_url = self.ollama_url.lock().await.clone();
+        let si_url = self.inference_url.lock().await.clone();
         let si_ws = self.workspace_root.lock().await.clone();
         let si_cfg = self.config_dir.lock().await.clone();
         let si_self = Self::new(&si_url, si_ws, si_cfg);
@@ -549,7 +549,7 @@ impl ApexOrchestrator {
         let si_handle = tokio::spawn(async move { si_self.self_improve(&si_code, &si_lang, 1).await });
 
         // Explainable security audit
-        let ex_url = self.ollama_url.lock().await.clone();
+        let ex_url = self.inference_url.lock().await.clone();
         let ex_ws = self.workspace_root.lock().await.clone();
         let ex_cfg = self.config_dir.lock().await.clone();
         let ex_self = Self::new(&ex_url, ex_ws, ex_cfg);
@@ -560,7 +560,7 @@ impl ApexOrchestrator {
         });
 
         // Multi-system correlation (single-file preview for sweep context)
-        let ms_url = self.ollama_url.lock().await.clone();
+        let ms_url = self.inference_url.lock().await.clone();
         let ms_ws = self.workspace_root.lock().await.clone();
         let ms_cfg = self.config_dir.lock().await.clone();
         let ms_self = Self::new(&ms_url, ms_ws, ms_cfg);
@@ -663,7 +663,7 @@ impl ApexOrchestrator {
 
     // ─── Internal Helper Methods ────────────────────────────────────────────
 
-    /// Query a specific engine via Ollama
+    /// Query a specific engine via the local backend
     async fn query_engine(&self, engine: &str, prompt: &str, system: Option<&str>) -> Result<String, String> {
         // RAM-tier gate: lite machines run batch generations strictly serially
         // — eight concurrent generations is swap-death on 8GB even with 2b models.
@@ -676,7 +676,7 @@ impl ApexOrchestrator {
         // Resolve backend + model. An explicit override wins and its backend is
         // inferred from the id ("lemonade:" prefix or a BugTrace tag); otherwise
         // the engine's default Lemonade mapping (Full tier) decides, falling back
-        // to Ollama.
+        // to the local backend.
         let override_model = self.model_overrides.lock().await.get(engine).cloned();
         let (use_lemonade, model) = match override_model {
             Some(m) if m.starts_with("lemonade:") => (true, m.trim_start_matches("lemonade:").to_string()),
@@ -692,7 +692,14 @@ impl ApexOrchestrator {
             return self.query_engine_lemonade(engine, &model, prompt, system).await;
         }
 
-        let url = self.ollama_url.lock().await.clone();
+        // Everything else (the Lite/Mid single small model, the Full-tier
+        // per-specialist models) is a GGUF served by Lemonade over the
+        // OpenAI-compatible wire. We POST to `inference_url`, which is the
+        // Kortex KV-cache proxy when it's running (prefix reuse + harness
+        // compression on the APEX sweep) and Lemonade directly otherwise —
+        // Kortex and Lemonade hand in hand. The dead Ollama-native
+        // `/api/generate` path this replaced no longer had a server to talk to.
+        let url = self.inference_url.lock().await.clone();
 
         // DeepHat-V1-7B performs best with its own persona prompt. When it's the
         // resolved model, lead with that persona so the security fine-tune is used
@@ -708,41 +715,95 @@ impl ApexOrchestrator {
              Provide precise, technical, actionable analysis.",
             persona, engine
         );
+        let sys = system.unwrap_or(&default_system);
+
+        self.openai_chat(engine, &url, &model, sys, prompt, 0.2, 0.9, 1.1).await
+    }
+
+    /// One OpenAI-compatible `/chat/completions` call with a `/api/v1/...` →
+    /// `/v1/...` path fallback (lemonade-server vs. plain gateways). Shared by
+    /// the general APEX path and the Lemonade-tagged path so there is exactly
+    /// one HTTP shape for every engine.
+    #[allow(clippy::too_many_arguments)]
+    async fn openai_chat(
+        &self,
+        engine: &str,
+        base: &str,
+        model: &str,
+        system: &str,
+        prompt: &str,
+        temperature: f32,
+        top_p: f32,
+        repeat_penalty: f32,
+    ) -> Result<String, String> {
+        let root = base.trim_end_matches('/').to_string();
+
+        // Semantic response cache (KORTEX_SEMCACHE): a near-duplicate query for
+        // the same model returns a prior answer with zero inference.
+        let cache = crate::domain::ai::semantic_cache::global();
+        if let Some(hit) = cache.lookup(model, system, prompt) {
+            println!("[APEX-{}] semantic-cache hit — no inference", engine.to_uppercase());
+            return Ok(hit);
+        }
 
         let body = json!({
             "model": model,
-            "prompt": prompt,
-            "system": system.unwrap_or(&default_system),
+            "messages": [
+                { "role": "system", "content": system },
+                { "role": "user", "content": prompt }
+            ],
+            "temperature": temperature,
+            "top_p": top_p,
+            "repeat_penalty": repeat_penalty,
+            "max_tokens": 4096,
             "stream": false,
-            "keep_alive": crate::gpu_offload::keep_alive(),
-            "options": {
-                "temperature": 0.2,
-                "num_ctx": crate::gpu_offload::clamp_num_ctx(8192),
-                "num_predict": 4096,
-            }
         });
-
-        println!("[APEX-{}] Querying {} with model {}...", engine.to_uppercase(), url, model);
-
-        let response = self.client
-            .post(format!("{}/api/generate", url))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("[APEX-{}] Request failed: {}", engine, e))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(format!("[APEX-{}] HTTP {}: {}", engine, status, text));
+        let tok = std::env::var("LEMONADE_TOKEN").unwrap_or_default();
+        let mut last_err: Option<String> = None;
+        for path in ["/api/v1/chat/completions", "/v1/chat/completions"] {
+            let endpoint = format!("{}{}", root, path);
+            println!("[APEX-{}] Querying {} with model {}...", engine.to_uppercase(), endpoint, model);
+            let mut req = self.client.post(&endpoint).json(&body);
+            if !tok.trim().is_empty() {
+                req = req.bearer_auth(tok.trim());
+            }
+            match req.send().await {
+                Ok(r) => {
+                    let status = r.status();
+                    if status.as_u16() == 404 {
+                        last_err = Some(format!("HTTP 404 at {}", endpoint));
+                        continue;
+                    }
+                    let raw = r.text().await.unwrap_or_default();
+                    if !status.is_success() {
+                        return Err(format!(
+                            "[APEX-{}] HTTP {}: {}",
+                            engine, status.as_u16(), raw.chars().take(240).collect::<String>()
+                        ));
+                    }
+                    let result: Value = serde_json::from_str(&raw).map_err(|e| {
+                        format!(
+                            "[APEX-{}] parse failed: {} (body: {})",
+                            engine, e, raw.chars().take(160).collect::<String>()
+                        )
+                    })?;
+                    let content = result["choices"][0]["message"]["content"]
+                        .as_str()
+                        // tolerate a plain-text or Ollama-style body from an odd gateway
+                        .or_else(|| result["response"].as_str())
+                        .or_else(|| result["content"].as_str())
+                        .ok_or_else(|| format!("[APEX-{}] no choices[0].message.content", engine))?;
+                    let answer = Self::strip_tooling_tags(content);
+                    cache.store(model, system, prompt, &answer);
+                    return Ok(answer);
+                }
+                Err(e) => last_err = Some(format!("request failed at {}: {}", endpoint, e)),
+            }
         }
-
-        let result: Value = response.json().await
-            .map_err(|e| format!("[APEX-{}] Parse failed: {}", engine, e))?;
-
-        result["response"].as_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| format!("[APEX-{}] No response field", engine))
+        Err(format!(
+            "[APEX-{}] inference unreachable at {}: {}",
+            engine, root, last_err.unwrap_or_else(|| "unknown".into())
+        ))
     }
 
     /// Query a Lemonade-backed engine (real llama.cpp, OpenAI-compatible chat).
@@ -753,7 +814,6 @@ impl ApexOrchestrator {
     /// downstream JSON/artifact parsing sees clean content.
     async fn query_engine_lemonade(&self, engine: &str, model: &str, prompt: &str, system: Option<&str>) -> Result<String, String> {
         let base = self.lemonade_url.lock().await.clone();
-        let root = base.trim_end_matches('/').to_string();
 
         // BugTrace CORE-Ultra ships a specific tooling system prompt. Use it as
         // the default (callers can still override).
@@ -769,52 +829,19 @@ impl ApexOrchestrator {
         };
 
         let (temperature, top_p, repeat_penalty) = crate::gpu_offload::lemonade_params(engine);
-        let body = json!({
-            "model": model,
-            "messages": [
-                { "role": "system", "content": system.unwrap_or(default_system) },
-                { "role": "user", "content": prompt }
-            ],
-            "temperature": temperature,
-            "top_p": top_p,
-            "repeat_penalty": repeat_penalty,
-            "max_tokens": 4096,
-            "stream": false
-        });
-
-        let tok = std::env::var("LEMONADE_TOKEN").unwrap_or_default();
-        let mut last_err: Option<String> = None;
-        for path in ["/api/v1/chat/completions", "/v1/chat/completions"] {
-            let endpoint = format!("{}{}", root, path);
-            println!("[APEX-{}] Querying Lemonade {} with model {}...", engine.to_uppercase(), endpoint, model);
-            let mut req = self.client.post(&endpoint).json(&body);
-            if !tok.trim().is_empty() {
-                req = req.bearer_auth(tok.trim());
-            }
-            match req.send().await {
-                Ok(r) => {
-                    let status = r.status();
-                    if status.as_u16() == 404 {
-                        // Wrong path for this gateway — try the fallback.
-                        last_err = Some(format!("HTTP 404 at {}", endpoint));
-                        continue;
-                    }
-                    let raw = r.text().await.unwrap_or_default();
-                    if !status.is_success() {
-                        return Err(format!("[APEX-{}] Lemonade HTTP {}: {}", engine, status.as_u16(), raw.chars().take(240).collect::<String>()));
-                    }
-                    let result: Value = serde_json::from_str(&raw)
-                        .map_err(|e| format!("[APEX-{}] Lemonade parse failed: {} (body: {})", engine, e, raw.chars().take(160).collect::<String>()))?;
-                    let content = result["choices"][0]["message"]["content"].as_str()
-                        .ok_or_else(|| format!("[APEX-{}] Lemonade: no choices[0].message.content", engine))?;
-                    return Ok(Self::strip_tooling_tags(content));
-                }
-                Err(e) => {
-                    last_err = Some(format!("request failed at {}: {}", endpoint, e));
-                }
-            }
-        }
-        Err(format!("[APEX-{}] Lemonade unreachable: {}", engine, last_err.unwrap_or_else(|| "unknown".into())))
+        // This engine talks to Lemonade directly (a 27B is a dedicated-GPU
+        // model — no point proxying it through the KV cache).
+        self.openai_chat(
+            engine,
+            &base,
+            model,
+            system.unwrap_or(default_system),
+            prompt,
+            temperature,
+            top_p,
+            repeat_penalty,
+        )
+        .await
     }
 
     /// Strip CORE-Ultra's XML wrapper tags (`<exploit_dev>`, `<recon_specialist>`,

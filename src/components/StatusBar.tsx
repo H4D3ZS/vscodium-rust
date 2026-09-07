@@ -100,7 +100,7 @@ const StatusBar: React.FC = () => {
     const setAgentModel = useStore(state => state.setAgentModel);
     const availableModels = useStore(state => state.availableModels);
     const refreshAvailableModels = useStore(state => state.refreshAvailableModels);
-    const ollamaStatus = useStore(state => state.ollamaStatus);
+    const inferenceStatus = useStore(state => state.inferenceStatus);
     const lemonadeStatus = useStore(state => state.lemonadeStatus);
     const llamaCppStatus = useStore(state => state.llamaCppStatus);
     const inferenceBackend = useStore(state => state.inferenceBackend);
@@ -972,7 +972,7 @@ const StatusBar: React.FC = () => {
                     background; we just don't surface scary RAM numbers. */}
             </div>
 
-            {/* Lemonade/Ollama Health Dashboard popup */}
+            {/* Lemonade Health Dashboard popup */}
             {healthDashboardOpen && (
                 <React.Suspense fallback={null}>
                     {React.createElement(React.lazy(() => import('./LemonadeHealthDashboard')), {

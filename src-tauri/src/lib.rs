@@ -27,6 +27,8 @@ pub(crate) use infrastructure::hermes_gateway;
 pub(crate) use domain::extensions::hermes_skills;
 pub(crate) use domain::workspace::ide_shell;
 #[cfg(feature = "tauri")]
+pub(crate) use domain::ai::reliability_stats;
+#[cfg(feature = "tauri")]
 pub use application::jobs;
 pub(crate) use domain::workspace::kairos;
 #[cfg(feature = "tauri")]
@@ -377,7 +379,7 @@ pub fn run() {
                 });
             }
 
-            // Triage orchestrator — init with workspace root + Ollama URL.
+            // Triage orchestrator — init with workspace root + inference URL.
             {
                 let workspace = state.editor.active_root
                     .try_lock()
@@ -443,6 +445,15 @@ pub fn run() {
                     Ok(Ok(false)) => {}
                     Ok(Err(e)) => eprintln!("[ide_shell] ripgrep install: {e}"),
                     Err(e) => eprintln!("[ide_shell] ensure_ripgrep task failed: {e}"),
+                }
+                // tgrep is optional (bundle only exists after scripts/fetch-tgrep.ts
+                // runs) — a no-op false is the normal case, same as the git/rg calls
+                // above when their bundles are absent.
+                match tauri::async_runtime::spawn_blocking(ide_shell::ensure_tgrep_installed).await {
+                    Ok(Ok(true)) => println!("[ide_shell] tgrep installed to HADES home."),
+                    Ok(Ok(false)) => {}
+                    Ok(Err(e)) => eprintln!("[ide_shell] tgrep install: {e}"),
+                    Err(e) => eprintln!("[ide_shell] ensure_tgrep task failed: {e}"),
                 }
             });
 
@@ -538,20 +549,14 @@ pub fn run() {
                 }
             });
 
-            // ═══ Kortex retrieval proxy — DISABLED until MmapIndex is verified ═══
-            // The proxy auto-starts and injects .aim context into all AI requests.
-            // If the catalog is corrupted or the mmap index has wrong offsets, it
-            // injects garbage that breaks ALL models (slash output loops).
-            // Re-enable once MmapIndex is verified with a real .aim catalog.
-            //
-            // tauri::async_runtime::spawn(async {
-            //     let handle = app.handle().clone();
-            //     tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
-            //     match crate::kortex_retrieval::kortex_retrieval_start(handle).await {
-            //         Ok(port) => println!("[boot] kortex retrieval auto-started on :{port}"),
-            //         Err(e) => eprintln!("[boot] kortex retrieval auto-start skipped: {e}"),
-            //     }
-            // });
+            // ═══ Kortex retrieval proxy (:1536) ═══
+            // Not auto-started: it augments *every* AI request with .aim context,
+            // and a bad catalog would inject noise. `kortex_retrieval_start` now
+            // builds a real libaim dense catalog from the workspace (via the
+            // Lemonade embedder) and reports `catalog_active`, so it's safe to
+            // turn on explicitly — the Kortex Services panel's Start button, or
+            // `kortex.retrieval.autostart=1` handled on the frontend after the
+            // workspace root + backend are known (they aren't yet, here).
 
             // Auto-start VFS daemon (3s delay, after retrieval proxy's 2s)
             {
@@ -657,6 +662,7 @@ pub fn run() {
             ai_commands::ai_generate_code,
             ai_commands::ai_get_context,
             ai_commands::ai_inline_complete,
+            reliability_stats::kortex_reliability_status,
             ai_commands::predict_next_edit,
             claurst_bridge::claurst_status,
             claurst_bridge::claurst_run,
@@ -664,6 +670,7 @@ pub fn run() {
             ide_shell::ide_git_bash_path,
             ide_shell::ide_ensure_portable_git,
             ide_shell::ide_ensure_ripgrep,
+            ide_shell::ide_ensure_tgrep,
             hermes_skills::hermes_integration_status,
             hermes_skills::hermes_skills_list,
             hermes_skills::hermes_skills_get,
@@ -686,6 +693,8 @@ pub fn run() {
             ai_commands::propose_file_change,
             ai_commands::preview_search_replace,
             ai_commands::set_lemonade_url,
+            ai_commands::kortex_set_operator,
+            ai_commands::kortex_get_operator,
             ai_commands::list_workspace_rules,
             ai_commands::reindex_workspace,
             ai_commands::check_lemonade_status,
@@ -796,7 +805,7 @@ pub fn run() {
             ane_commands::ane_can_accelerate,
             ane_commands::ane_update_metrics,
             ane_commands::ane_diagnostics,
-            // ═══ Model Management (Dynamic Ollama selection) ═══
+            // ═══ Model Management (Dynamic local model selection) ═══
             model_commands::list_local_models,
             model_commands::get_current_model,
             model_commands::set_current_model,
@@ -1121,6 +1130,7 @@ pub fn run() {
             kortex_gac::kortex_gac_status,
             kortex_gac::kortex_gac_log,
             kortex_gac::kortex_gac_default_profile_path,
+            kortex_gac::kortex_gac_list_local_ggufs,
             // ═══ Kortex KV Cache: ds4-style disk-persistent prefix reuse ═══
             kortex_kvcache::kortex_kvcache_start,
             kortex_kvcache::kortex_kvcache_stop,

@@ -16,7 +16,7 @@ use crate::ai_engine::{AiRequest, ChatMessage, MessageContent, Sentient};
 #[derive(Clone)]
 struct GatewayState {
     sentient: Arc<Sentient>,
-    ollama_url: String,
+    inference_url: String,
     default_model: String,
     port: u16,
 }
@@ -62,11 +62,11 @@ pub async fn hermes_gateway_start(
         return Err("Hermes gateway already running".into());
     }
     let port = port.unwrap_or(8642);
-    let ollama_url = state.ai.engine.lemonade_base().await;
+    let inference_url = state.ai.engine.lemonade_base().await;
     let default_model = state.ai.current_model.lock().await.clone();
     let gw = Arc::new(GatewayState {
         sentient: state.ai.engine.clone(),
-        ollama_url,
+        inference_url,
         default_model,
         port,
     });
@@ -163,7 +163,7 @@ async fn chat_completions(
         })
         .collect();
 
-    let ollama_url = gw.ollama_url.clone();
+    let inference_url = gw.inference_url.clone();
     let ai_req = AiRequest {
         provider: "lemonade".into(),
         model: model.clone(),
@@ -173,7 +173,7 @@ async fn chat_completions(
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Chat".into()),
-        ollama_url: Some(ollama_url),
+        inference_url: Some(inference_url),
         tools: None,
         reasoning_budget: None,
         reasoning_effort: None,

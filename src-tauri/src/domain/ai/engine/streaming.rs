@@ -98,7 +98,7 @@ impl Sentient {
             mode: None,
             cyber_mode: None,
             root_access: None,
-            ollama_url: Some(local_url),
+            inference_url: Some(local_url),
             tools: None,
             reasoning_budget: None,
             reasoning_effort: None,
@@ -305,10 +305,10 @@ impl Sentient {
 
         let payload = if is_local {
             let is_vision = Self::is_vision_model(&req.model);
-            let ollama_openai_compat =
-                self.ollama_use_openai_compat_endpoint(&req, &req.model).await;
+            let openai_compat =
+                self.use_openai_compat_endpoint(&req, &req.model).await;
             let messages =
-                Self::build_ollama_messages(&req.messages, is_vision, ollama_openai_compat);
+                Self::build_local_messages(&req.messages, is_vision, openai_compat);
             let temp = req.temperature.unwrap_or(0.1);
             let chat_stream = req.feature.as_deref() == Some("Chat");
             let mut body = json!({
@@ -317,8 +317,8 @@ impl Sentient {
                 "temperature": temp,
                 "stream": chat_stream,
             });
-            if !ollama_openai_compat {
-                body["options"] = Self::ollama_inference_options(&req.model, temp, 1024);
+            if !openai_compat {
+                body["options"] = Self::local_inference_options(&req.model, temp, 1024);
                 body["keep_alive"] = json!(crate::gpu_offload::keep_alive());
             }
             body
@@ -336,12 +336,12 @@ impl Sentient {
                 (String::new(), trimmed.clone())
             };
             let is_vision = Self::is_vision_model(&req.model);
-            let ollama_openai_compat =
-                self.ollama_use_openai_compat_endpoint(&req, &req.model).await;
-            let api_messages = Self::build_ollama_messages(
+            let openai_compat =
+                self.use_openai_compat_endpoint(&req, &req.model).await;
+            let api_messages = Self::build_local_messages(
                 if use_top_level { &conv_messages } else { &trimmed },
                 is_vision,
-                ollama_openai_compat,
+                openai_compat,
             );
             let mut body = json!({
                 "model": req.model,
@@ -373,6 +373,41 @@ impl Sentient {
         } else {
             String::new()
         };
+
+        // Cascade router (KORTEX_CASCADE, local turns only): the Operator
+        // (small model) answers by default, escalating to the Reasoner — this
+        // call's own configured model/endpoint — only when it's uncertain.
+        // Scoped to the non-streaming case: the live "Chat" feature streams
+        // tokens as they arrive, and cascade's "maybe silently redo this on a
+        // different model" shape doesn't fit token-by-token display. A
+        // cascade failure (Operator unreachable, bad response shape, …) falls
+        // straight through to the normal direct call below — this is a
+        // best-effort accelerator, never a new way to fail a request.
+        let chat_stream = req.feature.as_deref() == Some("Chat");
+        if is_local && !chat_stream {
+            let cascade_cfg = crate::domain::ai::cascade::CascadeConfig::from_env();
+            if cascade_cfg.enabled {
+                if let Some(messages_arr) = payload.get("messages").and_then(Value::as_array) {
+                    let operator_model = crate::gpu_offload::operator_model();
+                    let operator_url = crate::gpu_offload::operator_url();
+                    let has_tools = req.tools.as_ref().is_some_and(|t| !t.is_empty());
+                    if let Ok((text, _report)) = crate::domain::ai::cascade::run_cascade(
+                        &self.client,
+                        &cascade_cfg,
+                        &operator_url,
+                        &operator_model,
+                        &local_base_for_auth,
+                        &req.model,
+                        messages_arr,
+                        has_tools,
+                    )
+                    .await
+                    {
+                        return Ok(text.trim().to_string());
+                    }
+                }
+            }
+        }
 
         let mut request = self.client.post(endpoint.clone());
         if effective_provider_lc == "anthropic" {
@@ -409,7 +444,7 @@ impl Sentient {
             } else if provider_lc == "anthropic" {
                 "https://api.anthropic.com/v1/messages".to_string()
             } else {
-                endpoint.replace(":1536", ":11434")
+                endpoint.replace(":1536", ":13305")
             };
 
             println!("[AI] Proxy port 1536 unreachable in single_shot_completion, retrying directly on fallback: {}", fallback_endpoint);
@@ -451,7 +486,7 @@ impl Sentient {
 
         let chat_stream = is_local && req.feature.as_deref() == Some("Chat");
         if chat_stream {
-            return self.single_shot_ollama_stream(resp).await;
+            return self.single_shot_native_stream(resp).await;
         }
 
         let val: Value = resp.json().await?;
@@ -459,7 +494,7 @@ impl Sentient {
         let raw = if effective_provider_lc == "anthropic" {
             val["content"][0]["text"].as_str().unwrap_or("").to_string()
         } else if is_local {
-            // Ollama might be hit via /v1/chat/completions (OpenAI format) or /api/chat (Native format)
+            // the local backend might be hit via /v1/chat/completions (OpenAI format) or /api/chat (Native format)
             if let Some(content) = val.pointer("/choices/0/message/content").and_then(|v| v.as_str()) {
                 content.to_string()
             } else if let Some(content) = val.pointer("/message/content").and_then(|v| v.as_str()) {
@@ -477,11 +512,22 @@ impl Sentient {
             }
         };
 
-        Ok(raw.trim().to_string())
+        let answer = raw.trim().to_string();
+
+        // Reliability chain (KORTEX_GROUNDING / KORTEX_ABSTAIN): verify file/
+        // symbol references against the real workspace and, if configured,
+        // qualify or withhold a low-confidence, ungrounded answer instead of
+        // asserting it. Defaults ON for a local model (is_local, already
+        // computed above), off for a cloud one — either can be forced with the
+        // env var regardless of which model answered.
+        let root = self.ai_tools.get_root_path();
+        let answer = crate::domain::ai::reliability::finalize(&answer, &root, None, false, is_local);
+
+        Ok(answer)
     }
 
-    /// Stream Ollama /api/chat for fast Chat replies — tokens land in `chat_stream_buf`.
-    pub(crate) async fn single_shot_ollama_stream(&self, response: reqwest::Response) -> Result<String> {
+    /// Stream the local backend /api/chat for fast Chat replies — tokens land in `chat_stream_buf`.
+    pub(crate) async fn single_shot_native_stream(&self, response: reqwest::Response) -> Result<String> {
         if let Ok(mut b) = self.chat_stream_buf.lock() {
             b.clear();
         }
@@ -530,7 +576,7 @@ impl Sentient {
                     }
                 }
                 // Standard content — OpenAI SSE deltas (Lemonade, compat proxies)
-                // or Ollama NDJSON message objects.
+                // or native NDJSON message objects.
                 let content = val.pointer("/choices/0/delta/content")
                     .and_then(|v| v.as_str())
                     .or_else(|| val.pointer("/choices/0/message/content").and_then(|v| v.as_str()))

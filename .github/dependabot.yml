@@ -50,6 +50,17 @@ updates:
     labels:
       - "deps"
       - "frontend"
+    # See docs/security-audit.md. The elliptic chain is a dev-only browser
+    # crypto polyfill (crypto is NOT injected into the bundle — vite.config.ts
+    # only polyfills path/buffer/stream/util). elliptic@6.6.1 is latest with
+    # no patch, and `audit fix --force` downgrades vite-plugin-node-polyfills
+    # and breaks the build.
+    ignore:
+      - dependency-name: "elliptic"
+      - dependency-name: "browserify-sign"
+      - dependency-name: "create-ecdh"
+      - dependency-name: "crypto-browserify"
+      - dependency-name: "node-stdlib-browser"
 
   # Tauri / Rust backend
   - package-ecosystem: "cargo"
@@ -74,6 +85,9 @@ updates:
     labels:
       - "deps"
       - "rust"
+    # cargo audit is clean (see docs/security-audit.md). Nothing to ignore —
+    # the h2 0.3 / quick-xml / rand 0.7 advisories were cleared by the
+    # reqwest 0.11 -> 0.12 bump + a full `cargo update`.
 
   # GitHub Actions workflow versions
   - package-ecosystem: "github-actions"

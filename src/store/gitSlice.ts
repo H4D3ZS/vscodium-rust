@@ -37,7 +37,7 @@ export const createGitSlice: StateCreator<AppState, [], [], GitSlice> = (set, ge
                     model,
                     provider,
                     temperature: 0.3,
-                    ollama_url: state.ollamaUrl,
+                    inference_url: state.inferenceUrl,
                 },
             }).catch(() => null);
             const msg = result?.content?.trim() || '';

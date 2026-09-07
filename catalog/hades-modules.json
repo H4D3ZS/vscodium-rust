@@ -851,7 +851,7 @@
     {
       "id": "vega-dast",
       "name": "Vega DAST Engine",
-      "description": "Rust-native Subgraph Vega rebuild \u2014 passive + active injection, SSRF/SSTI/JWT packs, Ollama payload assist. Built into IDE.",
+      "description": "Rust-native Subgraph Vega rebuild \u2014 passive + active injection, SSRF/SSTI/JWT packs, local-model payload assist. Built into IDE.",
       "category": "web-pentest",
       "kind": "component",
       "component_id": "vega-dast",
@@ -868,7 +868,7 @@
     {
       "id": "moxy-dast",
       "name": "Moxy Agentic DAST",
-      "description": "Optional external: MITM proxy with browser-use + Ollama. Use when Docker available; Rust-native Vega/Moxy-lite covers core DAST.",
+      "description": "Optional external: MITM proxy with browser-use + a local model. Use when Docker available; Rust-native Vega/Moxy-lite covers core DAST.",
       "category": "web-pentest",
       "kind": "git",
       "repo": "matank001/Moxy",
@@ -887,7 +887,7 @@
         "moxy",
         "dast",
         "mitm",
-        "ollama",
+        "local-model",
         "proxy",
         "external"
       ]

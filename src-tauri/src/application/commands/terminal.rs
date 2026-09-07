@@ -665,7 +665,7 @@ pub async fn spawn_opencode_terminal(
     }
     if let Some(key) = api_keys.get("openai").and_then(|v| v.as_str()) {
         if !key.is_empty() {
-            // Real OpenAI key overrides the ollama stub
+            // Real OpenAI key overrides the local stub
             cmd.env("OPENAI_API_KEY", key);
             let base_url = api_keys.get("openai_base_url").and_then(|v| v.as_str()).unwrap_or("https://api.openai.com/v1");
             cmd.env("OPENAI_BASE_URL", base_url);
@@ -925,14 +925,14 @@ pub async fn spawn_claude_terminal(
     if model.is_empty() {
         return Err("No model selected. Pick a Lemonade model in Settings → Inference Backend first.".to_string());
     }
-    // Normalize a `…:latest` id from Lemonade's Ollama-compat tag list.
+    // Normalize a `…:latest` id from Lemonade's native-/api-compat tag list.
     let model = super::ai::canonical_model_id(&model).to_string();
 
     let lemonade_base = state.ai.engine.lemonade_base().await;
     let lemonade_base = lemonade_base.trim_end_matches('/').to_string();
 
     // The IDE's selected model defaults to a cloud name (`gpt-4o`) and can be an
-    // Ollama tag, neither of which Lemonade serves. Spawning anyway produces a
+    // the local backend tag, neither of which Lemonade serves. Spawning anyway produces a
     // session where every request 404s with no visible cause, so validate first.
     // An unreachable server yields an empty list — treat that as "unknown" and
     // let the spawn proceed rather than blocking on a health check.

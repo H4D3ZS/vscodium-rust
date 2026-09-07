@@ -91,8 +91,80 @@ pub struct LaunchOpts {
     /// slot KV state, which the Kortex KV cache proxy (kortex_kvcache) layers
     /// SHA-keyed prefix matching on top of.
     pub slot_save_path: Option<PathBuf>,
+
+    // ── Speculative decoding — the decode-throughput lever ──
+    // The big model verifies every drafted token, so output is bit-identical to
+    // a plain run; the speculator just proposes several tokens per forward pass
+    // of the big weights. This is the software path around the memory-bandwidth
+    // wall: N accepted tokens per weight read instead of one.
+    //
+    /// `--spec-type`: a comma-separated list from the ROCmFPX fork's menu, in
+    /// priority order. Known names (`SPEC_TYPES`):
+    ///   * `ngram-simple` / `ngram-map-k` / `ngram-map-k4v` / `ngram-mod` /
+    ///     `ngram-cache` — zero model, zero VRAM. Guess the continuation by
+    ///     matching recent tokens against the prompt / context. Big win on
+    ///     code (imports, repeated identifiers, boilerplate).
+    ///   * `draft-mtp` — the model's own multi-token-prediction head,
+    ///     auto-discovered next to the `-hf` model or passed explicitly.
+    ///   * `draft-eagle3` — a trained lightweight EAGLE-3 head (needs a model).
+    ///   * `draft-simple` / `draft-dflash` / `draft-dspark` — a separate small
+    ///     draft GGUF (needs a model).
+    /// Unknown names are dropped; `draft-*` names that need a model are dropped
+    /// when none is supplied. `None`/empty = no speculation. Stacking e.g.
+    /// `"ngram-simple,draft-mtp"` lets the cheap guesser run first.
+    pub spec_type: Option<String>,
+    /// `--spec-draft-model` / `-md`: the small draft / EAGLE-3 GGUF. Required
+    /// for `draft-simple` / `draft-eagle3` / `draft-dflash` / `draft-dspark`;
+    /// optional for `draft-mtp` (auto-discovered); ignored for `ngram-*`.
+    pub draft_model_path: Option<PathBuf>,
+    /// `--spec-draft-ngl` / `-ngld`: draft-model GPU layers (put it fully on
+    /// the GPU — it's tiny). Default: all. Ignored without a draft model.
+    pub draft_ngl: Option<u32>,
+    /// `--draft-max` / `--spec-draft-n-max`: tokens to speculate per step. The
+    /// community sweeps for Qwen3.8-27B MTP put the mixed-workload optimum at
+    /// **2** (3 for code-heavy); deeper loses on prose as acceptance decays.
+    pub draft_max: Option<u32>,
+    /// `--spec-draft-p-min`: confidence gate — the draft head stops once its
+    /// own probability drops below this, so a deeper `draft_max` costs nothing
+    /// on rounds it would have been rejected anyway. On a packed 16 GB card
+    /// the sweeps land on ~0.75 (n-max 3); looser (0.60) buys noise.
+    pub draft_p_min: Option<f32>,
+    /// `--lookup-cache-dynamic` / `-lcd`: file the `ngram-cache` speculator
+    /// reads at start and writes back on exit, so learned n-grams persist
+    /// across server restarts. Only meaningful with `ngram-cache` in the list.
+    pub lookup_cache: Option<PathBuf>,
+    /// `--n-cpu-moe` / `-ncmoe`: keep the first N MoE layers' experts in system
+    /// RAM instead of VRAM. The knob that lets a Q4 35B-A3B fit 16 GB — the
+    /// dense attention/norm weights stay on the GPU, the fat expert FFNs spill
+    /// to RAM. Only meaningful for a MoE model; `0`/`None` = everything on GPU.
+    pub n_cpu_moe: Option<u32>,
+
     /// Extra free-form args appended verbatim. Useful for `--mlock`, `--no-mmap`, etc.
     pub extra_args: Vec<String>,
+}
+
+/// Speculative-decoding type names accepted by the ROCmFPX llama.cpp fork's
+/// `--spec-type` (see `common/speculative.cpp::common_speculative_type_from_name_map`).
+/// Anything not in this set makes the server abort at parse time, so the
+/// launcher filters against it.
+pub const SPEC_TYPES: &[&str] = &[
+    "ngram-simple",
+    "ngram-map-k",
+    "ngram-map-k4v",
+    "ngram-mod",
+    "ngram-cache",
+    "draft-mtp",
+    "draft-eagle3",
+    "draft-simple",
+    "draft-dflash",
+    "draft-dspark",
+];
+
+/// Does this spec type load a *separate* model that the launcher must be able
+/// to point at? `draft-mtp` doesn't (the fork auto-discovers the head next to
+/// the `-hf` model); the `ngram-*` guessers don't touch a model at all.
+fn spec_type_needs_draft_model(t: &str) -> bool {
+    matches!(t, "draft-simple" | "draft-eagle3" | "draft-dflash" | "draft-dspark")
 }
 
 impl Default for LaunchOpts {
@@ -107,6 +179,13 @@ impl Default for LaunchOpts {
             batch_size: 512,
             flash_attn: false,
             slot_save_path: None,
+            spec_type: None,
+            draft_model_path: None,
+            draft_ngl: None,
+            draft_max: None,
+            draft_p_min: None,
+            lookup_cache: None,
+            n_cpu_moe: None,
             extra_args: Vec::new(),
         }
     }
@@ -136,6 +215,67 @@ pub fn build_argv(plan: &TierPlan, opts: &LaunchOpts) -> Vec<String> {
         argv.push("--slot-save-path".into());
         argv.push(p.to_string_lossy().into_owned());
     }
+    // MoE expert offload — spill the first N layers' experts to RAM so a Q4
+    // 35B-A3B fits 16 GB VRAM. No-op on a dense model.
+    if let Some(n) = opts.n_cpu_moe.filter(|n| *n > 0) {
+        argv.push("--n-cpu-moe".into());
+        argv.push(n.to_string());
+    }
+
+    // Speculative decoding (see LaunchOpts). The fork's `--spec-type` takes a
+    // comma-separated list from SPEC_TYPES; unknown names abort the server, and
+    // `draft-*` names that load a separate model are useless without one, so we
+    // filter to the types that will actually run.
+    let has_draft_model = opts.draft_model_path.is_some();
+    let spec_list: Vec<&str> = opts
+        .spec_type
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .filter(|t| SPEC_TYPES.contains(t))
+        .filter(|t| !spec_type_needs_draft_model(t) || has_draft_model)
+        .collect();
+    if !spec_list.is_empty() {
+        let wants_ngram_cache = spec_list.contains(&"ngram-cache");
+        let wants_mtp = spec_list.contains(&"draft-mtp");
+        argv.push("--spec-type".into());
+        argv.push(spec_list.join(","));
+        if let Some(dm) = opts.draft_model_path.as_ref() {
+            argv.push("--spec-draft-model".into());
+            argv.push(dm.to_string_lossy().into_owned());
+            argv.push("--spec-draft-ngl".into());
+            argv.push(opts.draft_ngl.unwrap_or(999).to_string());
+        }
+        if let Some(n) = opts.draft_max {
+            argv.push("--draft-max".into());
+            argv.push(n.to_string());
+        }
+        if let Some(p) = opts.draft_p_min.filter(|p| (0.0..=1.0).contains(p)) {
+            argv.push("--spec-draft-p-min".into());
+            argv.push(format!("{p}"));
+        }
+        // MTP needs a single generation slot — with parallel slots the head is
+        // disabled / degraded (sudoingX/qwen38-mtp). Force it unless the caller
+        // already set --parallel / -np in extra_args.
+        if wants_mtp
+            && !opts
+                .extra_args
+                .iter()
+                .any(|a| a == "--parallel" || a == "-np")
+        {
+            argv.push("--parallel".into());
+            argv.push("1".into());
+        }
+        if wants_ngram_cache {
+            if let Some(lc) = opts.lookup_cache.as_ref() {
+                argv.push("--lookup-cache-dynamic".into());
+                argv.push(lc.to_string_lossy().into_owned());
+            }
+        }
+    }
+
     // GAC tier-placement flags.
     argv.extend(render_args(plan));
     // User-supplied extras last so they win over our defaults.
@@ -343,6 +483,7 @@ mod tests {
             flash_attn: false,
             slot_save_path: None,
             extra_args: vec![],
+            ..Default::default()
         };
         let argv = build_argv(&plan, &opts);
         assert!(argv.contains(&"-m".to_string()));
@@ -351,5 +492,195 @@ mod tests {
         assert!(argv.contains(&"8081".to_string()));
         assert!(argv.contains(&"--n-gpu-layers".to_string()));
         assert!(argv.contains(&"--override-tensor".to_string()));
+        // no speculation flags unless asked
+        assert!(!argv.contains(&"--spec-type".to_string()));
+    }
+
+    fn min_plan() -> TierPlan {
+        TierPlan {
+            n_gpu_layers: 99,
+            overrides: vec![],
+            total_gpu_bytes: 0,
+            total_cpu_bytes: 0,
+            vram_budget_mb: 0,
+            theta: 0.85,
+            d_bar_critical: 0.0,
+            routing_counts: RoutingCounts::default(),
+            backend: "vulkan".into(),
+        }
+    }
+
+    #[test]
+    fn spec_type_mtp_needs_no_draft_model() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("escha.gguf"),
+            spec_type: Some("draft-mtp".into()),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--spec-type", "draft-mtp"]));
+        // no separate model -> no --spec-draft-model / --spec-draft-ngl
+        assert!(!argv.contains(&"--spec-draft-model".to_string()));
+        assert!(!argv.contains(&"--spec-draft-ngl".to_string()));
+    }
+
+    #[test]
+    fn ngram_types_run_with_no_model_and_no_vram() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("escha.gguf"),
+            spec_type: Some("ngram-simple".into()),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--spec-type", "ngram-simple"]));
+        assert!(!argv.contains(&"--spec-draft-model".to_string()));
+    }
+
+    #[test]
+    fn unknown_spec_names_are_filtered_out() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            // "draft" / "mtp" are NOT valid fork names; only ngram-mod survives.
+            spec_type: Some("draft, mtp, bogus, ngram-mod".into()),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--spec-type", "ngram-mod"]));
+    }
+
+    #[test]
+    fn draft_only_list_without_a_model_emits_nothing() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("draft-simple".into()),
+            draft_model_path: None,
+            ..Default::default()
+        };
+        assert!(!build_argv(&min_plan(), &opts).contains(&"--spec-type".to_string()));
+    }
+
+    #[test]
+    fn spec_type_draft_emits_model_ngl_and_max() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("draft-simple".into()),
+            draft_model_path: Some(PathBuf::from("draft-0.5b.gguf")),
+            draft_ngl: Some(99),
+            draft_max: Some(8),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--spec-type", "draft-simple"]));
+        assert!(argv.windows(2).any(|w| w == ["--spec-draft-model", "draft-0.5b.gguf"]));
+        assert!(argv.windows(2).any(|w| w == ["--spec-draft-ngl", "99"]));
+        assert!(argv.windows(2).any(|w| w == ["--draft-max", "8"]));
+    }
+
+    #[test]
+    fn stacked_ngram_plus_mtp_keeps_order_and_joins() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("ngram-simple,draft-mtp".into()),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--spec-type", "ngram-simple,draft-mtp"]));
+    }
+
+    #[test]
+    fn ngram_cache_takes_a_dynamic_lookup_file() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("ngram-cache".into()),
+            lookup_cache: Some(PathBuf::from("/w/.aim/ngram.bin")),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--lookup-cache-dynamic", "/w/.aim/ngram.bin"]));
+    }
+
+    #[test]
+    fn lookup_file_is_ignored_without_ngram_cache() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("ngram-simple".into()),
+            lookup_cache: Some(PathBuf::from("/w/.aim/ngram.bin")),
+            ..Default::default()
+        };
+        assert!(!build_argv(&min_plan(), &opts).contains(&"--lookup-cache-dynamic".to_string()));
+    }
+
+    #[test]
+    fn n_cpu_moe_emits_the_offload_flag_when_positive() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            n_cpu_moe: Some(22),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--n-cpu-moe", "22"]));
+    }
+
+    #[test]
+    fn n_cpu_moe_zero_or_none_emits_nothing() {
+        for n in [None, Some(0)] {
+            let opts = LaunchOpts {
+                model_path: PathBuf::from("m.gguf"),
+                n_cpu_moe: n,
+                ..Default::default()
+            };
+            assert!(!build_argv(&min_plan(), &opts).contains(&"--n-cpu-moe".to_string()));
+        }
+    }
+
+    #[test]
+    fn draft_mtp_forces_a_single_slot() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("draft-mtp".into()),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--parallel", "1"]));
+    }
+
+    #[test]
+    fn ngram_only_does_not_force_a_single_slot() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("ngram-simple".into()),
+            ..Default::default()
+        };
+        assert!(!build_argv(&min_plan(), &opts).contains(&"--parallel".to_string()));
+    }
+
+    #[test]
+    fn caller_parallel_override_is_respected() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("draft-mtp".into()),
+            extra_args: vec!["--parallel".into(), "4".into()],
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        // we don't inject our own "1"; the caller's "4" rides in via extra_args
+        assert!(argv.windows(2).any(|w| w == ["--parallel", "4"]));
+        assert!(!argv.windows(2).any(|w| w == ["--parallel", "1"]));
+    }
+
+    #[test]
+    fn draft_p_min_emits_the_gate_when_in_range() {
+        let opts = LaunchOpts {
+            model_path: PathBuf::from("m.gguf"),
+            spec_type: Some("draft-mtp".into()),
+            draft_p_min: Some(0.75),
+            ..Default::default()
+        };
+        let argv = build_argv(&min_plan(), &opts);
+        assert!(argv.windows(2).any(|w| w == ["--spec-draft-p-min", "0.75"]));
+
+        // out-of-range is dropped
+        let bad = LaunchOpts { draft_p_min: Some(1.5), ..opts.clone() };
+        assert!(!build_argv(&min_plan(), &bad).contains(&"--spec-draft-p-min".to_string()));
     }
 }
