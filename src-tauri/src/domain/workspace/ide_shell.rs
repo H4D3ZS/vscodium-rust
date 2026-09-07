@@ -238,6 +238,21 @@ pub fn resolve_rg_exe() -> Option<PathBuf> {
     which::which("rg").ok().or_else(|| which::which("rg.exe").ok())
 }
 
+/// Resolve an installed `tgrep` (microsoft/tgrep, trigram-indexed search) —
+/// not bundled with the IDE (no portable-download path yet, unlike rg), so
+/// this is PATH-only plus an explicit override. Absent on the overwhelming
+/// majority of machines today; every caller must treat `None` as the normal
+/// case and fall back to rg, never as an error.
+pub fn resolve_tgrep_exe() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("HADES_TGREP_PATH") {
+        let pb = PathBuf::from(p.trim());
+        if file_exists(&pb) {
+            return Some(pb);
+        }
+    }
+    which::which("tgrep").ok().or_else(|| which::which("tgrep.exe").ok())
+}
+
 /// Resolve Git Bash executable for agent + IDE terminal.
 pub fn resolve_git_bash_exe() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("HADES_GIT_BASH_PATH") {

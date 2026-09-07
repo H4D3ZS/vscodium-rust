@@ -30,12 +30,24 @@ pub fn resolve_rg_binary() -> Option<PathBuf> {
     crate::ide_shell::resolve_rg_exe()
 }
 
+/// Engine order: **tgrep, then ripgrep, then the pure-Rust walker.** tgrep
+/// (trigram-indexed, up to ~52x rg on large repos per its own benchmarks) runs
+/// first when installed; any failure — not installed, spawn error, a schema
+/// mismatch in its "rg-compatible" JSON — falls straight through to rg
+/// unchanged, so nothing regresses for the far more common case of tgrep not
+/// being present. `HADES_DISABLE_TGREP=1` skips straight to rg.
 pub fn ripgrep_search(q: RipgrepQuery<'_>) -> Result<Vec<SearchResult>, String> {
     let pattern = q.pattern.trim();
     if pattern.is_empty() {
         return Err("empty search pattern".into());
     }
     let max = q.max_results.max(1).min(5000);
+
+    if !tgrep_disabled() {
+        if let Some(hits) = super::tgrep_search::try_tgrep(&q, max) {
+            return Ok(hits);
+        }
+    }
 
     if let Some(rg) = resolve_rg_binary() {
         match run_rg_cli(&rg, &q, max) {
@@ -45,6 +57,13 @@ pub fn ripgrep_search(q: RipgrepQuery<'_>) -> Result<Vec<SearchResult>, String> 
     }
 
     fallback_walk(q, max)
+}
+
+fn tgrep_disabled() -> bool {
+    matches!(
+        std::env::var("HADES_DISABLE_TGREP").ok().as_deref(),
+        Some("1") | Some("true") | Some("on")
+    )
 }
 
 fn run_rg_cli(rg: &Path, q: &RipgrepQuery<'_>, max: usize) -> Result<Vec<SearchResult>, String> {
@@ -91,8 +110,14 @@ fn run_rg_cli(rg: &Path, q: &RipgrepQuery<'_>, max: usize) -> Result<Vec<SearchR
         .map_err(|e| format!("failed to spawn rg: {e}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut results = Vec::new();
+    Ok(parse_rg_json_stream(&stdout, max))
+}
 
+/// Parse ripgrep's `--json` line-delimited match stream into `SearchResult`s.
+/// Shared with `tgrep_search`, which advertises rg-compatible `--json` output —
+/// one parser, two engines. Tolerant of unparseable/blank lines (skips them).
+pub(crate) fn parse_rg_json_stream(stdout: &str, max: usize) -> Vec<SearchResult> {
+    let mut results = Vec::new();
     for line in stdout.lines() {
         if line.trim().is_empty() {
             continue;
@@ -106,10 +131,7 @@ fn run_rg_cli(rg: &Path, q: &RipgrepQuery<'_>, max: usize) -> Result<Vec<SearchR
         let Some(data) = msg.data else {
             continue;
         };
-        let path = data
-            .path
-            .and_then(|p| p.text)
-            .unwrap_or_default();
+        let path = data.path.and_then(|p| p.text).unwrap_or_default();
         let line_no = data.line_number.unwrap_or(0) as usize;
         let content = data
             .lines
@@ -120,17 +142,12 @@ fn run_rg_cli(rg: &Path, q: &RipgrepQuery<'_>, max: usize) -> Result<Vec<SearchR
         if path.is_empty() || line_no == 0 {
             continue;
         }
-        results.push(SearchResult {
-            path,
-            line: line_no,
-            content,
-        });
+        results.push(SearchResult { path, line: line_no, content });
         if results.len() >= max {
             break;
         }
     }
-
-    Ok(results)
+    results
 }
 
 #[derive(Debug, Deserialize)]

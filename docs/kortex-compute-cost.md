@@ -112,6 +112,41 @@ levers stack: cache removes repeats, cascade removes the big model on easy work,
 compression shrinks what's left, ternary changes the cost of the arithmetic
 underneath all of it. None needs new hardware.
 
+## Search: ripgrep + tgrep side by side
+
+`grep`/`code_search` gained a second engine in front of ripgrep:
+[tgrep](https://github.com/microsoft/tgrep) (Microsoft, trigram-indexed,
+client/server) claims up to ~52x rg on large repos by searching a pre-built
+index instead of scanning every file per query — real leverage on a monorepo
+this size.
+
+Engine order in `ripgrep_search::ripgrep_search`: **tgrep → rg → the pure-Rust
+walker.** `domain::indexing::tgrep_search::try_tgrep` runs first when a
+`tgrep` binary resolves (`ide_shell::resolve_tgrep_exe`, PATH + `HADES_TGREP_PATH`
+override — not bundled, unlike rg, so its absence is the default, normal case):
+
+- **Bounded double attempt.** tgrep's indexed mode auto-connects to an
+  already-running `tgrep serve .` daemon the user started themselves (this IDE
+  doesn't manage that lifecycle); tried first with an 800ms timeout — a
+  no-server connection should fail near-instantly, so the timeout is a safety
+  net, not the expected path. Any failure there retries with `--no-index`,
+  tgrep's own guaranteed one-shot brute-force mode that needs no server at all.
+- **Shared JSON parser.** tgrep advertises rg-compatible `--json` output, so
+  both engines parse through the same `parse_rg_json_stream` — one parser, two
+  backends.
+- **Schema-mismatch guard.** Exit code 0 promising matches but zero parsed
+  hits is treated as a parse failure (fall through to rg), never as a false
+  empty result — a version drift in tgrep's JSON shape fails safe.
+- **Fixed-string queries skip tgrep entirely** (its flag for literal-vs-regex
+  matching isn't confirmed) rather than risk a correctness bug for an
+  optimization.
+- `fixed_string=false` queries take the trigram-fast path when available;
+  `HADES_DISABLE_TGREP=1` forces rg-only.
+
+Zero behavior change for the overwhelming majority without tgrep installed —
+`resolve_tgrep_exe()` returns `None` and the existing rg → walker chain runs
+exactly as before.
+
 ## Beyond compute — hallucination grounding
 
 Compute cost is one of AI's structural problems; **hallucination** is another,
