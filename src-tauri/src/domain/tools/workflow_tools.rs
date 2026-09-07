@@ -50,6 +50,54 @@ impl AiTools {
         Ok(json!({ "status": "success", "boundary": description }))
     }
 
+    /// `task_state` — the long-horizon state ledger (`domain::ai::state_ledger`),
+    /// keyed per workspace so it persists across turns in a session. The fix for
+    /// state drift: a durable goal/decisions/facts/questions log the model can
+    /// re-ground itself against instead of re-deriving settled calls wrongly.
+    pub(crate) async fn handle_task_state(&self, args: Value) -> Result<Value> {
+        use crate::domain::ai::state_ledger::with_ledger;
+        let root = self.root_path.lock().await.clone();
+        let key = root.to_string_lossy().to_string();
+        let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("status");
+        let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+        let out = with_ledger(&key, |l| -> Value {
+            match action {
+                "goal" => {
+                    l.set_goal(&text);
+                    json!({ "status": "success", "goal": l.goal() })
+                }
+                "decide" => {
+                    l.decide(&text);
+                    json!({ "status": "success", "recorded": "decision" })
+                }
+                "fact" => {
+                    l.fact(&text);
+                    json!({ "status": "success", "recorded": "fact" })
+                }
+                "ask" => {
+                    l.ask(&text);
+                    json!({ "status": "success", "recorded": "question" })
+                }
+                "resolve" => {
+                    let q = args.get("query").and_then(|v| v.as_str()).unwrap_or(&text);
+                    let resolved = l.resolve_question(q);
+                    json!({ "status": "success", "resolved": resolved })
+                }
+                _ => {
+                    l.tick();
+                    json!({
+                        "status": "success",
+                        "goal": l.goal(),
+                        "open_questions": l.open_questions(),
+                        "reground": l.reground(5),
+                    })
+                }
+            }
+        });
+        Ok(out)
+    }
+
     pub(crate) async fn handle_create_canvas(&self, args: Value) -> Result<Value> {
         let title = args.get("title").and_then(|v| v.as_str())
             .unwrap_or("Untitled Canvas");
@@ -153,10 +201,38 @@ impl AiTools {
         self.run_command(args).await
     }
 
+    /// Verify the implementation actually works — the programmatic verification
+    /// loop (`domain::ai::verify`), not the model's word for it. Behind
+    /// `KORTEX_VERIFY=1`: auto-detects the project's build/test commands and
+    /// actually runs them; `"verified"` reflects a real pass/fail, never an
+    /// assumed one. When the lever is off, keeps the historical stub (unchanged
+    /// default behavior — this tool always existed, it just didn't check anything).
     pub async fn verify_implementation(&self, args: Value) -> Result<Value> {
         let task = args.get("task").and_then(|v| v.as_str())
-            .unwrap_or("Verify implementation");
-        Ok(json!({ "status": "success", "task": task, "verified": true }))
+            .unwrap_or("Verify implementation").to_string();
+
+        let cfg = crate::domain::ai::verify::VerifyConfig::from_env();
+        if !cfg.enabled {
+            return Ok(json!({ "status": "success", "task": task, "verified": true }));
+        }
+
+        let root = self.root_path.lock().await.clone();
+        let runner = crate::domain::ai::verify::detect_runner(&root);
+        let checks = crate::domain::ai::verify::run_checks(&runner, &cfg);
+        let verified = crate::domain::ai::verify::accepts(&checks, &cfg);
+        Ok(json!({
+            "status": if verified { "success" } else { "failed" },
+            "task": task,
+            "verified": verified,
+            "checks": checks.iter().map(|c| json!({
+                "kind": c.kind.label(),
+                "passed": c.passed,
+                "summary": c.summary,
+            })).collect::<Vec<_>>(),
+            "note": if verified { String::new() } else {
+                crate::domain::ai::verify::failure_feedback(&checks, &cfg)
+            },
+        }))
     }
 
     pub async fn create_mission_plan(&self, args: Value) -> Result<Value> {

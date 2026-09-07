@@ -477,7 +477,16 @@ impl Sentient {
             }
         };
 
-        Ok(raw.trim().to_string())
+        let answer = raw.trim().to_string();
+
+        // Reliability chain (KORTEX_GROUNDING / KORTEX_ABSTAIN): verify file/
+        // symbol references against the real workspace and, if configured,
+        // qualify or withhold a low-confidence, ungrounded answer instead of
+        // asserting it. A pure pass-through when neither is enabled.
+        let root = self.ai_tools.get_root_path();
+        let answer = crate::domain::ai::reliability::finalize(&answer, &root, None, false);
+
+        Ok(answer)
     }
 
     /// Stream the local backend /api/chat for fast Chat replies — tokens land in `chat_stream_buf`.

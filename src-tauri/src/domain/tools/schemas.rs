@@ -400,6 +400,12 @@ impl AiTools {
             // ── Workflow ──
             td("task_boundary", "Create a task boundary marker.",
                obj_schema(&["description"], json!({ "description": str_prop("Boundary description") }))),
+            td("task_state", "Record or read the task's durable state — the goal, decisions made (with rationale, so you never re-litigate a settled call), established facts, and open questions. On a long task, call `action:\"status\"` periodically to re-ground yourself against drift. Actions: goal, decide, fact, ask, resolve, status.",
+               obj_schema(&["action"], json!({
+                   "action": { "type": "string", "enum": ["goal", "decide", "fact", "ask", "resolve", "status"], "description": "What to do" },
+                   "text": str_prop("The goal/decision/fact/question text (for goal, decide, fact, ask)"),
+                   "query": str_prop("Substring to match an open question to resolve (for resolve)"),
+               }))),
             td("create_canvas", "Create a visual canvas.",
                obj_schema(&["title"], json!({ "title": str_prop("Canvas title") }))),
             td("notify_user", "Notify the user with a message.",

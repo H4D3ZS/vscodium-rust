@@ -737,6 +737,15 @@ impl ApexOrchestrator {
         repeat_penalty: f32,
     ) -> Result<String, String> {
         let root = base.trim_end_matches('/').to_string();
+
+        // Semantic response cache (KORTEX_SEMCACHE): a near-duplicate query for
+        // the same model returns a prior answer with zero inference.
+        let cache = crate::domain::ai::semantic_cache::global();
+        if let Some(hit) = cache.lookup(model, system, prompt) {
+            println!("[APEX-{}] semantic-cache hit — no inference", engine.to_uppercase());
+            return Ok(hit);
+        }
+
         let body = json!({
             "model": model,
             "messages": [
@@ -784,7 +793,9 @@ impl ApexOrchestrator {
                         .or_else(|| result["response"].as_str())
                         .or_else(|| result["content"].as_str())
                         .ok_or_else(|| format!("[APEX-{}] no choices[0].message.content", engine))?;
-                    return Ok(Self::strip_tooling_tags(content));
+                    let answer = Self::strip_tooling_tags(content);
+                    cache.store(model, system, prompt, &answer);
+                    return Ok(answer);
                 }
                 Err(e) => last_err = Some(format!("request failed at {}: {}", endpoint, e)),
             }

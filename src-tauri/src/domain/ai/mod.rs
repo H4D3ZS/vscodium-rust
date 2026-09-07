@@ -4,8 +4,17 @@
 //! NOTE: ai_engine.rs (7.2K LOC) and ai_tools.rs (8.5K LOC) are slated to be
 //! split into focused submodules — see ARCHITECTURE.md
 
+pub mod abstain;
 pub mod agent_harness;
+pub mod authorization;
+pub mod cascade;
 pub mod context_budget;
+pub mod grounding;
+pub mod provenance;
+pub mod reliability;
+pub mod semantic_cache;
+pub mod state_ledger;
+pub mod verify;
 pub mod engine;
 pub mod ai_prompts;
 pub mod ane;
