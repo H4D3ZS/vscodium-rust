@@ -4,3 +4,6 @@
 [submodule "kortex"]
 	path = kortex
 	url = https://github.com/H4D3ZS/kortex
+[submodule "tgrep"]
+	path = tgrep
+	url = https://github.com/H4D3ZS/tgrep.git

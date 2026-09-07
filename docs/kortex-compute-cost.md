@@ -147,29 +147,56 @@ Zero behavior change for the overwhelming majority without tgrep installed —
 `resolve_tgrep_exe()` returns `None` and the existing rg → walker chain runs
 exactly as before.
 
-### Vendoring it (shipping it with the IDE)
+### Vendoring it: a fork, built from source, not a downloaded release
 
-tgrep is MIT-licensed (Microsoft) — permissively shippable, same posture as
-bundled ripgrep. `scripts/fetch-tgrep.ts` downloads the pinned release
-(`v1.0.4`, exact asset names/triples confirmed against the real GitHub
-release) into `src-tauri/bundles/tgrep/` — the same "fetched at build time,
-gitignored, not committed" pattern as `fetch-ripgrep.ts`. `ide_shell.rs`
-mirrors every ripgrep bundling primitive for tgrep: `portable_tgrep_root`,
-`repo_bundles_tgrep`, `ensure_tgrep_installed` (copies the bundle to
-`%LOCALAPPDATA%\HADES\tgrep` on first launch, wired into the same startup
-task as PortableGit/ripgrep in `lib.rs`), and the `ide_ensure_tgrep` Tauri
-command. `resolve_tgrep_exe` checks, in order: `HADES_TGREP_PATH` override →
-the installed-to-HADES-home copy → the installer's own bundle → PATH.
+tgrep is MIT-licensed (Microsoft) — permissively shippable. Rather than
+redistribute Microsoft's pre-built release binary, tgrep is vendored as a
+**git submodule at `tgrep/`, forked to
+[H4D3ZS/tgrep](https://github.com/H4D3ZS/tgrep)** (the same pattern as the
+`kortex` submodule, a fork of ROCmFPX/llama.cpp) and built from source:
 
-Verified against the **real vendored binary**, not just the documented
-interface: fetched `v1.0.4` for real, confirmed its `--json` output is
-byte-identical in shape to what `parse_rg_json_stream` expects (`type`,
-`data.path.text`, `data.line_number`, `data.lines.text`), confirmed exit codes
-0/1 for match/no-match against real searches, and ran an ignored end-to-end
-test (`real_tgrep_binary_end_to_end`) that finds a real symbol in this actual
-codebase through the full `ripgrep_search` → `try_tgrep` → real-process
-pipeline. Run it yourself after fetching: `cargo test --lib -- --ignored
-real_tgrep_binary_end_to_end`.
+- `scripts/build-tgrep.ps1` runs `cargo build --release -p tgrep-cli` inside
+  the submodule and stages the output at `src-tauri/bundles/tgrep/tgrep.exe`
+  — the exact path the bundling code already expected from the earlier
+  download-based approach, so **zero Rust-side change** was needed when the
+  source of the binary changed from "downloaded zip" to "built from our
+  fork". `ide_shell.rs`'s `portable_tgrep_root` / `repo_bundles_tgrep` /
+  `ensure_tgrep_installed` / `resolve_tgrep_exe` all work unmodified.
+- Users get a binary built from source we can read, audit, and change — not
+  a redistributed third-party artifact — and the fork is the actual place to
+  land deeper integration work.
+
+Verified end to end, not just trusted: cloned the real fork, built
+`tgrep-cli --release` from source (clean build, ~26–29s), ran the build
+script itself against the submodule (catching and fixing a real bug along
+the way — Windows PowerShell 5.1 misparses a UTF-8-without-BOM script
+containing em-dashes; the script is now ASCII-only), confirmed the
+source-built binary is picked up by the unmodified bundling code
+(`ensure_tgrep_installed_matches_whether_a_bundle_is_actually_present`), and
+re-ran the ignored end-to-end search test
+(`real_tgrep_binary_end_to_end`) against it — same real symbol, same real
+codebase, same pass. Reproduce: `pwsh -File scripts/build-tgrep.ps1` then
+`cargo test --lib -- --ignored real_tgrep_binary_end_to_end`.
+
+### The "hand in hand with kortex" optimization — honest scope
+
+`tgrep-core` (the library crate) is genuinely importable: trigram index
+build/read/live-update, a query planner, an on-disk/in-memory hybrid index —
+real primitives, no CLI or process dependency. **But** the actual
+line-level regex verification and result formatting (~3,700 lines across
+`tgrep-cli/src/search.rs` + `matching.rs`) lives in the CLI *binary* crate,
+not the library — Cargo binary crates aren't importable, so today's
+subprocess integration (`tgrep_search.rs`) is the correct shape until that
+changes.
+
+The real "hand in hand" move is extracting that search-and-verify
+orchestration out of `tgrep-cli` into `tgrep-core` as a clean
+`search_directory(pattern, root, options) -> Vec<Match>` library API — then
+`domain::indexing::tgrep_search` calls it **in-process**: no subprocess, no
+JSON round-trip, no timeout guard, and kortex's own workspace walker/ignore
+logic can be shared with tgrep's index builder instead of duplicated. That's
+a real, valuable fork change, and a large one — done as its own follow-up on
+`tgrep/`, not folded into this vendoring pass unreviewed.
 
 ## Beyond compute — hallucination grounding
 
