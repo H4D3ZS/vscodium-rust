@@ -291,9 +291,54 @@ async fn chat_with_logprobs(
 }
 
 /// Run the cascade for one turn: pre-classify, try the Operator, escalate to the
+/// Flatten a message `content` (string or OpenAI content-part array) to text.
+fn content_text(c: &Value) -> String {
+    match c {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|p| p.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join(" "),
+        _ => String::new(),
+    }
+}
+
+/// Join every `role:"system"` message's text, in order. Empty when there is none.
+fn extract_system_text(messages: &[Value]) -> String {
+    messages
+        .iter()
+        .filter(|m| m.get("role").and_then(Value::as_str) == Some("system"))
+        .filter_map(|m| m.get("content"))
+        .map(content_text)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+/// The most recent `role:"user"` message's text — "the current ask" that
+/// pre-classification, caching, and the hedge check reason about. Empty when
+/// there is no user turn at all.
+fn extract_last_user_text(messages: &[Value]) -> String {
+    messages
+        .iter()
+        .rev()
+        .find(|m| m.get("role").and_then(Value::as_str) == Some("user"))
+        .and_then(|m| m.get("content"))
+        .map(content_text)
+        .unwrap_or_default()
+}
+
 /// Reasoner only if the confidence gate says so. Returns the final answer and a
 /// report of what happened. When disabled, goes straight to the Reasoner (the
 /// historical single-model behaviour) with no extra call.
+///
+/// `messages` is the **real conversation** — full multi-turn history, tool
+/// results, everything — sent verbatim to whichever tier actually answers.
+/// Pre-classification, the semantic-cache key, and the hedge-text check only
+/// look at the derived system/last-user text (`extract_system_text` /
+/// `extract_last_user_text`): those decisions are about "the current ask,"
+/// not the full transcript, so a long conversation doesn't make the routing
+/// decision itself expensive or miss the point the request is actually at.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_cascade(
     client: &reqwest::Client,
@@ -302,10 +347,14 @@ pub async fn run_cascade(
     operator_model: &str,
     reasoner_base: &str,
     reasoner_model: &str,
-    system: &str,
-    prompt: &str,
+    messages: &[Value],
     has_tools: bool,
 ) -> Result<(String, CascadeReport), String> {
+    let system = extract_system_text(messages);
+    let prompt = extract_last_user_text(messages);
+    let system = system.as_str();
+    let prompt = prompt.as_str();
+
     // #2: a semantic-cache hit short-circuits the whole cascade — zero
     // inference. Keyed on the reasoner model id (the assistant's identity), so
     // the tier that produced it is irrelevant to the lookup.
@@ -325,10 +374,7 @@ pub async fn run_cascade(
         ));
     }
 
-    let messages = json!([
-        { "role": "system", "content": system },
-        { "role": "user", "content": prompt },
-    ]);
+    let messages = Value::Array(messages.to_vec());
 
     let reasoner = |client: &reqwest::Client| {
         let messages = messages.clone();
@@ -419,6 +465,44 @@ mod tests {
 
     fn cfg() -> CascadeConfig {
         CascadeConfig { enabled: true, ..Default::default() }
+    }
+
+    #[test]
+    fn extract_system_text_joins_every_system_message() {
+        let msgs = vec![
+            json!({"role": "system", "content": "rule one"}),
+            json!({"role": "user", "content": "hi"}),
+            json!({"role": "system", "content": "rule two"}),
+        ];
+        let sys = extract_system_text(&msgs);
+        assert!(sys.contains("rule one"));
+        assert!(sys.contains("rule two"));
+    }
+
+    #[test]
+    fn extract_last_user_text_picks_the_most_recent_user_turn() {
+        let msgs = vec![
+            json!({"role": "user", "content": "first ask"}),
+            json!({"role": "assistant", "content": "first answer"}),
+            json!({"role": "user", "content": "second ask"}),
+        ];
+        assert_eq!(extract_last_user_text(&msgs), "second ask");
+    }
+
+    #[test]
+    fn extract_last_user_text_handles_content_part_arrays() {
+        let msgs = vec![json!({
+            "role": "user",
+            "content": [{"type": "text", "text": "part one"}, {"type": "text", "text": "part two"}]
+        })];
+        assert_eq!(extract_last_user_text(&msgs), "part one part two");
+    }
+
+    #[test]
+    fn extract_helpers_handle_no_system_or_user_gracefully() {
+        let msgs = vec![json!({"role": "assistant", "content": "just an answer"})];
+        assert_eq!(extract_system_text(&msgs), "");
+        assert_eq!(extract_last_user_text(&msgs), "");
     }
 
     #[test]

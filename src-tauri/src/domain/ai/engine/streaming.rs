@@ -374,6 +374,41 @@ impl Sentient {
             String::new()
         };
 
+        // Cascade router (KORTEX_CASCADE, local turns only): the Operator
+        // (small model) answers by default, escalating to the Reasoner — this
+        // call's own configured model/endpoint — only when it's uncertain.
+        // Scoped to the non-streaming case: the live "Chat" feature streams
+        // tokens as they arrive, and cascade's "maybe silently redo this on a
+        // different model" shape doesn't fit token-by-token display. A
+        // cascade failure (Operator unreachable, bad response shape, …) falls
+        // straight through to the normal direct call below — this is a
+        // best-effort accelerator, never a new way to fail a request.
+        let chat_stream = req.feature.as_deref() == Some("Chat");
+        if is_local && !chat_stream {
+            let cascade_cfg = crate::domain::ai::cascade::CascadeConfig::from_env();
+            if cascade_cfg.enabled {
+                if let Some(messages_arr) = payload.get("messages").and_then(Value::as_array) {
+                    let operator_model = crate::gpu_offload::operator_model();
+                    let operator_url = crate::gpu_offload::operator_url();
+                    let has_tools = req.tools.as_ref().is_some_and(|t| !t.is_empty());
+                    if let Ok((text, _report)) = crate::domain::ai::cascade::run_cascade(
+                        &self.client,
+                        &cascade_cfg,
+                        &operator_url,
+                        &operator_model,
+                        &local_base_for_auth,
+                        &req.model,
+                        messages_arr,
+                        has_tools,
+                    )
+                    .await
+                    {
+                        return Ok(text.trim().to_string());
+                    }
+                }
+            }
+        }
+
         let mut request = self.client.post(endpoint.clone());
         if effective_provider_lc == "anthropic" {
             request = request
