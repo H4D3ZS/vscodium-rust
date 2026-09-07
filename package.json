@@ -36,7 +36,7 @@
     "@tauri-apps/cli": "~2.11.2",
     "@types/node": "^25.9.3",
     "autoprefixer": "^10.5.5",
-    "cross-env": "^7.0.3",
+    "cross-env": "^10.1.0",
     "postcss": "^8.5.15",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.9.3",
