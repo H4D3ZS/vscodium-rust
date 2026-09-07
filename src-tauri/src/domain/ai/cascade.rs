@@ -56,12 +56,12 @@ impl Default for CascadeConfig {
 }
 
 impl CascadeConfig {
+    /// Defaults on for forward-compatibility with the day this gets wired into
+    /// a live routing decision — today `run_cascade` has no call site, so this
+    /// flag currently changes nothing. `KORTEX_CASCADE=0` pre-disables it.
     pub fn from_env() -> Self {
         let mut cfg = Self {
-            enabled: matches!(
-                std::env::var("KORTEX_CASCADE").ok().as_deref(),
-                Some("1") | Some("true") | Some("on")
-            ),
+            enabled: super::env_flag::on("KORTEX_CASCADE", true),
             ..Self::default()
         };
         if let Some(v) = env_f64("KORTEX_CASCADE_PAVG") {

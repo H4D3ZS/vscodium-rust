@@ -49,12 +49,12 @@ impl Default for CacheConfig {
 }
 
 impl CacheConfig {
+    /// Its only live call site (`apex_orchestrator::openai_chat`) serves
+    /// local/Lemonade-backed engines, so this ships on by default there;
+    /// `KORTEX_SEMCACHE=0` disables it.
     pub fn from_env() -> Self {
         let mut cfg = Self {
-            enabled: matches!(
-                std::env::var("KORTEX_SEMCACHE").ok().as_deref(),
-                Some("1") | Some("true") | Some("on")
-            ),
+            enabled: super::env_flag::on("KORTEX_SEMCACHE", true),
             ..Self::default()
         };
         if let Ok(v) = std::env::var("KORTEX_SEMCACHE_TTL") {

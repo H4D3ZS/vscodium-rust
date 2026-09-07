@@ -79,6 +79,13 @@ impl Default for VerifyConfig {
 }
 
 impl VerifyConfig {
+    /// Deliberately **opt-in**, unlike the rest of the reliability cluster: a
+    /// `cargo build`/`cargo test` on a large workspace can legitimately run
+    /// minutes, so defaulting this on risks the agent stalling on every
+    /// `verify_implementation` call. `CommandCheckRunner` bounds each check
+    /// with a timeout regardless — turn it on with `KORTEX_VERIFY=1` once
+    /// you've set `KORTEX_VERIFY_TIMEOUT_SECS` to something that fits your
+    /// build (default 120s, generous for an incremental build).
     pub fn from_env() -> Self {
         let mut cfg = Self {
             enabled: matches!(
@@ -194,7 +201,9 @@ pub fn run_verification_loop(
 /// Runs the project's actual build/test/lint commands in `cwd`. A command that
 /// isn't configured (`None`) is reported as a trivially-passing check so it
 /// never blocks. Exit code 0 = pass. Output is tail-bounded so a huge log can't
-/// blow the context when fed back to the fixer.
+/// blow the context when fed back to the fixer. Each command is **bounded by a
+/// timeout** — a hung or runaway build/test process is killed and reported as
+/// a failed (not stalled) check, so the agent loop can never wedge on this.
 pub struct CommandCheckRunner {
     pub cwd: std::path::PathBuf,
     pub build: Option<Vec<String>>,
@@ -202,11 +211,24 @@ pub struct CommandCheckRunner {
     pub lint: Option<Vec<String>>,
     /// Max chars of tail output kept per check.
     pub tail: usize,
+    /// Kill and report failure if a single check runs longer than this.
+    pub timeout: std::time::Duration,
 }
 
 impl CommandCheckRunner {
     pub fn new(cwd: impl Into<std::path::PathBuf>) -> Self {
-        Self { cwd: cwd.into(), build: None, test: None, lint: None, tail: 4000 }
+        let timeout_secs: u64 = std::env::var("KORTEX_VERIFY_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(120);
+        Self {
+            cwd: cwd.into(),
+            build: None,
+            test: None,
+            lint: None,
+            tail: 4000,
+            timeout: std::time::Duration::from_secs(timeout_secs),
+        }
     }
 
     fn cmd_for(&self, kind: CheckKind) -> Option<&Vec<String>> {
@@ -215,6 +237,68 @@ impl CommandCheckRunner {
             CheckKind::Test => self.test.as_ref(),
             CheckKind::Lint => self.lint.as_ref(),
         }
+    }
+
+    /// Spawn `argv`, drain stdout/stderr concurrently (so a chatty process
+    /// can't deadlock on a full pipe buffer while we're not reading), and kill
+    /// it if `timeout` elapses before it exits. Returns `(exit_code, output,
+    /// timed_out)`; `exit_code` is `None` only on a spawn failure.
+    fn run_bounded(&self, argv: &[String]) -> Result<(Option<i32>, String, bool), std::io::Error> {
+        use std::io::Read;
+        use std::process::Stdio;
+
+        let (prog, args) = argv.split_first().expect("non-empty argv checked by caller");
+        let mut child = std::process::Command::new(prog)
+            .args(args)
+            .current_dir(&self.cwd)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+
+        // Drain both streams on background threads so the child never blocks
+        // writing to a full pipe while we poll for exit.
+        let mut stdout = child.stdout.take();
+        let mut stderr = child.stderr.take();
+        let out_handle = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(s) = stdout.as_mut() {
+                let _ = s.read_to_end(&mut buf);
+            }
+            buf
+        });
+        let err_handle = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(s) = stderr.as_mut() {
+                let _ = s.read_to_end(&mut buf);
+            }
+            buf
+        });
+
+        let deadline = std::time::Instant::now() + self.timeout;
+        let mut timed_out = false;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_status)) => break,
+                Ok(None) => {
+                    if std::time::Instant::now() >= deadline {
+                        timed_out = true;
+                        let _ = child.kill();
+                        let _ = child.wait(); // reap
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(_) => break, // can't observe status — stop waiting
+            }
+        }
+
+        let status = child.try_wait().ok().flatten();
+        let mut out_bytes = out_handle.join().unwrap_or_default();
+        let err_bytes = err_handle.join().unwrap_or_default();
+        out_bytes.extend_from_slice(&err_bytes);
+        let text = String::from_utf8_lossy(&out_bytes).into_owned();
+
+        Ok((status.and_then(|s| s.code()), text, timed_out))
     }
 }
 
@@ -228,24 +312,31 @@ impl CheckRunner for CommandCheckRunner {
                 details: String::new(),
             };
         };
-        let Some((prog, args)) = argv.split_first() else {
+        if argv.is_empty() {
             return CheckResult {
                 kind,
                 passed: true,
                 summary: "empty command — skipped".into(),
                 details: String::new(),
             };
-        };
-        let output = std::process::Command::new(prog)
-            .args(args)
-            .current_dir(&self.cwd)
-            .output();
+        }
+        let output = self.run_bounded(argv);
         match output {
-            Ok(out) => {
-                let passed = out.status.success();
-                let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-                text.push_str(&String::from_utf8_lossy(&out.stderr));
+            Ok((code, text, timed_out)) => {
                 let details = tail_chars(&text, self.tail);
+                if timed_out {
+                    return CheckResult {
+                        kind,
+                        passed: false,
+                        summary: format!(
+                            "{} exceeded {}s — killed",
+                            argv.join(" "),
+                            self.timeout.as_secs()
+                        ),
+                        details,
+                    };
+                }
+                let passed = code == Some(0);
                 CheckResult {
                     kind,
                     passed,
@@ -253,7 +344,7 @@ impl CheckRunner for CommandCheckRunner {
                         "{} {} (exit {})",
                         argv.join(" "),
                         if passed { "passed" } else { "FAILED" },
-                        out.status.code().unwrap_or(-1)
+                        code.unwrap_or(-1)
                     ),
                     details,
                 }
@@ -426,5 +517,31 @@ mod tests {
         let res = r.run(CheckKind::Build);
         assert!(res.passed, "no build command → skipped, not failed");
         assert!(res.summary.contains("skipped"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn command_runner_captures_real_pass_and_fail() {
+        let mut r = CommandCheckRunner::new(".");
+        r.build = Some(vec!["cmd".into(), "/C".into(), "exit 0".into()]);
+        let ok = r.run(CheckKind::Build);
+        assert!(ok.passed);
+
+        r.build = Some(vec!["cmd".into(), "/C".into(), "exit 1".into()]);
+        let fail = r.run(CheckKind::Build);
+        assert!(!fail.passed);
+        assert!(fail.summary.contains("FAILED"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn command_runner_kills_on_timeout() {
+        let mut r = CommandCheckRunner::new(".");
+        r.timeout = std::time::Duration::from_millis(300);
+        // ~2s of pings — comfortably longer than the 300ms budget above.
+        r.build = Some(vec!["cmd".into(), "/C".into(), "ping -n 3 127.0.0.1 >NUL".into()]);
+        let res = r.run(CheckKind::Build);
+        assert!(!res.passed, "a hung command must be reported as failed, not block forever");
+        assert!(res.summary.contains("exceeded") || res.summary.contains("killed"));
     }
 }

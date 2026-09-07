@@ -482,9 +482,11 @@ impl Sentient {
         // Reliability chain (KORTEX_GROUNDING / KORTEX_ABSTAIN): verify file/
         // symbol references against the real workspace and, if configured,
         // qualify or withhold a low-confidence, ungrounded answer instead of
-        // asserting it. A pure pass-through when neither is enabled.
+        // asserting it. Defaults ON for a local model (is_local, already
+        // computed above), off for a cloud one — either can be forced with the
+        // env var regardless of which model answered.
         let root = self.ai_tools.get_root_path();
-        let answer = crate::domain::ai::reliability::finalize(&answer, &root, None, false);
+        let answer = crate::domain::ai::reliability::finalize(&answer, &root, None, false, is_local);
 
         Ok(answer)
     }

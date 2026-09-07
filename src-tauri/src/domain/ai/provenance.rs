@@ -170,13 +170,11 @@ pub struct ProvenanceConfig {
     pub enabled: bool,
 }
 impl ProvenanceConfig {
+    /// Fences external tool output regardless of backend — an untrusted web
+    /// page is equally dangerous whether the driving model is local or cloud —
+    /// so this ships on by default. `KORTEX_PROVENANCE=0` disables it.
     pub fn from_env() -> Self {
-        Self {
-            enabled: matches!(
-                std::env::var("KORTEX_PROVENANCE").ok().as_deref(),
-                Some("1") | Some("true") | Some("on")
-            ),
-        }
+        Self { enabled: super::env_flag::on("KORTEX_PROVENANCE", true) }
     }
 }
 

@@ -169,5 +169,27 @@ change until opted in):
   process-global registry (`state_ledger::with_ledger`). The model can record
   its own decisions and re-ground itself against drift on a long task.
 
-Nothing above changes default behavior — every flag ships off. Turning them on
-is a deliberate choice per workspace, same as `KORTEX_HARNESS`.
+## Local by default
+
+Once wired, the natural next question was: off by default forever, or on where
+it actually matters? The answer implemented here — each lever defaults on
+**exactly where it's already scoped to local inference**, and off (or
+provider-agnostic) everywhere else, with an explicit env value always winning
+over the default in either direction (`env_flag::on`, tri-state: `1/true/on`
+forces on, `0/false/off` forces off, unset falls to the default):
+
+| Lever | Default | Why |
+|---|---|---|
+| `kortex_harness` (schema compaction, tool-output crush, steer) | **on** | its only call site is gated on `is_native_api` (Antigravity/Lemonade) already — never touches a cloud request |
+| Semantic cache | **on** | its call site (`apex_orchestrator::openai_chat`) serves local/Lemonade-backed engines |
+| Grounding + abstain | **on for a local answer, off for a cloud one** | threaded from the caller's own `is_local` check — fact-checking a small local model against the workspace is the target failure mode; a frontier cloud model's answer isn't second-guessed by a heuristic unless asked |
+| Authorization + provenance | **on regardless of backend** | tool-safety gates, not model-answer changes — an untrusted web page or a destructive command is equally dangerous whichever model is driving |
+| Verification | **opt-in, deliberately** | a `cargo build`/`test` on a real workspace can run minutes; defaulting it on risks the agent stalling on every `verify_implementation` call. `CommandCheckRunner` now bounds every check with a timeout (`KORTEX_VERIFY_TIMEOUT_SECS`, default 120s) regardless, so once you turn it on it can never hang the loop |
+| Cascade | on (forward-compatible) | not yet wired to a live routing decision, so this changes nothing today |
+
+A worked example of the composition: with a local model and nothing set,
+grounding **and** abstain both default on — so a single fabricated file
+reference pushes the fused risk (`hallucination_risk`) past the abstain
+threshold, and the answer isn't just annotated, it's fully withheld in favor of
+an honest "not confident enough". Two independently-scoped defaults compounding
+correctly is the intended shape of this cluster, not a coincidence.

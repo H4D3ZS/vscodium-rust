@@ -8,6 +8,7 @@ pub mod abstain;
 pub mod agent_harness;
 pub mod authorization;
 pub mod cascade;
+pub mod env_flag;
 pub mod context_budget;
 pub mod grounding;
 pub mod provenance;

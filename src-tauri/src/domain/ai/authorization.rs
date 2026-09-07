@@ -65,12 +65,14 @@ impl Default for AuthzConfig {
 }
 
 impl AuthzConfig {
+    /// A provider-agnostic tool-safety gate — it changes what tool calls are
+    /// allowed to run, not what a model says — so it ships on by default at
+    /// its dispatcher call site regardless of backend. Deny-level blocking
+    /// stays opt-in (`deny_at` defaults `None`); the default is Confirm-and-log
+    /// on Execute+, never a hard block. `KORTEX_AUTHZ=0` disables entirely.
     pub fn from_env() -> Self {
         Self {
-            enabled: matches!(
-                std::env::var("KORTEX_AUTHZ").ok().as_deref(),
-                Some("1") | Some("true") | Some("on")
-            ),
+            enabled: super::env_flag::on("KORTEX_AUTHZ", true),
             confirm_at: match std::env::var("KORTEX_AUTHZ_CONFIRM_AT").ok().as_deref() {
                 Some("read") => Impact::Read,
                 Some("write") => Impact::Write,

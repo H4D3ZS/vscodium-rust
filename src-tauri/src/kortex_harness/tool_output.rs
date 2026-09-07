@@ -62,12 +62,11 @@ impl Default for ToolOutputConfig {
 }
 
 impl ToolOutputConfig {
+    /// On whenever the harness is on (which itself defaults on at its
+    /// local-only call site — see `HarnessConfig::from_env`), unless this
+    /// sub-lever is explicitly disabled with `KORTEX_HARNESS_TOOL_OUTPUT=0`.
     pub fn from_env() -> Self {
-        // On when the harness is on, unless explicitly disabled.
-        let harness_on = matches!(
-            std::env::var("KORTEX_HARNESS").ok().as_deref(),
-            Some("1") | Some("true") | Some("on")
-        );
+        let harness_on = crate::domain::ai::env_flag::on("KORTEX_HARNESS", true);
         let sub_off = matches!(
             std::env::var("KORTEX_HARNESS_TOOL_OUTPUT").ok().as_deref(),
             Some("0") | Some("false") | Some("off")

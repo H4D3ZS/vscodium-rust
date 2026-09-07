@@ -67,11 +67,11 @@ impl Default for HarnessConfig {
 }
 
 impl HarnessConfig {
+    /// The one call site (`autonomous.rs`) is already gated on `is_native_api`
+    /// (Antigravity/Lemonade — local only), so this ships **on by default**
+    /// there; `KORTEX_HARNESS=0` still turns it off per-workspace.
     pub fn from_env() -> Self {
-        let on = matches!(
-            std::env::var("KORTEX_HARNESS").ok().as_deref(),
-            Some("1") | Some("true") | Some("on")
-        );
+        let on = crate::domain::ai::env_flag::on("KORTEX_HARNESS", true);
         Self {
             enabled: on,
             constrain_grammar: matches!(
@@ -408,9 +408,20 @@ mod tests {
 
     #[test]
     fn small_tool_arrays_untouched() {
+        // Isolate the schema-compaction axis: tool_output/steer now default on
+        // independently (see `ToolOutputConfig`/`SteerConfig::from_env`), so
+        // pin them off here to test what this case actually means — a small
+        // tool array isn't compacted.
+        let _g = stash::test_lock();
+        std::env::set_var("KORTEX_HARNESS_TOOL_OUTPUT", "0");
+        std::env::set_var("KORTEX_HARNESS_STEER", "0");
         let mut b = req_with(3);
         let cfg = HarnessConfig { enabled: true, ..Default::default() };
         let r = compress_openai_request(&mut b, &cfg);
+        std::env::remove_var("KORTEX_HARNESS_TOOL_OUTPUT");
+        std::env::remove_var("KORTEX_HARNESS_STEER");
+        assert_eq!(r.tools_compacted, 0);
+        assert_eq!(r.tools_inline_out, 0);
         assert!(!r.applied);
     }
 }

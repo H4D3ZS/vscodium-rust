@@ -62,11 +62,9 @@ impl Default for SteerConfig {
 }
 
 impl SteerConfig {
+    /// Same on-with-the-harness default as `tool_output::ToolOutputConfig`.
     pub fn from_env() -> Self {
-        let harness_on = matches!(
-            std::env::var("KORTEX_HARNESS").ok().as_deref(),
-            Some("1") | Some("true") | Some("on")
-        );
+        let harness_on = crate::domain::ai::env_flag::on("KORTEX_HARNESS", true);
         let sub_off = matches!(
             std::env::var("KORTEX_HARNESS_STEER").ok().as_deref(),
             Some("0") | Some("false") | Some("off")
