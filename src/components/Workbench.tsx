@@ -100,6 +100,25 @@ const Workbench: React.FC = () => {
                 const s = useStore.getState() as any;
                 s.toggleMarkdownPreview?.();
             }
+            // Ctrl+Shift+B = run the default build task (VS Code parity)
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'B' || e.key === 'b')) {
+                e.preventDefault();
+                Promise.all([
+                    import('../application/tasks/buildTask'),
+                    import('./ToastManager'),
+                ]).then(async ([{ runBuildTask }, { showToast }]) => {
+                    try {
+                        const label = await runBuildTask();
+                        if (label === null) {
+                            showToast('No build task in .vscode/tasks.json — add one with "group": { "kind": "build", "isDefault": true }.', 'info', 6000);
+                        } else {
+                            showToast(`Running build task: ${label}`, 'info');
+                        }
+                    } catch (err: any) {
+                        showToast(`Build task failed: ${err?.message ?? err}`, 'error');
+                    }
+                });
+            }
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);

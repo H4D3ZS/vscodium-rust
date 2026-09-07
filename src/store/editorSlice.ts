@@ -203,6 +203,9 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
                     import('../infrastructure/workspace/workspaceProject').then(m =>
                         m.syncWorkspaceCompat(cleaned),
                     );
+                    import('../application/editor/snippets').then(m =>
+                        m.refreshSnippets(cleaned, true),
+                    ).catch(() => { /* optional */ });
                 })
                 .catch((err) => {
                     console.warn('[store] set_active_root rejected:', err);

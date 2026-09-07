@@ -491,6 +491,51 @@ function registerCoreCommands() {
                 }
             },
         },
+        {
+            id: 'workbench.action.tasks.build',
+            label: 'Tasks: Run Build Task (Ctrl+Shift+B)',
+            run: () => {
+                Promise.all([
+                    import('./application/tasks/buildTask'),
+                    import('./components/ToastManager'),
+                ]).then(async ([{ runBuildTask }, { showToast }]) => {
+                    try {
+                        const label = await runBuildTask();
+                        showToast(
+                            label === null
+                                ? 'No build task in .vscode/tasks.json.'
+                                : `Running build task: ${label}`,
+                            label === null ? 'info' : 'info',
+                        );
+                    } catch (e: any) {
+                        showToast(`Build task failed: ${e?.message ?? e}`, 'error');
+                    }
+                });
+            },
+        },
+        {
+            id: 'workbench.action.tasks.runTask',
+            label: 'Tasks: Run Task...',
+            run: () => {
+                import('./application/tasks/buildTask').then(async ({ loadWorkspaceTasks, runTaskWithDeps }) => {
+                    const tasks = await loadWorkspaceTasks();
+                    if (!tasks.length) {
+                        const { showToast } = await import('./components/ToastManager');
+                        showToast('No tasks in .vscode/tasks.json.', 'info');
+                        return;
+                    }
+                    const pick = window.prompt(
+                        `Run task:\n${tasks.map((t, i) => `${i + 1}. ${t.label}`).join('\n')}\n\nNumber or label:`,
+                        '1',
+                    );
+                    if (!pick) return;
+                    const t = /^\d+$/.test(pick.trim())
+                        ? tasks[parseInt(pick.trim(), 10) - 1]
+                        : tasks.find((x) => x.label === pick.trim());
+                    if (t) await runTaskWithDeps(t, tasks);
+                });
+            },
+        },
     ];
 
     // Expose the command registry so the React CommandPalette component can access it
