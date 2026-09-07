@@ -45,7 +45,7 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
-    "@heroui/react": "^2.8.10",
+    "@heroui/react": "^3.2.4",
     "@mermaid-js/layout-elk": "^0.2.3",
     "@monaco-editor/react": "^4.7.0",
     "@tabler/icons-react": "^3.44.0",
