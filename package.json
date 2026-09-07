@@ -67,7 +67,7 @@
     "diff": "^8.0.4",
     "dompurify": "^3.4.15",
     "framer-motion": "^12.40.0",
-    "lucide-react": "^1.18.0",
+    "lucide-react": "^1.41.0",
     "marked": "^18.0.5",
     "mermaid": "^11.17.2",
     "monaco-editor": "^0.55.1",
