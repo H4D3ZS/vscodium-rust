@@ -113,6 +113,40 @@ K (quality) vs `q4_0`/`iq4_nl` for V, and SnapKV/H2O-style eviction for
 history beyond the budget. Measured via the same `reduce_trace.py` plumbing
 extended with a decode-bytes column.
 
+## The third axis — fewer *output* tokens (decode-side)
+
+Speculation and the fused kernels attack *how fast* a token decodes. There's a
+second, independent lever the earlier sections ignored: **how many tokens the
+model emits at all**. Decode is bandwidth-bound and per-token, so cutting the
+response length is a linear cut in decode cost — a 30%-shorter answer is 30%
+less decode work, with no kernel change and no accuracy loss on the *result*
+(only on the padding). This is the lever Headroom productised as "verbosity
+steering + effort routing" (~31.7% output reduction); kortex now does the
+deterministic, local, no-extra-model version in `kortex_harness/response_steer`:
+
+- **Terse response contract** injected into the system prompt (no preamble, no
+  restating the ask, no pre/post-action narration, code first). A small local
+  model left alone pads heavily; this is where most of the saved tokens come from.
+- **Effort routing** — a lexical classifier tags the last user turn `terse /
+  normal / deep` and sets a *ceiling* on `max_tokens` (1024 / 2048 / 6144). It
+  only lowers an absent or runaway limit; it never shrinks a caller's smaller
+  budget and barely caps a "deep" turn, so a real design/explain answer is never
+  truncated.
+
+And the mirror image on the *input* side — big **tool results** re-entering the
+prompt — is handled by `kortex_harness/tool_output` (kortex's take on Headroom's
+SmartCrusher / CodeCompressor / CCR): a JSON result is shape-crushed (keys kept,
+long strings truncated, arrays capped), a log is reduced to head+tail, and the
+original is stashed so the model can `recall({"id": …})` the full text on demand
+— the same "compressed until needed" contract the tool schemas use via `expand`.
+Both are pure structure-walking behind the `KORTEX_HARNESS` opt-in — no learned
+compressor, no ONNX model, no telemetry (the axes on which we go *beyond*
+Headroom, which needs all three).
+
+Live readout: `HarnessReport` now carries `tool_output` (prompt tokens saved on
+results) and `steer` (effort class + the `max_tokens` ceiling applied), so the
+decode-token win is measured per request, not assumed.
+
 ## The ceiling, stated honestly
 
 - **100–200 tok/s**: reachable with graphs + fused MoE + `ngram`/`mtp`
