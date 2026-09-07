@@ -14,7 +14,9 @@ nothing for it. Making the search 2–5× faster means more requests land
 inside the budget → smaller prompts → less prefill → lower cost.
 
 libaim does the search with `turbovec` (SIMD-quantized ANN) plus an f32
-re-rank pass (`ivf.rs::dot`, `LiveCatalog::page_fault`). The re-rank /
+re-rank pass (`embed.rs::dot`, `LiveCatalog::page_fault`). As of the
+SIMD-cosine change that kernel is 8-lane autovectorised in Rust and the
+delta scan fans out over rayon above 512 live chunks. The re-rank /
 brute-force top-k over f32 vectors is the cleanest thing to hand to Mojo:
 a tight, embarrassingly-parallel dot-product + top-k with a stable C ABI.
 
@@ -34,7 +36,7 @@ bigger MAX/inference bet; ROCmFPX owns local inference today) because:
 | `knn.mojo` | the kernel: `topk_cosine(...)` + a `main()` that runs the bench binary format for standalone timing |
 | `format.md` | the little-endian binary interchange format the bench + a future FFI shim use |
 | `bench.py` | generates random unit vectors, runs a NumPy reference (correctness = recall@k, plus timing), invokes the compiled Mojo binary, prints the comparison |
-| `reference.rs` | the scalar Rust kernel the Mojo one must match and beat (mirrors `libaim/src/ivf.rs::dot` + a top-k heap) |
+| `reference.rs` | the **SIMD** Rust kernel the Mojo one must beat (mirrors `libaim/src/embed.rs::dot`, 8-lane, + a top-k heap) |
 
 ## Run it
 
@@ -49,7 +51,7 @@ cd modular && pixi install          # pinned Mojo compiler + deps
 # 2. Build the kernel binary against the fork's toolchain.
 pixi run mojo build ../tools/mojo-knn/knn.mojo -o ../tools/mojo-knn/knn
 
-# 3. Benchmark against the NumPy reference + the scalar Rust baseline.
+# 3. Benchmark against the NumPy reference + the SIMD Rust baseline.
 cd ../tools/mojo-knn
 rustc -O reference.rs -o reference
 python bench.py --n 50000 --dim 1024 --k 8 --queries 200
@@ -57,9 +59,12 @@ python bench.py --n 50000 --dim 1024 --k 8 --queries 200
 ```
 
 Target: **recall@k == 1.0** vs the exact reference (it's exact brute force,
-not ANN) and **≥ 2× the throughput** of `reference.rs` compiled `--release`
-on the same box. If it doesn't clear 2×, the integration cost isn't worth
-it and we keep the Rust kernel.
+not ANN) and **≥ 2× the throughput** of `reference.rs` compiled `-O` on the
+same box — and `reference.rs` is now the *8-lane SIMD* kernel, not the old
+scalar loop, so this is a harder bar. If Mojo can't clear 2× over SIMD
+Rust, the FFI + toolchain + fork-maintenance cost isn't worth it and the
+Rust kernel stays. (The SIMD change alone already recovered most of the
+gap — see `kortex/libaim/src/embed.rs::dot`.)
 
 ## Integration path (once the bench clears the bar)
 

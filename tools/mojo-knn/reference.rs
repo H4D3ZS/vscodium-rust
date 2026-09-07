@@ -1,11 +1,16 @@
-//! Single-thread scalar Rust baseline the Mojo kernel must beat. Mirrors
-//! `kortex/libaim/src/ivf.rs::dot` + a small insertion top-k — the exact code
-//! path Mojo would replace. Not part of any crate; build ad hoc:
+//! Single-thread Rust baseline the Mojo kernel must beat. Mirrors
+//! `kortex/libaim/src/embed.rs::dot` (8-lane, autovectorised) + a small
+//! insertion top-k — the exact code path Mojo would replace. Not part of any
+//! crate; build ad hoc:
 //!
 //!   rustc -O reference.rs -o reference && ./reference bench.bin
 //!
 //! Reads/writes the same `bench.bin` format (see format.md) so `bench.py`
 //! could point at this instead of `./knn` for an apples-to-apples number.
+//!
+//! NOTE: the libaim kernel is no longer a naive `.sum()` — it uses eight
+//! independent lane accumulators so the compiler emits real SIMD. The Mojo
+//! bar is ">= 2x over THIS", not over the old scalar loop.
 
 use std::fs;
 use std::time::Instant;
@@ -15,8 +20,23 @@ fn u32_le(b: &[u8], o: usize) -> u32 {
 }
 
 fn dot(a: &[f32], q: &[f32]) -> f32 {
-    // Same shape as libaim::ivf::dot — the autovectoriser handles the SIMD.
-    a.iter().zip(q).map(|(x, y)| x * y).sum()
+    // Mirror of libaim::embed::dot — 8 lane accumulators, associative by
+    // construction, so LLVM vectorises the loop.
+    let n = a.len().min(q.len());
+    let (a, q) = (&a[..n], &q[..n]);
+    let mut acc = [0f32; 8];
+    let mut ca = a.chunks_exact(8);
+    let mut cq = q.chunks_exact(8);
+    for (x, y) in ca.by_ref().zip(cq.by_ref()) {
+        for l in 0..8 {
+            acc[l] += x[l] * y[l];
+        }
+    }
+    let mut s = ((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7]));
+    for (x, y) in ca.remainder().iter().zip(cq.remainder()) {
+        s += x * y;
+    }
+    s
 }
 
 fn topk(corpus: &[f32], n: usize, dim: usize, q: &[f32], k: usize, ids: &mut [i64], sc: &mut [f32]) {
