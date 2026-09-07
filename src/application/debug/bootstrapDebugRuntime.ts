@@ -103,29 +103,37 @@ export async function bootstrapDebugRuntime(): Promise<void> {
 }
 
 export async function pushBreakpointsToAdapter(): Promise<void> {
-    const bps = useStore.getState().debugBreakpoints.filter((b) => b.enabled);
-    if (bps.length === 0) return;
+    const all = useStore.getState().debugBreakpoints.filter((b) => b.enabled);
 
-    const breakpoints = bps.map((b) => ({
-        line: b.line,
-        condition: b.condition,
-    }));
+    // DAP setBreakpoints is per-source: one request per file, carrying that
+    // file's full breakpoint set. Send an empty set for files that had
+    // breakpoints removed so the adapter clears them.
+    const seen: string[] = (pushBreakpointsToAdapter as any)._files || [];
+    const byFile = new Map<string, typeof all>();
+    for (const b of all) {
+        const arr = byFile.get(b.path) || [];
+        arr.push(b);
+        byFile.set(b.path, arr);
+    }
+    const files = new Set<string>([...byFile.keys(), ...seen]);
+    (pushBreakpointsToAdapter as any)._files = [...byFile.keys()];
 
-    const path = bps[0].path;
-    const uri = path.replace(/\\/g, '/').startsWith('/')
-        ? `file://${path.replace(/\\/g, '/')}`
-        : `file:///${path.replace(/\\/g, '/')}`;
-
-    await sendDapRequest('setBreakpoints', {
-        source: { path, name: path.split(/[\\/]/).pop() },
-        breakpoints,
-        sourceModified: false,
-    });
-    // Also send with source reference for adapters that need uri
-    await sendDapRequest('setBreakpoints', {
-        source: { path: uri },
-        breakpoints,
-    }).catch(() => {});
+    for (const path of files) {
+        const bps = byFile.get(path) || [];
+        const breakpoints = bps
+            .sort((a, b) => a.line - b.line)
+            .map((b) => ({
+                line: b.line,
+                ...(b.condition ? { condition: b.condition } : {}),
+                ...(b.hitCondition ? { hitCondition: b.hitCondition } : {}),
+                ...(b.logMessage ? { logMessage: b.logMessage } : {}),
+            }));
+        await sendDapRequest('setBreakpoints', {
+            source: { path, name: path.split(/[\\/]/).pop() },
+            breakpoints,
+            sourceModified: false,
+        }).catch(() => { /* adapter not ready / file not in session */ });
+    }
 }
 
 export async function debugContinue(): Promise<void> {

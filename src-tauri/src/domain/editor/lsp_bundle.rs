@@ -901,6 +901,91 @@ async fn download_zip_exe(
     Err(format!("{exe_name} not found in archive from {url}"))
 }
 
+/// npm packages that provide this server, or `None` if it isn't npm-installable.
+/// First entry is the one that carries the CLI in `.bin/`.
+fn npm_packages(id: BundledLspId) -> Option<&'static [&'static str]> {
+    match id {
+        BundledLspId::TypeScript => Some(&["typescript-language-server", "typescript"]),
+        BundledLspId::Python => Some(&["pyright"]),
+        BundledLspId::Bash => Some(&["bash-language-server"]),
+        // vscode-langservers-extracted ships html/css/json/eslint servers.
+        BundledLspId::WebMarkup => Some(&["vscode-langservers-extracted"]),
+        BundledLspId::Php => Some(&["intelephense"]),
+        _ => None,
+    }
+}
+
+/// `node_modules/.bin` leaf for the npm-installed server.
+fn npm_bin_leaf(id: BundledLspId) -> &'static str {
+    let base = match id {
+        BundledLspId::TypeScript => "typescript-language-server",
+        BundledLspId::Python => "pyright-langserver",
+        BundledLspId::Bash => "bash-language-server",
+        BundledLspId::WebMarkup => "vscode-html-language-server",
+        BundledLspId::Php => "intelephense",
+        _ => id.exe_leaf(),
+    };
+    base
+}
+
+/// Install (or reuse) an npm-based language server into the IDE's cache dir and
+/// return its runnable binary path. Used for the servers that aren't a single
+/// downloadable executable (TS, pyright, bash, html/css/json, intelephense).
+pub async fn ensure_npm_lsp(id: BundledLspId, config_dir: &Path) -> Result<PathBuf, String> {
+    let pkgs = npm_packages(id).ok_or_else(|| format!("{} is not npm-installable", id.label()))?;
+    let prefix = cache_dir(config_dir).join(id.bundle_dir());
+    let leaf = npm_bin_leaf(id);
+    let bin_dir = prefix.join("node_modules").join(".bin");
+    let candidates = if cfg!(windows) {
+        vec![bin_dir.join(format!("{leaf}.cmd")), bin_dir.join(leaf)]
+    } else {
+        vec![bin_dir.join(leaf)]
+    };
+    if let Some(hit) = candidates.iter().find(|p| p.is_file()) {
+        return Ok(hit.clone());
+    }
+
+    let npm = which::which("npm").map_err(|_| {
+        format!(
+            "{} needs npm to install. Install Node.js (https://nodejs.org) and reopen the workspace, \
+             or put the server on PATH yourself.",
+            id.label()
+        )
+    })?;
+    fs::create_dir_all(&prefix).map_err(|e| e.to_string())?;
+
+    let prefix_owned = prefix.clone();
+    let pkg_list: Vec<String> = pkgs.iter().map(|s| s.to_string()).collect();
+    let out = tokio::task::spawn_blocking(move || {
+        use crate::process_ext::CommandExtHidden;
+        std::process::Command::new(npm)
+            .arg("install")
+            .arg("--no-save")
+            .arg("--no-audit")
+            .arg("--no-fund")
+            .arg("--prefix")
+            .arg(&prefix_owned)
+            .args(&pkg_list)
+            .hidden()
+            .output()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("npm install {}: {e}", id.label()))?;
+
+    if !out.status.success() {
+        return Err(format!(
+            "npm install {} failed: {}",
+            id.label(),
+            String::from_utf8_lossy(&out.stderr).chars().take(400).collect::<String>()
+        ));
+    }
+    candidates
+        .into_iter()
+        .find(|p| p.is_file())
+        .ok_or_else(|| format!("{}: npm install ran but {leaf} not found under {}", id.label(), bin_dir.display()))
+}
+
 pub fn bundled_or_error(id: BundledLspId, config_dir: &Path) -> Result<(), String> {
     if resolve_bundled_exe(id, config_dir).is_some() || resolve_launch(id, config_dir, None).is_some() {
         Ok(())
@@ -925,22 +1010,29 @@ pub async fn ensure_workspace_lsp(root: &Path, config_dir: &Path) -> Result<Reso
         BundledLspId::Go => {
             let _ = ensure_gopls(config_dir).await?;
         }
+        // npm-installable — auto-provision when not bundled / not on PATH,
+        // then launch straight from the cached `.bin`.
         BundledLspId::TypeScript
         | BundledLspId::Python
-        | BundledLspId::Kotlin
-        | BundledLspId::Java
-        | BundledLspId::Dart
-        | BundledLspId::Swift
-        | BundledLspId::Cpp
-        | BundledLspId::CSharp
-        | BundledLspId::Ruby
-        | BundledLspId::Php
-        | BundledLspId::Lua
-        | BundledLspId::Zig
         | BundledLspId::Bash
         | BundledLspId::WebMarkup
-        | BundledLspId::Elixir
-        | BundledLspId::R => {
+        | BundledLspId::Php
+            if npm_packages(id).is_some() =>
+        {
+            if let Some(rl) = resolve_launch(id, config_dir, Some(root)) {
+                return Ok(rl);
+            }
+            let exe = ensure_npm_lsp(id, config_dir).await?;
+            let (command, args) = launch_for_path(id, &exe)
+                .ok_or_else(|| format!("Cannot build a launch command for {}", id.label()))?;
+            return Ok(ResolvedLaunch {
+                id: id.as_str().to_string(),
+                command,
+                args,
+                source: "npm".into(),
+            });
+        }
+        _ => {
             bundled_or_error(id, config_dir)?;
         }
     }

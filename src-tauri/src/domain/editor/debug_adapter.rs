@@ -21,15 +21,21 @@ impl DebugManager {
         Self { active_session: None }
     }
 
-    pub fn start_session(&mut self, adapter_path: &str, app_handle: AppHandle) -> Result<mpsc::Receiver<()>, String> {
+    pub fn start_session(
+        &mut self,
+        adapter_path: &str,
+        adapter_args: &[String],
+        app_handle: AppHandle,
+    ) -> Result<mpsc::Receiver<()>, String> {
         use crate::process_ext::CommandExtHidden;
         let mut child = Command::new(adapter_path)
+            .args(adapter_args)
             .hidden()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("failed to spawn debug adapter '{adapter_path}': {e}"))?;
 
         let stdin = child.stdin.take().expect("Failed to open stdin");
         let stdout = child.stdout.take().expect("Failed to open stdout");

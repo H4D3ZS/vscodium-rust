@@ -7,7 +7,13 @@ export interface DebugBreakpoint {
     path: string;
     line: number;
     enabled: boolean;
+    /** DAP `condition` — break only when this expression is true. */
     condition?: string;
+    /** DAP `hitCondition` — break on the Nth hit (`>5`, `%3`, `=10`). */
+    hitCondition?: string;
+    /** DAP `logMessage` — a logpoint: print this instead of stopping.
+     *  `{expr}` segments are interpolated by the adapter. */
+    logMessage?: string;
 }
 
 export interface DebugStackFrame {
@@ -46,6 +52,9 @@ export interface DebugSlice {
     addDebugOutput: (line: string) => void;
     clearDebugOutput: () => void;
     toggleBreakpoint: (path: string, line: number) => void;
+    /** Set/clear condition, hitCondition, logMessage on an existing breakpoint
+     *  (creates a disabled-free breakpoint at the line if none exists). */
+    editBreakpoint: (path: string, line: number, patch: Partial<Pick<DebugBreakpoint, 'condition' | 'hitCondition' | 'logMessage'>>) => void;
     setDebugThreads: (threads: { id: number; name: string }[]) => void;
     setDebugStackFrames: (frames: DebugStackFrame[]) => void;
     setDebugVariables: (vars: DebugVariable[]) => void;
@@ -96,6 +105,28 @@ export const createDebugSlice: StateCreator<AppState, [], [], DebugSlice> = (set
             localStorage.setItem('vscr.breakpoints', JSON.stringify(next));
         } catch { /* */ }
         set({ debugBreakpoints: next });
+    },
+
+    editBreakpoint: (path, line, patch) => {
+        const bps = get().debugBreakpoints;
+        const existing = bps.find((b) => b.path === path && b.line === line);
+        const clean = (v?: string) => (v && v.trim() ? v.trim() : undefined);
+        const merged = {
+            condition: 'condition' in patch ? clean(patch.condition) : existing?.condition,
+            hitCondition: 'hitCondition' in patch ? clean(patch.hitCondition) : existing?.hitCondition,
+            logMessage: 'logMessage' in patch ? clean(patch.logMessage) : existing?.logMessage,
+        };
+        const next = existing
+            ? bps.map((b) => (b.id === existing.id ? { ...b, ...merged } : b))
+            : [...bps, { id: `bp-${Date.now()}`, path, line, enabled: true, ...merged }];
+        try {
+            localStorage.setItem('vscr.breakpoints', JSON.stringify(next));
+        } catch { /* */ }
+        set({ debugBreakpoints: next });
+        // Live-update the running session, if any.
+        try {
+            void import('../application/debug/bootstrapDebugRuntime').then((m) => m.pushBreakpointsToAdapter?.());
+        } catch { /* */ }
     },
 
     setDebugThreads: (threads) => set({ debugThreads: threads }),
