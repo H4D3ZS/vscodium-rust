@@ -52,7 +52,7 @@
     "@react-aria/i18n": "^3.13.1",
     "@react-aria/ssr": "^3.10.1",
     "@react-aria/utils": "^3.34.1",
-    "@tabler/icons-react": "^3.44.0",
+    "@tabler/icons-react": "^3.46.0",
     "@tauri-apps/api": "~2.10.0",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@types/diff": "^7.0.2",
