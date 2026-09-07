@@ -147,6 +147,30 @@ Zero behavior change for the overwhelming majority without tgrep installed —
 `resolve_tgrep_exe()` returns `None` and the existing rg → walker chain runs
 exactly as before.
 
+### Vendoring it (shipping it with the IDE)
+
+tgrep is MIT-licensed (Microsoft) — permissively shippable, same posture as
+bundled ripgrep. `scripts/fetch-tgrep.ts` downloads the pinned release
+(`v1.0.4`, exact asset names/triples confirmed against the real GitHub
+release) into `src-tauri/bundles/tgrep/` — the same "fetched at build time,
+gitignored, not committed" pattern as `fetch-ripgrep.ts`. `ide_shell.rs`
+mirrors every ripgrep bundling primitive for tgrep: `portable_tgrep_root`,
+`repo_bundles_tgrep`, `ensure_tgrep_installed` (copies the bundle to
+`%LOCALAPPDATA%\HADES\tgrep` on first launch, wired into the same startup
+task as PortableGit/ripgrep in `lib.rs`), and the `ide_ensure_tgrep` Tauri
+command. `resolve_tgrep_exe` checks, in order: `HADES_TGREP_PATH` override →
+the installed-to-HADES-home copy → the installer's own bundle → PATH.
+
+Verified against the **real vendored binary**, not just the documented
+interface: fetched `v1.0.4` for real, confirmed its `--json` output is
+byte-identical in shape to what `parse_rg_json_stream` expects (`type`,
+`data.path.text`, `data.line_number`, `data.lines.text`), confirmed exit codes
+0/1 for match/no-match against real searches, and ran an ignored end-to-end
+test (`real_tgrep_binary_end_to_end`) that finds a real symbol in this actual
+codebase through the full `ripgrep_search` → `try_tgrep` → real-process
+pipeline. Run it yourself after fetching: `cargo test --lib -- --ignored
+real_tgrep_binary_end_to_end`.
+
 ## Beyond compute — hallucination grounding
 
 Compute cost is one of AI's structural problems; **hallucination** is another,

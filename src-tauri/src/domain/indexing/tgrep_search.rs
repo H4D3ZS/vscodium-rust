@@ -261,4 +261,29 @@ mod tests {
         let hits = parse_rg_json_stream("not json at all\n{\"type\":\"begin\"}\n", 50);
         assert!(hits.is_empty(), "non-match lines produce zero hits, as expected");
     }
+
+    /// End-to-end against a REAL vendored tgrep binary — confirms the JSON
+    /// schema assumption (tgrep really does emit rg-compatible `--json`) and
+    /// exit-code semantics (0/1) against actual tgrep output, not a mock.
+    /// `#[ignore]`d because it needs `scripts/fetch-tgrep.ts` to have run
+    /// first (the binary isn't committed) — CI and fresh clones skip it;
+    /// `cargo test -- --ignored tgrep_real` runs it once vendored.
+    #[test]
+    #[ignore]
+    fn real_tgrep_binary_end_to_end() {
+        let Some(tgrep) = crate::ide_shell::resolve_tgrep_exe() else {
+            panic!("run scripts/fetch-tgrep.ts first, or set HADES_TGREP_PATH");
+        };
+        // A known-real symbol in this workspace: AbstainConfig in abstain.rs.
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/domain/ai");
+        let query = q("pub struct AbstainConfig", &root);
+        let hits = run_tgrep(&tgrep, &query, 50, true).expect("real tgrep search should find a real hit");
+        assert!(hits.iter().any(|h| h.path.ends_with("abstain.rs") && h.line > 0));
+
+        // A pattern that genuinely doesn't exist must come back as a clean
+        // empty result (exit 1), not a fallback-triggering None.
+        let miss = q("ThisPatternDoesNotExistAnywhere12345", &root);
+        let empty = run_tgrep(&tgrep, &miss, 50, true).expect("a real no-match is Some(empty), not None");
+        assert!(empty.is_empty());
+    }
 }

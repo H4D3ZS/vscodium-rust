@@ -444,6 +444,15 @@ pub fn run() {
                     Ok(Err(e)) => eprintln!("[ide_shell] ripgrep install: {e}"),
                     Err(e) => eprintln!("[ide_shell] ensure_ripgrep task failed: {e}"),
                 }
+                // tgrep is optional (bundle only exists after scripts/fetch-tgrep.ts
+                // runs) — a no-op false is the normal case, same as the git/rg calls
+                // above when their bundles are absent.
+                match tauri::async_runtime::spawn_blocking(ide_shell::ensure_tgrep_installed).await {
+                    Ok(Ok(true)) => println!("[ide_shell] tgrep installed to HADES home."),
+                    Ok(Ok(false)) => {}
+                    Ok(Err(e)) => eprintln!("[ide_shell] tgrep install: {e}"),
+                    Err(e) => eprintln!("[ide_shell] ensure_tgrep task failed: {e}"),
+                }
             });
 
             // ChatGPT bridge: lazy-init on first use — a hidden webview costs ~40–80MB RSS.
@@ -658,6 +667,7 @@ pub fn run() {
             ide_shell::ide_git_bash_path,
             ide_shell::ide_ensure_portable_git,
             ide_shell::ide_ensure_ripgrep,
+            ide_shell::ide_ensure_tgrep,
             hermes_skills::hermes_integration_status,
             hermes_skills::hermes_skills_list,
             hermes_skills::hermes_skills_get,
