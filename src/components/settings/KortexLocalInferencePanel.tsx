@@ -149,6 +149,12 @@ export function KortexLocalInferencePanel() {
     const [specType, setSpecType] = useState<string>(() => {
         try { return localStorage.getItem('kortex.spec.type') || ''; } catch { return ''; }
     });
+    // Draft model GGUF for the draft-* speculators that load a separate model
+    // (draft-simple / draft-eagle3 / draft-dflash / draft-dspark). draft-mtp is
+    // auto-discovered and needs no path. Read by specDecodeExtras().
+    const [draftModel, setDraftModel] = useState<string>(() => {
+        try { return localStorage.getItem('kortex.spec.draftModel') || ''; } catch { return ''; }
+    });
     // Operator = the small fast model on Lemonade that runs sub-agents + APEX
     // while this (the reasoner) keeps the main loop. Env-backed on the Rust side.
     const [opModel, setOpModel] = useState<string>(() => {
@@ -575,11 +581,37 @@ export function KortexLocalInferencePanel() {
                         <option value="ngram-cache">Prompt lookup + persistent cache</option>
                         <option value="ngram-simple,draft-mtp">Lookup + MTP head</option>
                         <option value="draft-mtp">MTP head only (auto-detected)</option>
+                        <option value="draft-dflash">DFlash v2 draft model (block diffusion)</option>
+                        <option value="draft-eagle3">EAGLE-3 draft head</option>
+                        <option value="draft-simple">Draft model (separate small GGUF)</option>
                     </select>
                     <div style={{ ...label, opacity: 0.55, marginTop: 0 }}>
                         The full model verifies every drafted token — same output, more tokens per pass.
                         Applies on next Start.
                     </div>
+                    {/(^|,)draft-(simple|eagle3|dflash|dspark)/.test(specType) && (
+                        <>
+                            <label style={label}>Draft model (.gguf) — required for this speculator</label>
+                            <div style={row}>
+                                <input style={inputStyle} value={draftModel} disabled={running}
+                                    placeholder="path to the draft / DFlash GGUF"
+                                    onChange={e => {
+                                        setDraftModel(e.target.value);
+                                        try { localStorage.setItem('kortex.spec.draftModel', e.target.value); } catch { /* */ }
+                                    }} />
+                                <button type="button" style={btn} disabled={running} onClick={async () => {
+                                    const pth = await pickFile([{ name: 'GGUF', extensions: ['gguf'] }]);
+                                    if (pth) { setDraftModel(pth); try { localStorage.setItem('kortex.spec.draftModel', pth); } catch { /* */ } }
+                                }}>…</button>
+                            </div>
+                            <div style={{ ...label, opacity: 0.55, marginTop: 0 }}>
+                                DFlash v2 is a block-diffusion draft model (github.com/z-lab/dflash, MIT):
+                                a small model drafts several tokens in parallel, the reasoner verifies —
+                                output unchanged. Needs a GGUF matched to this model's tokenizer;
+                                draft-eagle3 / draft-simple take a small draft GGUF of the same family.
+                            </div>
+                        </>
+                    )}
 
                     <label style={{ ...label, marginTop: 8 }}>Operator — small model on Lemonade (sub-agents, APEX)</label>
                     <div style={row}>

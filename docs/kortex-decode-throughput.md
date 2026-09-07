@@ -120,3 +120,36 @@ extended with a decode-bytes column.
 - **1000 tok/s** for a 35B: not on 16 GB / 322 GB/s — that's ~1 TB/s of
   weight reads. Needs a sub-1B model (the draft path *can* hit it, and the
   interactive-completion path can run there) or HBM-class hardware.
+
+## Draft-model speculators, incl. DFlash v2
+
+The ROCmFPX fork's `--spec-type` menu carries several *draft-model* speculators
+alongside `draft-mtp` and the `ngram-*` guessers. These load a **separate small
+draft model** (a GGUF matched to the target's tokenizer) that proposes several
+tokens per step; the reasoner verifies every one, so **output is unchanged** —
+the win is decode tok/s. Surfaced in the *Kortex ROCmFPX* panel's Speculative
+decoding picker, with a draft-model file field that appears when one is
+selected. The launcher emits `--spec-type <name> --spec-draft-model <path>
+--spec-draft-ngl <n>`.
+
+| picker option | `--spec-type` | draft model |
+|---|---|---|
+| DFlash v2 draft model | `draft-dflash` | a **block-diffusion** draft ([z-lab/dflash](https://github.com/z-lab/dflash), MIT) that drafts a block of tokens in parallel |
+| EAGLE-3 draft head | `draft-eagle3` | a trained lightweight EAGLE-3 head |
+| Draft model (small GGUF) | `draft-simple` | a small same-family model, e.g. a 0.5–1.5B next to a 27–35B |
+
+**DFlash v2** ([github.com/z-lab/dflash](https://github.com/z-lab/dflash)) is a
+lightweight block-diffusion model built for speculative drafting — instead of a
+left-to-right draft, it denoises a whole block of candidate tokens at once, then
+the target model verifies them. Its reference implementation is a Python/PyTorch/
+MLX package (`pip install dflash`); to use it under ROCmFPX you supply a **GGUF**
+draft model whose tokenizer matches your reasoner (the fork's `draft-dflash`
+speculator loads it). Availability of a vocab-matched DFlash GGUF for a given
+target (Qwen3.8 / Escha, etc.) is the gating factor — the engine, launcher, and
+UI are wired; drop in a compatible draft GGUF, select **DFlash v2** in the
+picker, point the field at it, and Start.
+
+Acceptance and speed depend on the draft/target pair and prompt; watch the live
+`spec: NN% kept · M tok/step` readout in the panel to tell whether a given draft
+model is paying off, and A/B it against `draft-mtp` (which needs no separate
+model) before committing to it.
