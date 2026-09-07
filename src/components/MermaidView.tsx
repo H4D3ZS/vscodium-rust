@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { Tabs, Tab, Button, Tooltip } from '@heroui/react';
+import { Tabs, Button, Tooltip } from '@heroui/react';
 import {
     IconHierarchy, IconCode, IconCopy, IconDownload, IconLayoutSidebar,
     IconFileExport, IconAlertTriangle, IconZoomIn, IconZoomOut, IconFocusCentered,
@@ -96,6 +96,25 @@ function svgDims(svg: string): { w: number; h: number } {
 interface View { x: number; y: number; k: number; }
 const MIN_K = 0.15, MAX_K = 4;
 const clampK = (k: number) => Math.min(MAX_K, Math.max(MIN_K, k));
+
+// Toolbar icon button with a tooltip. HeroUI v3's Tooltip and Button dropped
+// the v2 `content`/`color` shorthand props in favor of compound components
+// and a variant-only API (see docs/... HeroUI v2->v3 migration) — this
+// wrapper keeps the header buttons below as terse as they were pre-migration.
+function ToolbarIconButton({ label, disabled, onPress, children }: {
+    label: string; disabled?: boolean; onPress: () => void; children: React.ReactNode;
+}) {
+    return (
+        <Tooltip delay={0}>
+            <Tooltip.Trigger>
+                <Button isIconOnly size="sm" variant="ghost" isDisabled={disabled} onPress={onPress}>
+                    {children}
+                </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{label}</Tooltip.Content>
+        </Tooltip>
+    );
+}
 
 const MermaidView: React.FC<Props> = ({ code, id }) => {
     const diagrams = useMemo<MermaidDiagram[]>(() => parseDiagramTabContent(code), [code]);
@@ -244,30 +263,39 @@ const MermaidView: React.FC<Props> = ({ code, id }) => {
                 <div className="flex items-center justify-center w-6 h-6 rounded-md" style={{ background: 'linear-gradient(135deg,#6366f1,#38bdf8)' }}>
                     <IconHierarchy size={14} className="text-white" />
                 </div>
-                <span className="text-small font-medium ml-1 mr-2 truncate max-w-[38%]">{current.title}</span>
+                <span className="text-sm font-medium ml-1 mr-2 truncate max-w-[38%]">{current.title}</span>
                 <div className="flex-1" />
                 {diagrams.length > 1 && (
-                    <Tooltip content="Toggle list" size="sm">
-                        <Button isIconOnly size="sm" variant="light" onPress={() => setShowDocs(s => !s)}><IconLayoutSidebar size={16} /></Button>
-                    </Tooltip>
+                    <ToolbarIconButton label="Toggle list" onPress={() => setShowDocs(s => !s)}><IconLayoutSidebar size={16} /></ToolbarIconButton>
                 )}
-                <Tooltip content="Zoom out" size="sm"><Button isIconOnly size="sm" variant="light" isDisabled={!svg} onPress={() => zoom(-1)}><IconZoomOut size={16} /></Button></Tooltip>
-                <Tooltip content="Fit to view" size="sm"><Button isIconOnly size="sm" variant="light" isDisabled={!svg} onPress={fit}><IconFocusCentered size={16} /></Button></Tooltip>
-                <Tooltip content="Zoom in" size="sm"><Button isIconOnly size="sm" variant="light" isDisabled={!svg} onPress={() => zoom(1)}><IconZoomIn size={16} /></Button></Tooltip>
-                <Tooltip content={showSource ? 'Show diagram' : 'Show source'} size="sm">
-                    <Button isIconOnly size="sm" variant="light" onPress={() => setShowSource(s => !s)}>{showSource ? <IconHierarchy size={16} /> : <IconCode size={16} />}</Button>
-                </Tooltip>
-                <Tooltip content="Copy SVG" size="sm"><Button isIconOnly size="sm" variant="light" isDisabled={!svg} onPress={copySvg}><IconCopy size={16} /></Button></Tooltip>
-                <Tooltip content="Export .svg" size="sm"><Button isIconOnly size="sm" variant="light" isDisabled={!svg} onPress={exportSvg}><IconDownload size={16} /></Button></Tooltip>
-                <Tooltip content="Export standalone HTML viewer" size="sm"><Button isIconOnly size="sm" variant="light" onPress={exportHtml}><IconFileExport size={16} /></Button></Tooltip>
+                <ToolbarIconButton label="Zoom out" disabled={!svg} onPress={() => zoom(-1)}><IconZoomOut size={16} /></ToolbarIconButton>
+                <ToolbarIconButton label="Fit to view" disabled={!svg} onPress={fit}><IconFocusCentered size={16} /></ToolbarIconButton>
+                <ToolbarIconButton label="Zoom in" disabled={!svg} onPress={() => zoom(1)}><IconZoomIn size={16} /></ToolbarIconButton>
+                <ToolbarIconButton label={showSource ? 'Show diagram' : 'Show source'} onPress={() => setShowSource(s => !s)}>
+                    {showSource ? <IconHierarchy size={16} /> : <IconCode size={16} />}
+                </ToolbarIconButton>
+                <ToolbarIconButton label="Copy SVG" disabled={!svg} onPress={copySvg}><IconCopy size={16} /></ToolbarIconButton>
+                <ToolbarIconButton label="Export .svg" disabled={!svg} onPress={exportSvg}><IconDownload size={16} /></ToolbarIconButton>
+                <ToolbarIconButton label="Export standalone HTML viewer" onPress={exportHtml}><IconFileExport size={16} /></ToolbarIconButton>
             </div>
 
             {/* Tabs */}
             {diagrams.length > 1 && (
                 <div className="px-2 pt-1.5 border-b border-white/10" style={{ background: 'rgba(15,23,42,0.4)' }}>
-                    <Tabs size="sm" variant="underlined" selectedKey={String(active)}
-                        onSelectionChange={(k) => setActive(Number(k))} aria-label="Diagrams">
-                        {diagrams.map((d, i) => <Tab key={String(i)} title={d.title} />)}
+                    {/* Headless picker: no per-tab content lives inside Tabs.Panel — the
+                        active diagram renders in the canvas below, driven by `active`. */}
+                    <Tabs selectedKey={String(active)} onSelectionChange={(k) => setActive(Number(k))}>
+                        <Tabs.ListContainer>
+                            <Tabs.List aria-label="Diagrams">
+                                {diagrams.map((d, i) => (
+                                    <Tabs.Tab key={String(i)} id={String(i)}>
+                                        {d.title}
+                                        <Tabs.Indicator />
+                                    </Tabs.Tab>
+                                ))}
+                            </Tabs.List>
+                        </Tabs.ListContainer>
+                        {diagrams.map((d, i) => <Tabs.Panel key={String(i)} id={String(i)}>{null}</Tabs.Panel>)}
                     </Tabs>
                 </div>
             )}
@@ -275,10 +303,10 @@ const MermaidView: React.FC<Props> = ({ code, id }) => {
             <div className="flex-1 flex min-h-0">
                 {showDocs && diagrams.length > 1 && (
                     <div className="w-56 shrink-0 border-r border-white/10 overflow-auto p-2" style={{ background: 'rgba(15,23,42,0.4)' }}>
-                        <div className="text-tiny uppercase tracking-wide text-default-400 px-1 mb-1">Diagrams</div>
+                        <div className="text-xs uppercase tracking-wide text-muted px-1 mb-1">Diagrams</div>
                         {diagrams.map((d, i) => (
                             <button key={i} onClick={() => setActive(i)}
-                                className={`w-full text-left px-2 py-1.5 rounded-medium text-small mb-0.5 ${i === active ? 'bg-primary/20 text-foreground' : 'text-default-500 hover:bg-white/5'}`}>
+                                className={`w-full text-left px-2 py-1.5 rounded-md text-sm mb-0.5 ${i === active ? 'bg-accent/20 text-foreground' : 'text-muted hover:bg-white/5'}`}>
                                 {d.title}
                             </button>
                         ))}
@@ -286,12 +314,12 @@ const MermaidView: React.FC<Props> = ({ code, id }) => {
                 )}
 
                 {showSource ? (
-                    <pre className="flex-1 m-0 p-4 overflow-auto text-small font-mono whitespace-pre-wrap">{current.code}</pre>
+                    <pre className="flex-1 m-0 p-4 overflow-auto text-sm font-mono whitespace-pre-wrap">{current.code}</pre>
                 ) : error ? (
-                    <div className="flex-1 p-5 overflow-auto text-small text-danger font-mono">
+                    <div className="flex-1 p-5 overflow-auto text-sm text-danger font-mono">
                         <div className="font-semibold mb-1.5 flex items-center gap-1.5"><IconAlertTriangle size={16} className="text-warning" /> Mermaid syntax error</div>
                         <pre className="m-0 whitespace-pre-wrap opacity-85">{error}</pre>
-                        <Button size="sm" variant="bordered" className="mt-2.5" onPress={() => setShowSource(true)}>View source</Button>
+                        <Button size="sm" variant="secondary" className="mt-2.5" onPress={() => setShowSource(true)}>View source</Button>
                     </div>
                 ) : (
                     <div

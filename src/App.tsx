@@ -1,5 +1,4 @@
 import React, { useEffect, Suspense, lazy } from 'react';
-import { HeroUIProvider } from '@heroui/react';
 import { invoke } from './tauri_bridge';
 import TitleBar from './components/TitleBar';
 import Workbench from './components/Workbench';
@@ -210,7 +209,6 @@ const App: React.FC = () => {
     }, []);
 
     return (
-        <HeroUIProvider>
         <div id="vscodium-app-root" style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <Suspense fallback={null}>
                 <CommandPalette />
@@ -243,7 +241,6 @@ const App: React.FC = () => {
                 <TrajectoryPanel />
             </Suspense>
         </div>
-        </HeroUIProvider>
     );
 };
 

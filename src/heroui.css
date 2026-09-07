@@ -1,15 +1,68 @@
 /*
- * HeroUI + Tailwind layer.
+ * HeroUI v3 + Tailwind v4 layer.
  *
- * `@tailwind base` is REQUIRED — the HeroUI plugin injects its theme CSS
- * variables (--heroui-*) into the base layer. Preflight (the global reset) is
- * disabled in tailwind.config.cjs (corePlugins.preflight=false), so `base` here
- * emits only HeroUI's design tokens, NOT a reset that would clobber the existing
- * hand-rolled IDE CSS. This is what lets HeroUI coexist with styles.css et al.
+ * v3 dropped the JS tailwind.config.cjs plugin entirely — HeroUI now ships
+ * pure CSS (see node_modules/@heroui/styles/dist/themes/default/variables.css
+ * for the full token list) and theming is done by overriding CSS variables
+ * below, not by calling a heroui() plugin function.
+ *
+ * Preflight stays OFF, same as the old corePlugins.preflight=false: the IDE
+ * ships ~183 files of hand-rolled CSS (styles.css / panes.css / settings.css
+ * + inline styles) that Tailwind's reset would clobber. v4 has no JS flag for
+ * this — instead you assemble the imports yourself and simply omit
+ * "tailwindcss/preflight.css". `theme.css` still runs (utility class
+ * generation) and `utilities.css` still runs; only the reset layer is left
+ * out. This is what lets HeroUI coexist with the legacy CSS, no big-bang.
  */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "@heroui/styles";
+
+/*
+ * Theme: map HeroUI's v3 CSS variables to the existing VS Code dark palette
+ * (see :root in src/styles.css) so HeroUI components blend in. Same colors
+ * as the old v2 heroui({ themes: { dark: { colors: {...} } } }) config —
+ * this is a token-name migration, not a redesign. HeroUI v3's dark palette
+ * lives behind `.dark`/`[data-theme="dark"]`, but this app has no light mode
+ * and never toggles those, so the values are set directly on :root instead.
+ */
+:root {
+    --background: #1e1e1e;
+    --foreground: #d4d4d4;
+    --focus: #007acc;
+
+    /* v2 content1-4 -> v3 surface (non-overlay: cards, accordions) / overlay
+       (floating: modals, tooltips, popovers). Old config used one flat shade
+       for everything, so surface and overlay both start from content1. */
+    --surface: #252526;
+    --surface-foreground: var(--foreground);
+    --surface-secondary: #2d2d30;
+    --surface-tertiary: #333333;
+    --overlay: #252526;
+    --overlay-foreground: var(--foreground);
+
+    --border: rgba(255, 255, 255, 0.10);
+    --separator: rgba(255, 255, 255, 0.10);
+
+    --default: #3c3c3c;
+    --default-foreground: #d4d4d4;
+
+    --accent: #2563eb;
+    --accent-foreground: #ffffff;
+
+    --danger: #f87171;
+    --danger-foreground: #ffffff;
+
+    --success: #4ec994;
+    --success-foreground: #0b1f17;
+
+    --warning: #f0b429;
+    --warning-foreground: #1f1500;
+
+    --field-background: #3c3c3c;
+    --field-foreground: #d4d4d4;
+}
 
 /* Dark theme for the Mermaid viewer's reactflow Controls + MiniMap (scoped via
    .mmd-flow so it never touches the Visual Lab canvas). */
