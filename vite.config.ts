@@ -53,20 +53,22 @@ export default defineConfig(() => {
       chunkSizeWarningLimit: 1500,
       rollupOptions: {
         output: {
-          manualChunks: {
-            'monaco': ['monaco-editor', '@monaco-editor/react'],
-            'xterm': [
-              '@xterm/xterm',
-              '@xterm/addon-fit',
-              '@xterm/addon-canvas',
-              '@xterm/addon-webgl',
-              '@xterm/addon-search',
-              '@xterm/addon-web-links',
-              '@xterm/addon-unicode11',
-            ],
-            'reactflow': ['reactflow'],
-            'markdown': ['marked', 'react-markdown', 'remark-gfm'],
-            'tauri': ['@tauri-apps/api', '@tauri-apps/plugin-dialog'],
+          // Object-form manualChunks was dropped from Rollup's types in the
+          // rollup major that ships with Vite 8; same groupings, function form.
+          manualChunks(id) {
+            if (id.includes('monaco-editor') || id.includes('@monaco-editor/react')) return 'monaco';
+            if (
+              id.includes('@xterm/xterm') ||
+              id.includes('@xterm/addon-fit') ||
+              id.includes('@xterm/addon-canvas') ||
+              id.includes('@xterm/addon-webgl') ||
+              id.includes('@xterm/addon-search') ||
+              id.includes('@xterm/addon-web-links') ||
+              id.includes('@xterm/addon-unicode11')
+            ) return 'xterm';
+            if (id.includes('reactflow')) return 'reactflow';
+            if (id.includes('marked') || id.includes('react-markdown') || id.includes('remark-gfm')) return 'markdown';
+            if (id.includes('@tauri-apps/api') || id.includes('@tauri-apps/plugin-dialog')) return 'tauri';
           },
         },
         onwarn(warning, warn) {

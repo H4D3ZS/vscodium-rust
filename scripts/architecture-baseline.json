@@ -76,6 +76,7 @@
   "src/components/settings/FccSettingsPanel.tsx",
   "src/components/settings/InferenceBackendPanel.tsx",
   "src/components/settings/KortexLocalInferencePanel.tsx",
+  "src/components/settings/KortexReliabilityPanel.tsx",
   "src/components/settings/LemonadeSettingsPanel.tsx",
   "src/components/settings/LspLanguagesPanel.tsx",
   "src/components/settings/ModuleInstallerPanel.tsx",

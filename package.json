@@ -39,10 +39,10 @@
     "cross-env": "^10.1.0",
     "postcss": "^8.5.15",
     "tailwindcss": "^3.4.19",
-    "typescript": "~5.9.3",
-    "vite": "^7.3.1",
+    "typescript": "~7.0.2",
+    "vite": "^8.2.2",
     "vite-plugin-node-polyfills": "^0.28.0",
-    "vitest": "^3.2.4"
+    "vitest": "^5.0.0"
   },
   "dependencies": {
     "@heroui/react": "^2.8.10",
@@ -55,7 +55,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@types/react-window": "^2.0.0",
-    "@vitejs/plugin-react": "^5.1.4",
+    "@vitejs/plugin-react": "^6.1.1",
     "@vscode/codicons": "^0.0.44",
     "@xterm/addon-canvas": "^0.7.0",
     "@xterm/addon-fit": "^0.11.0",
