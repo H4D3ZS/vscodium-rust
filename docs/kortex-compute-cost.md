@@ -178,25 +178,48 @@ re-ran the ignored end-to-end search test
 codebase, same pass. Reproduce: `pwsh -File scripts/build-tgrep.ps1` then
 `cargo test --lib -- --ignored real_tgrep_binary_end_to_end`.
 
-### The "hand in hand with kortex" optimization — honest scope
+### The "hand in hand with kortex" optimization — done
 
-`tgrep-core` (the library crate) is genuinely importable: trigram index
-build/read/live-update, a query planner, an on-disk/in-memory hybrid index —
-real primitives, no CLI or process dependency. **But** the actual
-line-level regex verification and result formatting (~3,700 lines across
-`tgrep-cli/src/search.rs` + `matching.rs`) lives in the CLI *binary* crate,
-not the library — Cargo binary crates aren't importable, so today's
-subprocess integration (`tgrep_search.rs`) is the correct shape until that
-changes.
+The scoping above held: `matching.rs` (the actual line-level regex
+verification and match traversal) turned out to be genuinely self-contained
+already — its own doc comment said as much ("shared... they differ only in
+how they render the resulting events") — just living in the wrong crate.
+Moved it into `tgrep-core` (`git mv`, history preserved; one new dependency,
+`fancy-regex`; two self-referential `tgrep_core::query::` paths fixed to
+`crate::query::` now that the code is internal), then added a real
+`tgrep_core::search::search_directory(pattern, root, opts) -> Vec<Match>`
+library entry point on top of it — walker + shared matcher, no CLI, no
+process.
 
-The real "hand in hand" move is extracting that search-and-verify
-orchestration out of `tgrep-cli` into `tgrep-core` as a clean
-`search_directory(pattern, root, options) -> Vec<Match>` library API — then
-`domain::indexing::tgrep_search` calls it **in-process**: no subprocess, no
-JSON round-trip, no timeout guard, and kortex's own workspace walker/ignore
-logic can be shared with tgrep's index builder instead of duplicated. That's
-a real, valuable fork change, and a large one — done as its own follow-up on
-`tgrep/`, not folded into this vendoring pass unreviewed.
+`src-tauri` now depends on `tgrep-core` directly (`path = "../tgrep/tgrep-core"`,
+same pattern as the existing `libaim`/`hades-harness` path dependencies), and
+`domain::indexing::tgrep_search::run_in_process` calls
+`search_directory` **in-process** — no subprocess, no JSON round-trip, no
+timeout guard, no external binary required at all. `try_tgrep`'s shape:
+
+```
+indexed server probe (external binary, if resolved, 800ms bound)
+        │ no server / no binary
+        ▼
+in-process search_directory (tgrep-core, linked in — always available)
+```
+
+The server probe still has real value for a large repo with `tgrep serve`
+running (a persistent trigram index beats re-walking the tree every query);
+the in-process path is what used to be a `tgrep --no-index` subprocess call,
+now a function call — and it needs nothing but this binary itself, so it's
+also the answer when no external `tgrep` exists at all. `fixed_string` is
+now honored on both paths (previously skipped on the subprocess path because
+its exact semantics weren't confirmed from the outside — now verified at the
+source level, since it's our own code).
+
+Verified for real: `cargo test --workspace` on the fork after the move — 779
+tests across both crates, 0 failed, including the 217+102 ripgrep-parity
+suites most likely to catch a subtle matching regression. The new
+`search_directory` module's own 8 tests pass. Wired into kortex and
+retested: 566 crate tests, 0 failed, including a test that finds a real
+match with **no external tgrep binary present at all** — proof the
+in-process path is genuinely load-bearing, not just plumbed.
 
 ## Beyond compute — hallucination grounding
 
