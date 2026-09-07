@@ -33,12 +33,13 @@
     "test:all": "npm test && npm run test:rust"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
     "@tauri-apps/cli": "~2.11.2",
     "@types/node": "^25.9.3",
     "autoprefixer": "^10.5.5",
     "cross-env": "^10.1.0",
     "postcss": "^8.5.15",
-    "tailwindcss": "^3.4.19",
+    "tailwindcss": "^4.3.3",
     "typescript": "~7.0.2",
     "vite": "^8.2.2",
     "vite-plugin-node-polyfills": "^0.28.0",
