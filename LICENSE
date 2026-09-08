@@ -1,4 +1,4 @@
-MIT License — Cyber-Ifrit IDE (Community Edition)
+MIT License
 
 Copyright (c) 2026 Cyber-Ifrit / H4D3ZS
 
@@ -19,8 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-NOTE: Cloud AI routing, Neural VFS compression, and subscription management are
-proprietary services hosted on Cyber-Ifrit infrastructure and are NOT covered by
-this MIT license. To use hosted cloud AI, subscribe at https://cyberifrit.xyz/pricing
