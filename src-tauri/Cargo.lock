@@ -3108,7 +3108,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tungstenite 0.23.0",
  "url",
- "which",
+ "which 6.0.3",
  "winreg 0.52.0",
 ]
 
@@ -8455,7 +8455,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "walkdir",
- "which",
+ "which 8.0.6",
  "windows 0.58.0",
  "zip 0.6.6",
 ]
@@ -8801,6 +8801,15 @@ dependencies = [
  "home",
  "rustix 0.38.44",
  "winsafe",
+]
+
+[[package]]
+name = "which"
+version = "8.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bae2f2b2b816647a1cab1acc91f5bd20812d53cb344382635ec2181940c8034f"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
