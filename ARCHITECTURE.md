@@ -59,7 +59,7 @@ Contexts: `agent` · `editor` · `terminal` · `workspace` · `security` · `deb
 
 Public entry points to use in new code are listed in [`src/README.md`](src/README.md).
 
-Bridge dirs — `src/kortex/`, `src/hermes/`, `src/claurst/`, `src/airi/` — are thin
+Bridge dirs — `src/kortex/`, `src/hermes/`, `src/airi/` — are thin
 frontends over their backend/subprocess counterparts; treat them as infrastructure.
 
 ---

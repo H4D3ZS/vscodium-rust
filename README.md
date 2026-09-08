@@ -17,8 +17,6 @@ native process, not an Electron main thread.
   [LICENSE](LICENSE).
 - **`kortex/` (submodule)** — a separate repo, **AGPL-3.0**. Pulled in at
   `git submodule update --init`, not covered by this repo's MIT license.
-- **`src/claurst`** — a thin bridge to a GPL-licensed tool, kept at a process
-  boundary (no GPL code linked into this codebase).
 - **Cloud AI routing, hosted Neural VFS compression, subscription
   management** — hosted services on Cyber-Ifrit infrastructure, not source
   in this repo. See [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
@@ -115,10 +113,10 @@ behaviour before merge.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). `claurst` is GPL, kept at a process boundary;
-the `kortex` submodule is AGPL-3.0 (separate repo). Hosted cloud services are
-proprietary — see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md). Summary at
-the top of this README under "What's open, what's not."
+MIT — see [LICENSE](LICENSE). The `kortex` submodule is AGPL-3.0 (separate
+repo). Hosted cloud services are proprietary — see
+[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md). Summary at the top of this
+README under "What's open, what's not."
 
 Built on [VSCodium](https://vscodium.com/), [Tauri](https://tauri.app/),
 [Lemonade](https://github.com/lemonade-sdk/lemonade),

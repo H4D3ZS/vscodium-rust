@@ -577,10 +577,9 @@ fn resolve_opencode_launch(workspace_root: &PathBuf) -> (String, Vec<String>, Op
         }
     }
 
-    // 2. Local source in the repo (opencode/ or claurst/kilocode/)
+    // 2. Local source in the repo (opencode/)
     let candidates = [
         workspace_root.join("opencode").join("packages").join("cli").join("src").join("index.ts"),
-        workspace_root.join("claurst").join("kilocode").join("packages").join("opencode").join("src").join("index.ts"),
     ];
     for entry in &candidates {
         if entry.exists() {

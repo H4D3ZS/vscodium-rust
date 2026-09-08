@@ -1,6 +1,6 @@
 /**
- * Master parity map: HADES IDE vs Claude Code (claude-map) vs Claurst vs Hermes Agent.
- * Open-source integration targets — MIT/GPL boundaries respected via subprocess bridges.
+ * Master parity map: HADES IDE vs Claude Code (claude-map) vs Hermes Agent.
+ * Open-source integration targets.
  */
 
 import { CLAUDE_CODE_HARNESS, harnessCoveragePercent } from './claudeCodeHarness';
@@ -58,7 +58,7 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
         name: 'Autonomous agent loop',
         description: 'Tool loop with verify gate, stuck detection, action-tool enforcement',
         tier: 'wired',
-        sources: ['claude-map/query.ts', 'claurst/query', 'ai_engine.rs'],
+        sources: ['claude-map/query.ts', 'ai_engine.rs'],
         hadesPath: 'ai_engine.rs, agent_harness.rs',
     },
     {
@@ -66,7 +66,7 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
         name: 'Claude Code harness contract',
         description: 'Verify-before-done, anti-loop, tool-result budget, Qwen3 protocol',
         tier: 'wired',
-        sources: ['claude-map', 'claurst'],
+        sources: ['claude-map'],
         hadesPath: 'agent_harness.rs, claudeCodeHarness.ts',
     },
     {
@@ -78,14 +78,6 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
         hadesPath: 'cursor_compat.rs',
     },
     // ── Partial integrations ──
-    {
-        id: 'claurst-backend',
-        name: 'Claurst external backend',
-        description: 'GPL subprocess agent — session-id streaming via claurst-stream events',
-        tier: 'wired',
-        sources: ['claurst'],
-        hadesPath: 'claurst_bridge.rs, claurst/bridge.ts',
-    },
     {
         id: 'hermes-native',
         name: 'Hermes skills (native in Sentient)',

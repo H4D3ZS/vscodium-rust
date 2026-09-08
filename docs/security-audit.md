@@ -2,7 +2,7 @@
 
 Snapshot of `npm audit` + `cargo audit` for the two manifests we own
 (`/package.json`, `/src-tauri/Cargo.toml`). Vendored trees
-(`kortex/llama.cpp`, `airi/`, `claurst/`, …) are out of scope — see the
+(`kortex/ROCmFPX`, `airi/`, …) are out of scope — see the
 header comment in `.github/dependabot.yml`.
 
 Last run: this branch.

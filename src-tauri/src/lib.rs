@@ -18,8 +18,6 @@ pub(crate) use domain::workspace::attachment_manager;
 mod attachment_manager_stub;
 #[cfg(not(feature = "tauri"))]
 pub(crate) use attachment_manager_stub as attachment_manager;
-#[cfg(feature = "tauri")]
-pub(crate) use infrastructure::claurst_bridge;
 pub(crate) use domain::compat::cursor_compat;
 pub(crate) use infrastructure::ghost_runtime;
 #[cfg(feature = "tauri")]
@@ -664,8 +662,6 @@ pub fn run() {
             ai_commands::ai_inline_complete,
             reliability_stats::kortex_reliability_status,
             ai_commands::predict_next_edit,
-            claurst_bridge::claurst_status,
-            claurst_bridge::claurst_run,
             ide_shell::ide_shell_status,
             ide_shell::ide_git_bash_path,
             ide_shell::ide_ensure_portable_git,

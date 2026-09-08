@@ -1,14 +1,12 @@
 /**
- * Claude Code parity harness — maps claude-map + claurst patterns to vscodium-rust.
+ * Claude Code parity harness — maps claude-map patterns to vscodium-rust.
  *
  * Reference trees (do not import at runtime):
  * - claude-map/query.ts, query/stopHooks.ts, query/tokenBudget.ts
- * - claurst/src-rust/crates/query/src/lib.rs
  * - src-tauri/src/agent_harness.rs (wired harness)
  */
 
 export const CLAUDE_MAP_ROOT = 'claude-map';
-export const CLAURST_ROOT = 'claurst/src-rust';
 
 export type HarnessFeatureStatus = 'wired' | 'partial' | 'reference-only';
 
@@ -56,13 +54,6 @@ export const CLAUDE_CODE_HARNESS: ClaudeCodeHarnessFeature[] = [
         claudeRef: 'claude-map/skills/bundled/verify.ts',
         hadesPath: 'hades_harness.rs, ai_tools verify_implementation',
         status: 'wired',
-    },
-    {
-        id: 'claurst-backend',
-        name: 'Claurst external agent',
-        claudeRef: 'claurst run_query_loop',
-        hadesPath: 'src/claurst/bridge.ts, agentBackend=claurst',
-        status: 'partial',
     },
     {
         id: 'stop-hooks',

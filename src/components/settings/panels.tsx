@@ -164,9 +164,6 @@ export function ChatPanel() {
 }
 
 export function AgentBackendCard() {
-    const agentBackend = useStore((s: any) => s.agentBackend || 'sentient');
-    const setAgentBackend = useStore((s: any) => s.setAgentBackend);
-    const [claurstSt, setClaurstSt] = React.useState<any>(null);
     const [shellSt, setShellSt] = React.useState<any>(null);
     const [hermesSt, setHermesSt] = React.useState<any>(null);
     const [checking, setChecking] = React.useState(false);
@@ -174,20 +171,13 @@ export function AgentBackendCard() {
     const refresh = React.useCallback(async () => {
         setChecking(true);
         try {
-            const [{ claurstStatus }, { ideShellStatus, hermesIntegrationStatus }] = await Promise.all([
-                import('../../claurst/bridge'),
-                import('../../hermes/bridge'),
-            ]);
-            const [c, shell, h] = await Promise.all([
-                claurstStatus(true),
+            const { ideShellStatus, hermesIntegrationStatus } = await import('../../hermes/bridge');
+            const [shell, h] = await Promise.all([
                 ideShellStatus(),
                 hermesIntegrationStatus(),
             ]);
-            setClaurstSt(c);
             setShellSt(shell);
             setHermesSt(h);
-        } catch (e) {
-            setClaurstSt({ available: false, reason: String(e) });
         } finally {
             setChecking(false);
         }
@@ -195,33 +185,17 @@ export function AgentBackendCard() {
 
     React.useEffect(() => { refresh(); }, [refresh]);
 
-    const status = agentBackend === 'claurst'? claurstSt: null;
-
     return (
         <div className="settings-card">
             <div className="settings-card-title">Agent Backend</div>
-            <SettingsRow
-                label="Agent Engine"
-                description="Sentient = built-in Rust loop with native Hermes skills + HADES Git Bash. Claurst = optional GPL external CLI only."
-                control={
-                    <select className="settings-select" value={agentBackend} onChange={e => setAgentBackend?.(e.target.value)}>
-                        <option value="sentient">Sentient (built-in) </option>
-                        <option value="claurst">Claurst (GPL external)</option>
-                    </select>
-                }
-            />
-            <div className="settings-row-description" style={{ marginTop: 8 }}>
-                {agentBackend === 'sentient'? (
+            <div className="settings-row-description">
+                {checking && !hermesSt? (
+                    <span>checking…</span>
+                ): (
                     <span>
-                        Hermes skills: {hermesSt?.skillsCount ?? '…'} integrated natively.{' '}
+                        Sentient (built-in Rust loop). Hermes skills: {hermesSt?.skillsCount ?? '…'} integrated natively.{' '}
                         Git Bash: {shellSt?.ready? `${shellSt.gitBash}`: `configure PortableGit (see below)`}
                     </span>
-                ): checking? (
-                    <span>checking…</span>
-                ): status?.available? (
-                    <span>claurst ready{status.version? ` — ${status.version}`: ''}</span>
-                ): (
-                    <span>{status?.reason || 'claurst not found'}</span>
                 )}
             </div>
             <div style={{ marginTop: 8 }}>
@@ -229,16 +203,10 @@ export function AgentBackendCard() {
                     Re-check
                 </button>
             </div>
-            {agentBackend === 'sentient' && shellSt && !shellSt.ready && !shellSt.bundledInInstaller && (
+            {shellSt && !shellSt.ready && !shellSt.bundledInInstaller && (
                 <pre style={{ fontSize: 11, opacity: 0.7, marginTop: 8, whiteSpace: 'pre-wrap' }}>
 {`PortableGit ships with release builds and auto-installs to %LOCALAPPDATA%\\HADES\\git.
 Dev: run scripts/fetch-bundles.ps1 or set HADES_GIT_BASH_PATH.`}
-                </pre>
-            )}
-            {agentBackend === 'claurst' && !claurstSt?.available && (
-                <pre style={{ fontSize: 11, opacity: 0.7, marginTop: 8, whiteSpace: 'pre-wrap' }}>
-{`Dev: cd claurst/src-rust && cargo build --release --bin claurst
-Or:  CLAURST_BIN=<path>`}
                 </pre>
             )}
         </div>

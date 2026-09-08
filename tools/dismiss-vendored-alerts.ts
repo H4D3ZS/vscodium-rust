@@ -2,10 +2,10 @@
 /**
  * Bulk-dismiss Dependabot alerts that target vendored upstream code paths.
  *
- * Why: this monorepo vendors entire upstream projects (airi/, kortex/llama.cpp/,
- * claurst/kilocode/) which generate 200+ alerts that we cannot fix in this
- * repo — fixes have to come from upstream. The owned roots ('/', '/src-tauri/')
- * are kept open and triaged via SECURITY.md.
+ * Why: this monorepo vendors entire upstream projects (airi/, kortex/ROCmFPX/,
+ * …) which generate 200+ alerts that we cannot fix in this repo — fixes have
+ * to come from upstream. The owned roots ('/', '/src-tauri/') are kept open
+ * and triaged via SECURITY.md.
  *
  * Usage:
  *   export GITHUB_TOKEN=ghp_xxx   # must have security_events:write

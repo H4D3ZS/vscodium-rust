@@ -5,7 +5,6 @@
  * separate cargo build on the user's machine.
  *
  *   browser-agent.exe  — invisible_playwright (PyInstaller)
- *   claurst.exe        — optional GPL agent backend (cargo release)
  *
  * Runs directly under Node >=23.6 (native TypeScript type stripping).
  */
@@ -18,9 +17,7 @@ import { platform } from 'node:os';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const binariesDir = join(root, 'src-tauri', 'binaries');
 const sidecarOut = join(binariesDir, 'browser-agent.exe');
-const claurstOut = join(binariesDir, 'claurst.exe');
 const ipDir = join(root, 'invisible_playwright');
-const claurstDir = join(root, 'claurst', 'src-rust');
 
 function runPs1(script: string): void {
     execSync(`powershell -ExecutionPolicy Bypass -File ${script}`, {
@@ -72,7 +69,7 @@ fetchBundledRipgrep();
 fetchLspBundles();
 
 if (platform() !== 'win32') {
-    console.log('[prebuild] Non-Windows: ripgrep + LSP bundles handled above; Windows-only sidecar freeze (browser-agent/claurst/portable-git) skipped.');
+    console.log('[prebuild] Non-Windows: ripgrep + LSP bundles handled above; Windows-only sidecar freeze (browser-agent/portable-git) skipped.');
     process.exit(0);
 }
 
@@ -89,21 +86,6 @@ if (existsSync(sidecarOut) && !process.env.FORCE_SIDECAR_REBUILD) {
         process.exit(1);
     }
     console.log('[prebuild] OK — browser-agent.exe ready.');
-}
-
-// ── claurst → claurst.exe ─────────────────────────────────────────────────
-if (existsSync(claurstOut) && !process.env.FORCE_CLAURST_REBUILD) {
-    console.log('[prebuild] claurst.exe present — skip (FORCE_CLAURST_REBUILD=1 to rebuild).');
-} else if (!existsSync(claurstDir)) {
-    console.warn('[prebuild] claurst/src-rust missing — optional Claurst backend dev-only.');
-} else {
-    console.log('[prebuild] Building claurst -> claurst.exe …');
-    runPs1('scripts/build-claurst.ps1');
-    if (!existsSync(claurstOut)) {
-        console.error('[prebuild] claurst.exe not produced.');
-        process.exit(1);
-    }
-    console.log('[prebuild] OK — claurst.exe ready.');
 }
 
 // ── PortableGit + Hermes skills bundles for installer ───────────────────────

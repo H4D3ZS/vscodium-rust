@@ -1,10 +1,10 @@
 # Dependabot configuration — focuses scanning on OUR source roots only.
 #
-# Why: this monorepo vendors entire upstream projects (airi/, kortex/llama.cpp/,
-# claurst/kilocode/) which carry hundreds of their own package.json /
-# Cargo.toml files. Dependabot's default behavior is to scan every manifest
-# it finds, producing >250 alerts that mostly point to dependencies WE DO NOT
-# OWN and which upstream patches when the upstream project releases.
+# Why: this monorepo vendors entire upstream projects (airi/, kortex/ROCmFPX/,
+# …) which carry hundreds of their own package.json / Cargo.toml files.
+# Dependabot's default behavior is to scan every manifest it finds, producing
+# >250 alerts that mostly point to dependencies WE DO NOT OWN and which
+# upstream patches when the upstream project releases.
 #
 # This config restricts dependabot to:
 #   1. Root npm (our actual frontend)

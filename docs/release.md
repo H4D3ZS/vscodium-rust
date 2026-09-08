@@ -28,17 +28,7 @@ prefers this frozen exe and only falls back to system Python for source/dev runs
 > Skip this and the installer still builds, but browser automation will require
 > the user to have Python + `pip install playwright invisible_playwright`.
 
-## 2b. Bundle claurst (optional external agent backend)
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-claurst.ps1
-```
-
-→ `src-tauri\binaries\claurst.exe`. Shipped in the same `binaries/*` bundle.
-Settings → Agent Engine → **Claurst** uses this process (GPL, kept at arm's length).
-Default engine remains **Sentient** (built-in).
-
-Both sidecars are built automatically by `npm run prebuild:sidecar` before `tauri build`.
+The sidecar is built automatically by `npm run prebuild:sidecar` before `tauri build`.
 
 ## 3. Build the installer
 
@@ -118,7 +108,6 @@ Or step-by-step:
 npm run typecheck
 powershell -ExecutionPolicy Bypass -File scripts\fetch-lsp-binaries.ps1   # once
 powershell -ExecutionPolicy Bypass -File scripts\build-sidecar.ps1        # once (invisible_playwright)
-powershell -ExecutionPolicy Bypass -File scripts\build-claurst.ps1        # once (optional agent backend)
 npm run build:tauri
 ```
 
@@ -130,12 +119,11 @@ Output: `src-tauri\target\release\bundle\nsis\` (`VSCodium Rust IDE_*-setup.exe`
 |-----------|----------|--------|
 | LSP servers | `src-tauri/binaries/lsp/` | rust-analyzer, gopls, pyright, tsserver |
 | Stealth browser | `src-tauri/binaries/browser-agent.exe` | invisible_playwright via PyInstaller |
-| Claurst agent | `src-tauri/binaries/claurst.exe` | optional external agent backend (GPL, separate process) |
 | Extension host | `src-tauri/ext-host/` | Open VSX extensions |
 
-Dev mode uses Python + `invisible_playwright/src` on `PYTHONPATH` when `browser-agent.exe` is absent. Claurst falls back to `claurst/src-rust/target/release/` in dev when `claurst.exe` is not prebuilt.
+Dev mode uses Python + `invisible_playwright/src` on `PYTHONPATH` when `browser-agent.exe` is absent.
 
-Both sidecars are built automatically by `npm run prebuild:sidecar` (runs before `npx tauri build`).
+The sidecar is built automatically by `npm run prebuild:sidecar` (runs before `npx tauri build`).
 
 ## Pre-ship smoke test
 

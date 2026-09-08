@@ -16,8 +16,6 @@ pub mod process_registry;
 pub mod vfs_bridge;
 pub mod airi_bridge;
 pub mod binary_analyzer;
-#[cfg(feature = "tauri")]
-pub mod claurst_bridge;
 pub mod ghost_runtime;
 #[cfg(feature = "tauri")]
 pub mod hermes_gateway;

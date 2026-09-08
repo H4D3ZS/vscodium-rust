@@ -30,9 +30,6 @@ export interface AgentModesSlice {
     plannerModel: string;    // explicit "provider|id"; empty = auto-detect from availableModels
     plannerEnabled: boolean; // master switch for the hybrid plan→act→verify pipeline
     hybridAuto: boolean;     // true = auto-pick planner via classifyModels()
-    /** Which agent core runs turns: built-in Sentient (Hermes skills native) or external claurst. */
-    agentBackend: 'sentient' | 'claurst';
-    setAgentBackend: (b: 'sentient' | 'claurst') => void;
     agentRootAccess: boolean;
     agentHooks: { id: string; pattern: string; prompt: string; enabled: boolean; trigger?: string; name?: string }[];
     globalSteeringRule: string;
@@ -147,8 +144,6 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
     artifactReviewPolicy: 'request_review',
     activeCascadeId: null,
     terminalAutoExecution: 'request_review',
-    agentBackend: ((typeof localStorage !== 'undefined' && localStorage.getItem('agent.backend')) as 'sentient' | 'claurst') || 'sentient',
-    setAgentBackend: (agentBackend) => { try { localStorage.setItem('agent.backend', agentBackend); } catch { } set({ agentBackend }); },
     setAgentMode: (agentMode) => {
         try { localStorage.setItem('agent.mode', agentMode); } catch { }
         set({ agentMode });

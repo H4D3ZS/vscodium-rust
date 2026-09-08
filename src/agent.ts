@@ -1553,17 +1553,6 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         }
     } catch (_) { /* checkpointing is best-effort; never block the turn */ }
 
-    // ── External agent backend: claurst (opt-in, separate process) ──────────
-    // When the user selects the Claurst backend, hand the whole turn to the
-    // external claurst CLI and stream its output into this chat. This keeps the
-    // GPL-licensed agent at a process boundary and bypasses the in-process
-    // Sentient loop entirely (no duplication).
-    if (store.getState().agentBackend === 'claurst') {
-        const { runClaurstTurn } = await import('./claurst/bridge');
-        await runClaurstTurn(userPrompt);
-        return;
-    }
-
     const currentMode = store.getState().agentMode;
     // Promote Chat/Ask → Agent whenever the prompt targets the workspace
     // (files, repo, run/build/deploy, a URL) — no YOLO precondition. This makes
