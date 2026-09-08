@@ -2,7 +2,9 @@
 
 A local-first, agentic IDE — **Rust/Tauri v2** backend, **React 19/TypeScript** frontend.
 The editor is VS Code–shaped; the agent loop, indexing, and process management run in a
-native process, not an Electron main thread.
+native process, not an Electron main thread. Local models run on AMD hardware through
+**[Lemonade](https://github.com/lemonade-sdk/lemonade)** and **ROCm** — llama.cpp directly,
+no Ollama wrapper in the path.
 
 ![VSCodium-Rust](pics/1.png)
 
