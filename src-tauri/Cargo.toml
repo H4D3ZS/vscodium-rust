@@ -40,7 +40,7 @@ tauri = [
 ]
 
 [dependencies]
-boa_engine = "0.20"
+boa_engine = "0.22"
 memmap2 = "0.9.10"
 tauri = { version = "2", features = ["protocol-asset"], optional = true }
 tauri-plugin-opener = { version = "2", optional = true }
