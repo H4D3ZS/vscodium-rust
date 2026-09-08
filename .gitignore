@@ -97,7 +97,6 @@ native/
 *.ipsw
 *.ipa
 /kilocode/
-claurst/kilocode/
 
 # ── Sensitive — NEVER commit ──
 financial_database.*
