@@ -70,7 +70,7 @@
     "@xterm/xterm": "^6.0.0",
     "diff": "^8.0.4",
     "dompurify": "^3.4.15",
-    "lucide-react": "^1.41.0",
+    "lucide-react": "^1.45.0",
     "marked": "^18.0.5",
     "mermaid": "^11.17.2",
     "monaco-editor": "^0.56.0",
