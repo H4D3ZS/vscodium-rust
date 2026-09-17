@@ -100,7 +100,7 @@ aim-proxy = { path = "../kortex/aim-proxy", optional = true }
 daemon = { path = "../kortex/daemon", optional = true }
 candle-core = { version = "=0.7.1", optional = true }
 half = { version = "2.3", default-features = false, features = ["num-traits", "rand_distr"], optional = true }
-which = "6.0"
+which = "8.0"
 diffy = "0.3"
 notify = "6.1"
 streaming-iterator = "0.1"
