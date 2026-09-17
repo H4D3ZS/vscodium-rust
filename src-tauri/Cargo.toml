@@ -72,7 +72,7 @@ tokio-util = { version = "0.7.10", features = ["codec"] }
 lsp-types = "0.97"
 axum = "0.7"
 anyhow = "1"
-reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
+reqwest = { version = "0.13", features = ["json", "stream", "multipart"] }
 ripgrep = "15.1.0"
 ripgrep-api = "0.2.0"
 sysinfo = "0.30"
