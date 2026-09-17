@@ -156,3 +156,84 @@ Community AI-Portfolio/
 # App runtime state (written by the running IDE, not source)
 .agent/
 .aim/
+
+# ── Cross-platform build artifacts ──
+rpmbuild/
+AppDir/
+target/universal-release/
+src-native/target/
+*.AppImage
+VSCodium-Rust-Setup-*.exe
+*.dmg
+cargo_check_output.txt
+
+# ── Built executables & release packages ──
+vscodium-rust.exe
+vscodium-ip-panel.exe
+browser-agent.exe
+ios.exe.bak
+*.msi
+*.wixpdb
+vscodium-rust-v*.zip
+release-bundle/
+bundles/
+
+# ── Bundled LSP servers & iOS tools (platform-specific, downloaded at build) ──
+src-tauri/binaries/lsp/
+src-tauri/binaries/ios-tools/
+
+# ── Tauri codegen ──
+src-tauri/gen/
+
+# ── Apple certificates (fetched by scripts/fetch_apple_certs.py) ──
+*.cer
+*.der
+apple_ca_chain.pem
+gs_apple_cert.der
+
+# ── SSH keys — NEVER commit ──
+id_rsa_mobile
+
+# ── Dev scratch / test scripts ──
+test_*.py
+check_*.py
+read_*.py
+read_wrapper.py
+setup_*.py
+find_procs.py
+list_apps.py
+frida_touch_server.py
+tss_proxy.py
+tss_req.bin
+diff.txt
+original_model.rs
+selfIdentity.plist
+test_shot.png
+ide_screenshot.png
+
+# ── iOS device images ──
+devimages/
+devimages_fresh/
+WebDriverAgentRunner-*
+
+# ── Separate projects / vendored tools ──
+FlutterSentinel/
+/MobHunt/
+go-ios/
+monaco-editor/
+src-native/
+
+# ── Runtime / editor caches ──
+.cursor/
+.hades_cache/
+work_dir/
+
+# ── Agent config (local only) ──
+.agents/
+AGENTS.md
+GEMINI.md
+
+# ── Misc ──
+LICENSE.rtf
+/binaries/
+.wix/

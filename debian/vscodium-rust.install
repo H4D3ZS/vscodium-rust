@@ -1,0 +1,4 @@
+debian/vscodium-rust.desktop usr/share/applications/
+debian/vscodium-rust.metainfo.xml usr/share/metainfo/
+debian/vscodium-ip-panel usr/bin/
+src-tauri/icons/icon.png usr/share/icons/hicolor/512x512/apps/vscodium-rust.png

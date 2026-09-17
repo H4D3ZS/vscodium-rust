@@ -1,10 +1,10 @@
 //! execute_tool() dispatcher and the handle_* tool routers.
+use super::registry::AiTools;
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
-use super::registry::AiTools;
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
 impl AiTools {
@@ -17,14 +17,53 @@ impl AiTools {
     /// keep working.
     fn normalize_tool_args(mut arguments: Value) -> Value {
         const ALIASES: &[(&str, &[&str])] = &[
-            ("query", &["pattern", "q", "search", "regex", "search_query", "search_term", "keyword", "text_to_find"]),
-            ("path", &["file_path", "filepath", "file", "filename", "dir", "directory", "relative_path", "target_path"]),
-            ("content", &["file_content", "new_content", "contents", "body", "code", "text_content"]),
+            (
+                "query",
+                &[
+                    "pattern",
+                    "q",
+                    "search",
+                    "regex",
+                    "search_query",
+                    "search_term",
+                    "keyword",
+                    "text_to_find",
+                ],
+            ),
+            (
+                "path",
+                &[
+                    "file_path",
+                    "filepath",
+                    "file",
+                    "filename",
+                    "dir",
+                    "directory",
+                    "relative_path",
+                    "target_path",
+                ],
+            ),
+            (
+                "content",
+                &[
+                    "file_content",
+                    "new_content",
+                    "contents",
+                    "body",
+                    "code",
+                    "text_content",
+                ],
+            ),
             ("command", &["cmd", "shell_command", "run", "script"]),
         ];
         if let Some(obj) = arguments.as_object_mut() {
             for (canon, aliases) in ALIASES {
-                if obj.get(*canon).and_then(|v| v.as_str()).map(|s| !s.is_empty()).unwrap_or(false) {
+                if obj
+                    .get(*canon)
+                    .and_then(|v| v.as_str())
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false)
+                {
                     continue;
                 }
                 for alias in *aliases {
@@ -59,7 +98,10 @@ impl AiTools {
                 }
                 crate::domain::ai::authorization::Decision::Confirm => {
                     crate::domain::ai::reliability_stats::bump("AUTHZ_CONFIRMED");
-                    eprintln!("[authz] {} needs confirmation ({:?}) — allowed in autonomous mode", canonical, d.impact);
+                    eprintln!(
+                        "[authz] {} needs confirmation ({:?}) — allowed in autonomous mode",
+                        canonical, d.impact
+                    );
                 }
                 crate::domain::ai::authorization::Decision::Allow => {
                     crate::domain::ai::reliability_stats::bump("AUTHZ_ALLOWED");
@@ -243,6 +285,36 @@ impl AiTools {
             | "shellcode_recipe_generate"
             | "payload_encode" => self.handle_security_generator(canonical, arguments).await,
 
+            // ═══ Sentinel (FlutterSentinel bug-bounty stack) ═══
+            "sentinel_analyze_jwt"
+            | "sentinel_forge_jwt"
+            | "sentinel_rsa_recover"
+            | "sentinel_analyze_crypto"
+            | "sentinel_scan_secrets"
+            | "sentinel_validate_secret"
+            | "sentinel_gen_poc"
+            | "sentinel_make_report"
+            | "sentinel_sidecar_status"
+            | "sentinel_sidecar_start"
+            | "sentinel_sidecar_stop"
+            | "sentinel_stats"
+            | "sentinel_list_findings"
+            | "sentinel_list_targets"
+            | "sentinel_add_finding"
+            | "sentinel_create_target"
+            | "sentinel_mobile_discover"
+            | "sentinel_mobile_assets"
+            | "sentinel_mobile_analyze"
+            | "sentinel_mobile_pull"
+            | "sentinel_mobile_delete"
+            | "sentinel_mobsf_status"
+            | "sentinel_gen_frida_script"
+            | "sentinel_jb_status"
+            | "sentinel_jb_devices"
+            | "sentinel_jb_apps"
+            | "sentinel_jb_live_scan"
+            | "sentinel_jb_dump" => self.handle_sentinel_tool(canonical, arguments).await,
+
             // ═══ APEX Intelligence Framework Tools ═══
             "apex_red_team_scan"
             | "apex_scan_url"
@@ -289,8 +361,14 @@ impl AiTools {
     fn is_external_tool(canonical: &str) -> bool {
         matches!(
             canonical,
-            "web_fetch" | "fetch" | "fetch_url" | "web_search" | "perplexity_ask"
-                | "perplexity_reason" | "browser_subagent" | "oast_interactions"
+            "web_fetch"
+                | "fetch"
+                | "fetch_url"
+                | "web_search"
+                | "perplexity_ask"
+                | "perplexity_reason"
+                | "browser_subagent"
+                | "oast_interactions"
                 | "exploit_lookup"
         )
     }
@@ -306,7 +384,7 @@ impl AiTools {
         }
         use crate::domain::ai::provenance::{scan, tag, Trust};
         let src = format!("tool:{canonical}");
-        let mut fence = |s: &str| -> String {
+        let fence = |s: &str| -> String {
             crate::domain::ai::reliability_stats::bump("PROVENANCE_FENCED");
             if scan(s).is_suspicious() {
                 crate::domain::ai::reliability_stats::bump("PROVENANCE_INJECTION_FLAGGED");
@@ -354,11 +432,8 @@ impl AiTools {
                 }
                 String::new()
             });
-        self.handle_fs_tool(
-            "write_to_file",
-            json!({ "path": path, "content": content }),
-        )
-        .await
+        self.handle_fs_tool("write_to_file", json!({ "path": path, "content": content }))
+            .await
     }
 
     /// Handle task CRUD operations: task_create, task_update, task_list, task_get.
@@ -375,8 +450,14 @@ impl AiTools {
 
         match name {
             "task_create" => {
-                let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
-                let desc = args.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let title = args
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Untitled");
+                let desc = args
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let parent = args.get("parent_id").and_then(|v| v.as_str());
                 let mut store = self.task_store.write().await;
                 let task = store.create(title, desc, parent);
@@ -384,7 +465,9 @@ impl AiTools {
                 Ok(json!({ "status": "success", "task": TaskStore::task_to_value(&task) }))
             }
             "task_update" => {
-                let id = args.get("id").and_then(|v| v.as_str())
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing task id"))?;
                 let status = args.get("status").and_then(|v| v.as_str());
                 let desc = args.get("description").and_then(|v| v.as_str());
@@ -396,19 +479,26 @@ impl AiTools {
             "task_list" => {
                 let status = args.get("status").and_then(|v| v.as_str());
                 let store = self.task_store.read().await;
-                let tasks: Vec<Value> = store.list(status)
+                let tasks: Vec<Value> = store
+                    .list(status)
                     .iter()
                     .map(|t| TaskStore::task_to_value(t))
                     .collect();
                 Ok(json!({ "status": "success", "tasks": tasks, "count": tasks.len() }))
             }
             "task_get" => {
-                let id = args.get("id").and_then(|v| v.as_str())
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing task id"))?;
                 let store = self.task_store.read().await;
                 match store.get(id) {
-                    Some(task) => Ok(json!({ "status": "success", "task": TaskStore::task_to_value(task) })),
-                    None => Ok(json!({ "status": "error", "message": format!("Task not found: {id}") })),
+                    Some(task) => {
+                        Ok(json!({ "status": "success", "task": TaskStore::task_to_value(task) }))
+                    }
+                    None => {
+                        Ok(json!({ "status": "error", "message": format!("Task not found: {id}") }))
+                    }
                 }
             }
             _ => Err(anyhow!("Unknown task tool: {name}")),
@@ -418,21 +508,26 @@ impl AiTools {
     /// Tool search — finds relevant tools by keyword from the full tool catalog.
     /// Helps the model discover tools when there are too many to fit in context.
     pub(crate) async fn handle_tool_search(&self, args: Value) -> Result<Value> {
-        let query = args.get("query").and_then(|v| v.as_str())
+        let query = args
+            .get("query")
+            .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing query"))?;
         let q_lower = query.to_lowercase();
 
         let all_tools = self.list_tools();
-        let mut matches: Vec<Value> = all_tools.iter()
+        let mut matches: Vec<Value> = all_tools
+            .iter()
             .filter(|t| {
                 let name_lower = t.name.to_lowercase();
                 let desc_lower = t.description.to_lowercase();
                 name_lower.contains(&q_lower) || desc_lower.contains(&q_lower)
             })
-            .map(|t| json!({
-                "name": t.name,
-                "description": t.description,
-            }))
+            .map(|t| {
+                json!({
+                    "name": t.name,
+                    "description": t.description,
+                })
+            })
             .collect();
 
         matches.truncate(10);
@@ -445,7 +540,10 @@ impl AiTools {
         };
         match name {
             "reverse_shell_generate" => {
-                let language = args.get("language").and_then(|v| v.as_str()).unwrap_or("bash");
+                let language = args
+                    .get("language")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("bash");
                 let host = args.get("host").and_then(|v| v.as_str()).unwrap_or("");
                 let port = args.get("port").and_then(|v| v.as_u64()).unwrap_or(4444) as u16;
                 let shell = args.get("shell").and_then(|v| v.as_str());
@@ -454,7 +552,10 @@ impl AiTools {
             }
             "security_listener_generate" => {
                 let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("nc");
-                let host = args.get("host").and_then(|v| v.as_str()).unwrap_or("0.0.0.0");
+                let host = args
+                    .get("host")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("0.0.0.0");
                 let port = args.get("port").and_then(|v| v.as_u64()).unwrap_or(4444) as u16;
                 let command = listener_config(kind, host, port).map_err(|e| anyhow!(e))?;
                 Ok(json!({ "kind": kind, "command": command }))
@@ -468,7 +569,10 @@ impl AiTools {
                 Ok(analyze_csp(header))
             }
             "shellcode_recipe_generate" => {
-                let platform = args.get("platform").and_then(|v| v.as_str()).unwrap_or("windows");
+                let platform = args
+                    .get("platform")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("windows");
                 let arch = args.get("arch").and_then(|v| v.as_str()).unwrap_or("x64");
                 let payload = args
                     .get("payload")
@@ -478,7 +582,10 @@ impl AiTools {
             }
             "payload_encode" => {
                 let payload = args.get("payload").and_then(|v| v.as_str()).unwrap_or("");
-                let encoding = args.get("encoding").and_then(|v| v.as_str()).unwrap_or("base64");
+                let encoding = args
+                    .get("encoding")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("base64");
                 encode_payload(payload, encoding).map_err(|e| anyhow!(e))
             }
             _ => Err(anyhow!("Unknown security generator tool: {}", name)),
@@ -520,8 +627,13 @@ impl AiTools {
 
     /// Live attack chain — real audits + shell probes. Replaces LLM-only "simulation".
     pub(crate) async fn execute_live_attack_chain(&self, args: Value) -> Result<Value> {
-        let target = args["target"].as_str().ok_or_else(|| anyhow!("Missing target"))?.trim();
-        let attack_type = args["attack_type"].as_str().ok_or_else(|| anyhow!("Missing attack_type"))?;
+        let target = args["target"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing target"))?
+            .trim();
+        let attack_type = args["attack_type"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing attack_type"))?;
         let mut steps: Vec<Value> = Vec::new();
 
         if let Ok(inv) = self.handle_fs_tool("sec_distro_inventory", json!({})).await {
@@ -529,10 +641,12 @@ impl AiTools {
         }
 
         if crate::pentest_executor::is_http_target(target) {
-            let audit = self.web_security_audit(json!({
-                "url": target,
-                "write_report": true,
-            })).await?;
+            let audit = self
+                .web_security_audit(json!({
+                    "url": target,
+                    "write_report": true,
+                }))
+                .await?;
             steps.push(json!({ "step": "web_security_audit", "result": audit }));
 
             for cmd in crate::pentest_executor::build_url_attack_probes(target, attack_type) {
@@ -541,13 +655,20 @@ impl AiTools {
             }
         } else if target.contains('/') || target.contains('\\') {
             if let Ok(content) = std::fs::read_to_string(target) {
-                let audit = self.handle_fs_tool("deep_security_audit", json!({
-                    "path": target,
-                    "content": content,
-                })).await?;
+                let audit = self
+                    .handle_fs_tool(
+                        "deep_security_audit",
+                        json!({
+                            "path": target,
+                            "content": content,
+                        }),
+                    )
+                    .await?;
                 steps.push(json!({ "step": "deep_security_audit", "result": audit }));
             }
-            let secrets = self.handle_fs_tool("secrets_scan", json!({ "path": target })).await?;
+            let secrets = self
+                .handle_fs_tool("secrets_scan", json!({ "path": target }))
+                .await?;
             steps.push(json!({ "step": "secrets_scan", "result": secrets }));
         } else {
             for cmd in crate::pentest_executor::build_host_attack_probes(target, attack_type) {
@@ -556,15 +677,23 @@ impl AiTools {
             }
         }
 
-        let report_path = format!("reports/live-attack-{}.md", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+        let report_path = format!(
+            "reports/live-attack-{}.md",
+            chrono::Utc::now().format("%Y%m%d-%H%M%S")
+        );
         let body = format!(
             "# Live Attack Chain\n\n- **Target:** {target}\n- **Type:** {attack_type}\n- **Mode:** live execution (not LLM simulation)\n\n## Steps\n\n```json\n{}\n```\n",
             serde_json::to_string_pretty(&steps).unwrap_or_default()
         );
-        let _ = self.handle_fs_tool("write_to_file", json!({
-            "path": report_path,
-            "content": body,
-        })).await;
+        let _ = self
+            .handle_fs_tool(
+                "write_to_file",
+                json!({
+                    "path": report_path,
+                    "content": body,
+                }),
+            )
+            .await;
 
         Ok(json!({
             "execution_mode": "live",
@@ -583,9 +712,14 @@ impl AiTools {
         let vuln_desc = args["vulnerability_desc"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing vulnerability_desc"))?;
-        let constraints = args.get("constraints").and_then(|v| v.as_str()).unwrap_or("");
+        let constraints = args
+            .get("constraints")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
-        let lookup = self.handle_exploit_lookup(json!({ "query": vuln_desc })).await?;
+        let lookup = self
+            .handle_exploit_lookup(json!({ "query": vuln_desc }))
+            .await?;
         let listener = self
             .handle_security_generator(
                 "security_listener_generate",
@@ -604,17 +738,23 @@ impl AiTools {
             )
             .await?;
 
-        let report_path = format!("reports/exploit-scaffold-{}.md", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+        let report_path = format!(
+            "reports/exploit-scaffold-{}.md",
+            chrono::Utc::now().format("%Y%m%d-%H%M%S")
+        );
         let body = format!(
             "# Live Exploit Scaffold\n\n- **Target OS:** {target_os}\n- **Vulnerability:** {vuln_desc}\n- **Constraints:** {constraints}\n\n## Exploit lookup (live)\n\n```json\n{}\n```\n\n## Listener\n\n```json\n{}\n```\n\n## Reverse shell template\n\n```json\n{}\n```\n",
             serde_json::to_string_pretty(&lookup).unwrap_or_default(),
             serde_json::to_string_pretty(&listener).unwrap_or_default(),
             serde_json::to_string_pretty(&shell).unwrap_or_default(),
         );
-        self.handle_fs_tool("write_to_file", json!({
-            "path": report_path,
-            "content": body,
-        }))
+        self.handle_fs_tool(
+            "write_to_file",
+            json!({
+                "path": report_path,
+                "content": body,
+            }),
+        )
         .await?;
 
         Ok(json!({
@@ -628,22 +768,33 @@ impl AiTools {
     }
 
     /// Live binary/firmware analysis chain.
-    pub(crate) async fn handle_live_binary_analysis(&self, args: Value, tool_name: &str) -> Result<Value> {
+    pub(crate) async fn handle_live_binary_analysis(
+        &self,
+        args: Value,
+        tool_name: &str,
+    ) -> Result<Value> {
         let path = args
             .get("firmware_path")
             .or_else(|| args.get("binary_path"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing firmware_path or binary_path"))?;
-        let depth = args.get("analysis_depth").and_then(|v| v.as_u64()).unwrap_or(1);
+        let depth = args
+            .get("analysis_depth")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1);
 
         let info = self
             .handle_research_tool("get_binary_info", json!({ "path": path }))
             .await?;
-        let strings = self.handle_fs_tool("extract_strings", json!({ "path": path })).await?;
+        let strings = self
+            .handle_fs_tool("extract_strings", json!({ "path": path }))
+            .await?;
         let entropy = self
             .handle_fs_tool("file_entropy_analysis", json!({ "path": path }))
             .await?;
-        let secrets = self.handle_fs_tool("secrets_scan", json!({ "path": path })).await?;
+        let secrets = self
+            .handle_fs_tool("secrets_scan", json!({ "path": path }))
+            .await?;
 
         let mut analysis = json!({
             "get_binary_info": info,
@@ -670,92 +821,176 @@ impl AiTools {
 
     pub(crate) async fn handle_apex_tool(&self, name: &str, arguments: Value) -> Result<Value> {
         let apex_guard = self.apex.lock().await;
-        let apex = apex_guard.as_ref().ok_or_else(|| anyhow!("APEX Intelligence Framework not initialized"))?;
-        
+        let apex = apex_guard
+            .as_ref()
+            .ok_or_else(|| anyhow!("APEX Intelligence Framework not initialized"))?;
+
         match name {
             "apex_red_team_scan" => {
-                let code = arguments["code"].as_str().ok_or_else(|| anyhow!("Missing code"))?.to_string();
-                let file_path = arguments["file_path"].as_str().ok_or_else(|| anyhow!("Missing file_path"))?.to_string();
-                let language = arguments["language"].as_str().ok_or_else(|| anyhow!("Missing language"))?.to_string();
+                let code = arguments["code"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing code"))?
+                    .to_string();
+                let file_path = arguments["file_path"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing file_path"))?
+                    .to_string();
+                let language = arguments["language"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing language"))?
+                    .to_string();
                 let depth = match arguments["depth"].as_str() {
                     Some("quick") => crate::apex_red_team::ScanDepth::Quick,
                     Some("deep") => crate::apex_red_team::ScanDepth::Deep,
                     _ => crate::apex_red_team::ScanDepth::Standard,
                 };
-                
-                let report = apex.red_team().scan(crate::apex_red_team::RedTeamScanRequest {
-                    target_code: code,
-                    file_path,
-                    language,
-                    scan_depth: depth,
-                    focus_areas: vec![],
-                }).await.map_err(|e| anyhow!(e))?;
+
+                let report = apex
+                    .red_team()
+                    .scan(crate::apex_red_team::RedTeamScanRequest {
+                        target_code: code,
+                        file_path,
+                        language,
+                        scan_depth: depth,
+                        focus_areas: vec![],
+                    })
+                    .await
+                    .map_err(|e| anyhow!(e))?;
                 Ok(json!(report))
-            },
+            }
             "apex_scan_url" => {
-                let url = arguments["url"].as_str().ok_or_else(|| anyhow!("Missing url"))?.to_string();
+                let url = arguments["url"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing url"))?
+                    .to_string();
                 // We pass apex down or release the lock to avoid deadlock if scan_url needs it
-                drop(apex_guard); 
+                drop(apex_guard);
                 self.handle_apex_scan_url(&url).await
-            },
+            }
             "apex_threat_anticipate" => {
-                let code = arguments["code"].as_str().ok_or_else(|| anyhow!("Missing code"))?.to_string();
-                let context = arguments["context"].as_str().ok_or_else(|| anyhow!("Missing context"))?.to_string();
-                apex.threat_anticipate(&code, &context).await.map_err(|e| anyhow!(e))
-            },
+                let code = arguments["code"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing code"))?
+                    .to_string();
+                let context = arguments["context"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing context"))?
+                    .to_string();
+                apex.threat_anticipate(&code, &context)
+                    .await
+                    .map_err(|e| anyhow!(e))
+            }
             "apex_perf_optimize" => {
-                let code = arguments["code"].as_str().ok_or_else(|| anyhow!("Missing code"))?.to_string();
-                let language = arguments["language"].as_str().ok_or_else(|| anyhow!("Missing language"))?.to_string();
-                let suggestions = apex.perf_optimize(&code, &language).await.map_err(|e| anyhow!(e))?;
+                let code = arguments["code"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing code"))?
+                    .to_string();
+                let language = arguments["language"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing language"))?
+                    .to_string();
+                let suggestions = apex
+                    .perf_optimize(&code, &language)
+                    .await
+                    .map_err(|e| anyhow!(e))?;
                 Ok(json!(suggestions))
-            },
+            }
             "apex_self_improve" => {
-                let code = arguments["code"].as_str().ok_or_else(|| anyhow!("Missing code"))?.to_string();
-                let language = arguments["language"].as_str().ok_or_else(|| anyhow!("Missing language"))?.to_string();
+                let code = arguments["code"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing code"))?
+                    .to_string();
+                let language = arguments["language"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing language"))?
+                    .to_string();
                 let iterations = arguments["iterations"].as_u64().unwrap_or(3) as u32;
-                apex.self_improve(&code, &language, iterations).await.map_err(|e| anyhow!(e))
-            },
+                apex.self_improve(&code, &language, iterations)
+                    .await
+                    .map_err(|e| anyhow!(e))
+            }
             "apex_security_explain" => {
-                let vuln = arguments["vulnerability"].as_str().ok_or_else(|| anyhow!("Missing vulnerability"))?.to_string();
-                let fix = arguments["fix_diff"].as_str().ok_or_else(|| anyhow!("Missing fix_diff"))?.to_string();
-                apex.security_explain(&vuln, &fix).await.map_err(|e| anyhow!(e))
-            },
+                let vuln = arguments["vulnerability"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing vulnerability"))?
+                    .to_string();
+                let fix = arguments["fix_diff"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing fix_diff"))?
+                    .to_string();
+                apex.security_explain(&vuln, &fix)
+                    .await
+                    .map_err(|e| anyhow!(e))
+            }
             "apex_predict_failures" => {
-                let code = arguments["code"].as_str().ok_or_else(|| anyhow!("Missing code"))?.to_string();
+                let code = arguments["code"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing code"))?
+                    .to_string();
                 let logs = arguments["logs"].as_str();
-                let predictions = apex.predict_failures(&code, logs).await.map_err(|e| anyhow!(e))?;
+                let predictions = apex
+                    .predict_failures(&code, logs)
+                    .await
+                    .map_err(|e| anyhow!(e))?;
                 Ok(json!(predictions))
-            },
+            }
             "apex_full_sweep" => {
-                let code = arguments["code"].as_str().ok_or_else(|| anyhow!("Missing code"))?.to_string();
-                let file_path = arguments["file_path"].as_str().ok_or_else(|| anyhow!("Missing file_path"))?.to_string();
-                let language = arguments["language"].as_str().ok_or_else(|| anyhow!("Missing language"))?.to_string();
-                apex.full_sweep(&code, &file_path, &language).await.map_err(|e| anyhow!(e))
-            },
+                let code = arguments["code"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing code"))?
+                    .to_string();
+                let file_path = arguments["file_path"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing file_path"))?
+                    .to_string();
+                let language = arguments["language"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing language"))?
+                    .to_string();
+                apex.full_sweep(&code, &file_path, &language)
+                    .await
+                    .map_err(|e| anyhow!(e))
+            }
             "apex_simulate_attack" => {
                 drop(apex_guard);
                 self.execute_live_attack_chain(arguments).await
-            },
+            }
             "apex_architect_design" => {
-                let desc = arguments["description"].as_str().ok_or_else(|| anyhow!("Missing description"))?.to_string();
+                let desc = arguments["description"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing description"))?
+                    .to_string();
                 let recommendation = apex.architect_design(&desc).await.map_err(|e| anyhow!(e))?;
                 Ok(json!(recommendation))
-            },
+            }
             "apex_quick_check" => {
-                let code = arguments["code"].as_str().ok_or_else(|| anyhow!("Missing code"))?;
-                let language = arguments["language"].as_str().ok_or_else(|| anyhow!("Missing language"))?;
-                let findings = apex.red_team().quick_check(code, language).await.map_err(|e| anyhow!(e))?;
+                let code = arguments["code"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing code"))?;
+                let language = arguments["language"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing language"))?;
+                let findings = apex
+                    .red_team()
+                    .quick_check(code, language)
+                    .await
+                    .map_err(|e| anyhow!(e))?;
                 Ok(json!(findings))
-            },
+            }
             "generate_exploit_artifact" => {
                 // Delegate to the Lemonade-backed BugTrace CORE-Ultra tooling
                 // engine. The driver stays on its own (tool-reliable) model and
                 // calls this when it needs a complete, runnable artifact — so
                 // CORE-Ultra's specialty is used without it driving the loop.
-                let task = arguments["task"].as_str().ok_or_else(|| anyhow!("Missing task"))?.to_string();
+                let task = arguments["task"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing task"))?
+                    .to_string();
                 let ctx = arguments["target_context"].as_str();
-                apex.exploit_tooling(&task, ctx).await.map_err(|e| anyhow!(e))
-            },
+                apex.exploit_tooling(&task, ctx)
+                    .await
+                    .map_err(|e| anyhow!(e))
+            }
             "apex_pentest_report" => {
                 let files_val = arguments.get("files").cloned().unwrap_or(json!([]));
                 let file_pairs: Vec<(String, String)> = files_val
@@ -765,7 +1000,10 @@ impl AiTools {
                             .filter_map(|pair| {
                                 let inner = pair.as_array()?;
                                 if inner.len() >= 2 {
-                                    Some((inner[0].as_str()?.to_string(), inner[1].as_str()?.to_string()))
+                                    Some((
+                                        inner[0].as_str()?.to_string(),
+                                        inner[1].as_str()?.to_string(),
+                                    ))
                                 } else {
                                     None
                                 }
@@ -773,8 +1011,11 @@ impl AiTools {
                             .collect()
                     })
                     .unwrap_or_default();
-                apex.red_team().pentest_report(file_pairs).await.map_err(|e| anyhow!(e))
-            },
+                apex.red_team()
+                    .pentest_report(file_pairs)
+                    .await
+                    .map_err(|e| anyhow!(e))
+            }
             _ => Err(anyhow!("Unknown APEX tool: {}", name)),
         }
     }
@@ -784,13 +1025,13 @@ impl AiTools {
         let root = self.get_root_path().to_string_lossy().to_string();
         match name {
             "ag_get_next_task" => {
-                let task = crate::antigravity_commands::ag_get_next_task(root)
-                    .map_err(|e| anyhow!(e))?;
+                let task =
+                    crate::antigravity_commands::ag_get_next_task(root).map_err(|e| anyhow!(e))?;
                 Ok(json!({ "status": "success", "task": task }))
             }
             "ag_list_tasks" => {
-                let tasks = crate::antigravity_commands::ag_list_all_tasks(root)
-                    .map_err(|e| anyhow!(e))?;
+                let tasks =
+                    crate::antigravity_commands::ag_list_all_tasks(root).map_err(|e| anyhow!(e))?;
                 Ok(json!({ "status": "success", "tasks": tasks }))
             }
             "ag_mark_task_done" => {
@@ -826,16 +1067,15 @@ impl AiTools {
     pub(crate) async fn handle_project_rules(&self, _arguments: Value) -> Result<Value> {
         let root = self.get_root_path();
         let mut chunks: Vec<String> = Vec::new();
-        for rel in [
-            "AGENTS.md",
-            "CLAUDE.md",
-            ".cursor/rules",
-            ".hades/rules",
-        ] {
+        for rel in ["AGENTS.md", "CLAUDE.md", ".cursor/rules", ".hades/rules"] {
             let p = root.join(rel);
             if p.is_file() {
                 if let Ok(text) = fs::read_to_string(&p) {
-                    chunks.push(format!("--- {} ---\n{}", rel, text.chars().take(8000).collect::<String>()));
+                    chunks.push(format!(
+                        "--- {} ---\n{}",
+                        rel,
+                        text.chars().take(8000).collect::<String>()
+                    ));
                 }
             } else if p.is_dir() {
                 if let Ok(entries) = fs::read_dir(&p) {
@@ -849,9 +1089,9 @@ impl AiTools {
                                     name,
                                     text.chars().take(4000).collect::<String>()
                                 ));
-        }
-    }
-}
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -865,21 +1105,28 @@ impl AiTools {
     /// Live URL Scanner — uses browser to fetch content then passes to BugTraceAI
     pub(crate) async fn handle_apex_scan_url(&self, url: &str) -> Result<Value> {
         let browser_state = &self.browser_state;
-        
+
         // 1. Fetch content using the stealth browser
-        browser_state.ensure_started().await.map_err(|e| anyhow!("browser start failed: {e}"))?;
+        browser_state
+            .ensure_started()
+            .await
+            .map_err(|e| anyhow!("browser start failed: {e}"))?;
         println!("[APEX-SCAN] Navigating to {} for live audit...", url);
-        browser_state.cmd("navigate", json!({ "url": url }), 60).await
+        browser_state
+            .cmd("navigate", json!({ "url": url }), 60)
+            .await
             .map_err(|e| anyhow!("navigate failed: {e}"))?;
         browser_state.refresh_cache(url).await;
 
         let mut browser_lock = browser_state.browser.lock().await;
-        let browser_wrapper = browser_lock.as_mut().ok_or_else(|| anyhow!("Browser not launched"))?;
+        let browser_wrapper = browser_lock
+            .as_mut()
+            .ok_or_else(|| anyhow!("Browser not launched"))?;
         let session = &mut browser_wrapper.0;
 
         let html = session.html.clone();
         let text = session.text.clone();
-        
+
         drop(browser_lock); // Release browser lock
 
         // 2. Wrap into a "pseudo-code" or report format for BugTraceAI
@@ -891,15 +1138,26 @@ impl AiTools {
         // 3. Invoke Red Team scan on the extracted web context
         println!("[APEX-SCAN] Analyzing live content with BugTraceAI-Apex...");
         let apex_guard = self.apex.lock().await;
-        let apex = apex_guard.as_ref().ok_or_else(|| anyhow!("APEX not initialized"))?;
-        
-        let report = apex.red_team().scan(crate::apex_red_team::RedTeamScanRequest {
-            target_code: combined_context,
-            file_path: url.to_string(),
-            language: "web_content".to_string(),
-            scan_depth: crate::apex_red_team::ScanDepth::Deep,
-            focus_areas: vec!["XSS".to_string(), "SQLi".to_string(), "CSRF".to_string(), "Auth Bypass".to_string()],
-        }).await.map_err(|e| anyhow!(e))?;
+        let apex = apex_guard
+            .as_ref()
+            .ok_or_else(|| anyhow!("APEX not initialized"))?;
+
+        let report = apex
+            .red_team()
+            .scan(crate::apex_red_team::RedTeamScanRequest {
+                target_code: combined_context,
+                file_path: url.to_string(),
+                language: "web_content".to_string(),
+                scan_depth: crate::apex_red_team::ScanDepth::Deep,
+                focus_areas: vec![
+                    "XSS".to_string(),
+                    "SQLi".to_string(),
+                    "CSRF".to_string(),
+                    "Auth Bypass".to_string(),
+                ],
+            })
+            .await
+            .map_err(|e| anyhow!(e))?;
 
         Ok(json!(report))
     }
@@ -908,12 +1166,19 @@ impl AiTools {
         // Emit agent_editing_file for any write operation so the frontend can
         // show the Windsurf-style "agent hands" cursor in the active editor.
         const WRITE_OPS: &[&str] = &[
-            "write_to_file", "str_replace", "search_replace_edit", "fast_apply",
-            "patch_file_content", "apply_shadow_patch", "replace_file_content",
-            "multi_replace_file_content", "apply_patch",
+            "write_to_file",
+            "str_replace",
+            "search_replace_edit",
+            "fast_apply",
+            "patch_file_content",
+            "apply_shadow_patch",
+            "replace_file_content",
+            "multi_replace_file_content",
+            "apply_patch",
         ];
         if WRITE_OPS.contains(&name) {
-            let path = arguments.get("path")
+            let path = arguments
+                .get("path")
                 .or_else(|| arguments.get("file_path"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
@@ -1003,7 +1268,9 @@ impl AiTools {
     pub(crate) async fn handle_browser_tool(&self, name: &str, arguments: Value) -> Result<Value> {
         match name {
             "browser_close" => self.browser_close(arguments).await,
-            "browser_capture_vision_context" => self.browser_capture_vision_context(arguments).await,
+            "browser_capture_vision_context" => {
+                self.browser_capture_vision_context(arguments).await
+            }
             "browser_open" => self.browser_open(arguments).await,
             "browser_navigate" => self.browser_navigate(arguments).await,
             "browser_search" => self.browser_search(arguments).await,
@@ -1065,11 +1332,11 @@ impl AiTools {
             parser
                 .set_language(&lang)
                 .map_err(|e| anyhow!(e.to_string()))?;
-            
+
             let t = parser
                 .parse(&content, None)
                 .ok_or_else(|| anyhow!("Parse failed"))?;
-            
+
             let query_str = match ext {
                 "rs" => "(function_item name: (identifier) @name) @item (struct_item name: (type_identifier) @name) @item (enum_item name: (type_identifier) @name) @item (trait_item name: (type_identifier) @name) @item (impl_item type: (type_identifier) @name) @item",
                 "ts" | "tsx" => "(function_declaration name: (identifier) @name) @item (class_declaration name: (identifier) @name) @item (interface_declaration name: (identifier) @name) @item (variable_declarator name: (identifier) @name value: (arrow_function)) @item",
@@ -1250,7 +1517,9 @@ impl AiTools {
         file.write_all(entry_formatted.as_bytes())?;
 
         // Signal task update
-        let _ = self.manage_task(json!({ "task_id": "Recursive Learning", "status": "done" })).await;
+        let _ = self
+            .manage_task(json!({ "task_id": "Recursive Learning", "status": "done" }))
+            .await;
 
         Ok(json!({ "status": "success", "file": "MEMORY.md" }))
     }

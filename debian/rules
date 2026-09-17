@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+export DH_VERBOSE = 1
+export CARGO_HOME = $(CURDIR)/debian/cargo_home
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release --manifest-path src-native/Cargo.toml
+
+override_dh_auto_install:
+	install -d $(DESTDIR)/usr/bin
+	install -m 755 target/release/vscodium-rust $(DESTDIR)/usr/bin/vscodium-rust
+	install -m 755 debian/vscodium-ip-panel $(DESTDIR)/usr/bin/vscodium-ip-panel
+	install -d $(DESTDIR)/usr/share/applications
+	install -m 644 debian/vscodium-rust.desktop $(DESTDIR)/usr/share/applications/vscodium-rust.desktop
+	install -d $(DESTDIR)/usr/share/icons/hicolor/512x512/apps
+	install -m 644 src-tauri/icons/icon.png $(DESTDIR)/usr/share/icons/hicolor/512x512/apps/vscodium-rust.png
+	install -d $(DESTDIR)/usr/share/metainfo
+	install -m 644 debian/vscodium-rust.metainfo.xml $(DESTDIR)/usr/share/metainfo/vscodium-rust.metainfo.xml
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -rf target/ debian/cargo_home/

@@ -1,51 +1,51 @@
+use ropey::Rope;
 use std::collections::HashMap;
+use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::io::Write;
-use std::fs;
-use ropey::Rope;
 
-use portable_pty::{Child, MasterPty};
-use crate::domain::{Settings};
-use crate::lsp;
-use crate::context_key::{ContextKeyRegistry};
-#[cfg(feature = "tauri")]
-use crate::extension_host::ExtensionHostManager;
-use crate::keybindings::KeybindingRegistry;
-#[cfg(feature = "tauri")]
-use crate::debug_adapter::DebugManager;
 #[cfg(feature = "tauri")]
 use crate::activation::ActivationManager;
-use crate::performance::PerformanceMonitor;
 use crate::ai_engine::Sentient;
-use crate::browser;
-use crate::mcp_registry::McpRegistry;
 use crate::ai_tools;
-use crate::memory_store;
-use crate::memory_optimizer;
-use crate::specs_db;
-use crate::workers;
-use crate::attachment_manager::{AttachmentManager};
-use crate::knowledge_distiller::KnowledgeDistiller;
-use crate::patch_engine;
-use crate::semantic_firewall::SemanticFirewall;
-use crate::ghost_runtime;
-use crate::kairos;
-use crate::mcp_server;
-use crate::vfs_bridge;
-use crate::shadow_workspace;
-use crate::memory_layer;
-use crate::hades_harness;
+use crate::apex_orchestrator::ApexOrchestrator;
+use crate::attachment_manager::AttachmentManager;
+use crate::browser;
 use crate::code_bloat_enforcer::CodeBloatEnforcer;
 use crate::context_indexer::ContextIndexer;
-use crate::structural_blueprints::StructuralBlueprints;
-use crate::vector_indexer::VectorIndexer;
-use crate::git_checkpoints::GitCheckpoint;
+use crate::context_key::ContextKeyRegistry;
 #[cfg(feature = "tauri")]
-use crate::iphone_emulator::IPhoneEmulatorManager;
+use crate::debug_adapter::DebugManager;
+use crate::domain::Settings;
+#[cfg(feature = "tauri")]
+use crate::extension_host::ExtensionHostManager;
+use crate::ghost_runtime;
+use crate::git_checkpoints::GitCheckpoint;
+use crate::hades_harness;
 #[cfg(feature = "tauri")]
 use crate::hades_vision;
-use crate::apex_orchestrator::ApexOrchestrator;
+#[cfg(feature = "tauri")]
+use crate::iphone_emulator::IPhoneEmulatorManager;
+use crate::kairos;
+use crate::keybindings::KeybindingRegistry;
+use crate::knowledge_distiller::KnowledgeDistiller;
+use crate::lsp;
+use crate::mcp_registry::McpRegistry;
+use crate::mcp_server;
+use crate::memory_layer;
+use crate::memory_optimizer;
+use crate::memory_store;
+use crate::patch_engine;
+use crate::performance::PerformanceMonitor;
+use crate::semantic_firewall::SemanticFirewall;
+use crate::shadow_workspace;
+use crate::specs_db;
+use crate::structural_blueprints::StructuralBlueprints;
+use crate::vector_indexer::VectorIndexer;
+use crate::vfs_bridge;
+use crate::workers;
+use portable_pty::{Child, MasterPty};
 #[cfg(feature = "tauri")]
 use tauri::Manager;
 
@@ -134,7 +134,7 @@ fn resolve_startup_root(config_dir: &PathBuf) -> PathBuf {
 /// Default local model. Lemonade is the only local backend (real llama.cpp).
 /// Measured on this hardware: ~15.9 tok/s, 8/8 tool calls, and proven over a
 /// 12-hour agentic session. See the Lemonade notes in MEMORY.md.
-pub const DEFAULT_LOCAL_MODEL: &str = "Qwen3.6-35B-A3B-Abliterated-Heretic-GGUF-Q4_K_M";
+pub const DEFAULT_LOCAL_MODEL: &str = "Qwen3.8-27B-GGUF-IQ3_XXS";
 
 /// PTY terminal state. `pending` is the PRIMARY terminal transport — the
 /// frontend polls it via `terminal_take_pending` (global `terminal-data`
@@ -224,7 +224,8 @@ pub struct ServiceState {
     /// Pending tool-permission approvals: tool_id → oneshot sender.
     /// Backend emits `tool_permission_request`, then awaits the sender.
     /// Frontend responds via `respond_tool_permission` command.
-    pub tool_permissions: Arc<std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    pub tool_permissions:
+        Arc<std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
 }
 
 pub struct EditorState {
@@ -238,8 +239,6 @@ pub struct EditorState {
     pub memory: MemoryState,
     pub services: ServiceState,
     pub config_dir: PathBuf,
-    #[cfg(feature = "tauri")]
-    #[cfg(feature = "tauri")]
     /// Renderer-agnostic UI event sink. The Tauri shell sets a `TauriSink`; a
     /// native (gpui) shell sets its own (often a no-op — the engine also exposes
     /// pollable `activity_log`/`chat_stream_buf`/`pending_proposals` buffers).
@@ -265,7 +264,7 @@ impl EditorState {
     #[cfg(feature = "tauri")]
     pub fn new(app: &tauri::AppHandle) -> Self {
         let boot_t0 = std::time::Instant::now(); // Milestone D metric: EditorState::new duration
-        // DIAGNOSTIC: Capture panics before `panic = "abort"` kills the process.
+                                                 // DIAGNOSTIC: Capture panics before `panic = "abort"` kills the process.
         let crash_log_dir = app
             .path()
             .app_log_dir()
@@ -326,10 +325,13 @@ impl EditorState {
         let perf_monitor = Arc::new(PerformanceMonitor::new());
         let attachment_manager = Arc::new(AttachmentManager::new());
         let knowledge_distiller = Arc::new(KnowledgeDistiller::new(&root));
-        let shadow_workspace = Arc::new(crate::shadow_workspace::ShadowWorkspace::new(root.clone()));
-        let patch_engine = Arc::new(tokio::sync::Mutex::new(patch_engine::PatchEngine::new(shadow_workspace.clone())));
+        let shadow_workspace =
+            Arc::new(crate::shadow_workspace::ShadowWorkspace::new(root.clone()));
+        let patch_engine = Arc::new(tokio::sync::Mutex::new(patch_engine::PatchEngine::new(
+            shadow_workspace.clone(),
+        )));
         let ghost_runtime = Arc::new(ghost_runtime::GhostRuntime::new(root.clone()));
-        
+
         let sentient = Arc::new(Sentient::new(
             "".to_string(), // Initial empty API key
             root.clone(),
@@ -344,11 +346,11 @@ impl EditorState {
             ghost_runtime.clone(),
             shadow_workspace.clone(),
         ));
-        
+
         let airi_bridge = crate::airi_bridge::AiriBridge::new();
         let airi_clone = airi_bridge.clone();
         let app_airi = app.clone();
-        
+
         crate::event_sink::spawn_detached(async move {
             airi_clone.init(app_airi).await;
         });
@@ -359,7 +361,7 @@ impl EditorState {
             *lock = Some(airi_bridge);
             println!("[DEBUG] Sentient initialized");
         });
-        
+
         let memory_layer = {
             let mut ml = memory_layer::MemoryLayer::new(root.clone());
             ml.set_memory_store(sentient.memory_store.clone());
@@ -372,7 +374,7 @@ impl EditorState {
             patch_engine.clone(),
             ghost_runtime.clone(),
         ));
-        
+
         // NOTE: engine subsystems (sentient/ai_tools/memory_store/patch_engine)
         // get their EditorState back-reference via `wire_back_refs()` in lib.rs,
         // right after the state is wrapped in an Arc. No AppHandle plumbing here.
@@ -398,12 +400,11 @@ impl EditorState {
         // runs when the user explicitly invokes vector_search, which loads
         // the SQLite-backed embeddings on demand. Saves 50-100MB at startup.
         let vector_indexer = Arc::new(
-            VectorIndexer::new(root.clone(), config_dir.clone())
-                .unwrap_or_else(|e| {
-                    eprintln!("[VectorIndexer] init failed ({e}); using config dir fallback");
-                    VectorIndexer::new(config_dir.join("default_workspace"), config_dir.clone())
-                        .expect("Failed to init vector indexer in config dir")
-                }),
+            VectorIndexer::new(root.clone(), config_dir.clone()).unwrap_or_else(|e| {
+                eprintln!("[VectorIndexer] init failed ({e}); using config dir fallback");
+                VectorIndexer::new(config_dir.join("default_workspace"), config_dir.clone())
+                    .expect("Failed to init vector indexer in config dir")
+            }),
         );
         {
             let vi_for_tools = vector_indexer.clone();
@@ -426,8 +427,14 @@ impl EditorState {
             ext_dirs.push(builtin_ext_dir);
         }
 
-        let specs_db = Arc::new(specs_db::SpecDb::new(config_dir.join("specs.db")).expect("Failed to init specs DB"));
-        let worker_manager = Arc::new(workers::WorkerManager::new(specs_db.clone(), sentient.clone(), root.clone()));
+        let specs_db = Arc::new(
+            specs_db::SpecDb::new(config_dir.join("specs.db")).expect("Failed to init specs DB"),
+        );
+        let worker_manager = Arc::new(workers::WorkerManager::new(
+            specs_db.clone(),
+            sentient.clone(),
+            root.clone(),
+        ));
 
         let wm_clone = worker_manager.clone();
         crate::event_sink::spawn_detached(async move {
@@ -474,7 +481,6 @@ impl EditorState {
             println!("[profile] built-in MCP listener (:1539) not auto-started (opt-in via mcp_builtin.enabled)");
         }
 
-
         // Shared diagnostics map — owned by EditorState, borrowed by LspClient
         let shared_lsp_diags: lsp::DiagnosticsMap =
             Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
@@ -495,7 +501,10 @@ impl EditorState {
             });
         }
 
-        tracing::info!(elapsed_ms = boot_t0.elapsed().as_millis() as u64, "EditorState::new complete");
+        tracing::info!(
+            elapsed_ms = boot_t0.elapsed().as_millis() as u64,
+            "EditorState::new complete"
+        );
         Self {
             editor: EditorCore {
                 buffers: tokio::sync::Mutex::new(HashMap::new()),
@@ -528,7 +537,11 @@ impl EditorState {
                     ane
                 },
                 apex: {
-                    let apex_inst = Arc::new(ApexOrchestrator::new("http://localhost:1536", Some(root), Some(config_dir.clone())));
+                    let apex_inst = Arc::new(ApexOrchestrator::new(
+                        "http://localhost:1536",
+                        Some(root),
+                        Some(config_dir.clone()),
+                    ));
                     let apex_for_tools = apex_inst.clone();
                     let tools = sentient.ai_tools.clone();
                     crate::event_sink::spawn_detached(async move {
@@ -540,15 +553,19 @@ impl EditorState {
                     "http://localhost:1536",
                     "qwen2.5vl",
                     DEFAULT_LOCAL_MODEL,
-                    false
+                    false,
                 )),
                 harness: hades_harness,
             },
             mobile: MobileState {
                 active_device: tokio::sync::Mutex::new(None),
                 android_sdk_path: tokio::sync::Mutex::new(None),
-                android: Arc::new(crate::architecture::application::android_service::AndroidService::new()),
-                gradle: Arc::new(crate::architecture::application::gradle_service::GradleService::new()),
+                android: Arc::new(
+                    crate::architecture::application::android_service::AndroidService::new(),
+                ),
+                gradle: Arc::new(
+                    crate::architecture::application::gradle_service::GradleService::new(),
+                ),
                 logcat: Arc::new(crate::logcat_service::LogcatService::new()),
                 iphone: Arc::new(IPhoneEmulatorManager::new()),
             },
@@ -582,9 +599,9 @@ impl EditorState {
                 git_checkpoints,
                 patch_engine,
                 shadow_workspace,
-                firewall: Arc::new(tokio::sync::Mutex::new(
-                    SemanticFirewall::new(shared_lsp_diags.clone()),
-                )),
+                firewall: Arc::new(tokio::sync::Mutex::new(SemanticFirewall::new(
+                    shared_lsp_diags.clone(),
+                ))),
                 ghost_runtime,
                 kairos,
                 // Share the same Arc as Sentient so respond_tool_permission resolves
@@ -611,8 +628,11 @@ impl EditorState {
         let perf_monitor = Arc::new(PerformanceMonitor::new());
         let attachment_manager = Arc::new(AttachmentManager::new());
         let knowledge_distiller = Arc::new(KnowledgeDistiller::new(&root));
-        let shadow_workspace = Arc::new(crate::shadow_workspace::ShadowWorkspace::new(root.clone()));
-        let patch_engine = Arc::new(tokio::sync::Mutex::new(patch_engine::PatchEngine::new(shadow_workspace.clone())));
+        let shadow_workspace =
+            Arc::new(crate::shadow_workspace::ShadowWorkspace::new(root.clone()));
+        let patch_engine = Arc::new(tokio::sync::Mutex::new(patch_engine::PatchEngine::new(
+            shadow_workspace.clone(),
+        )));
         let ghost_runtime = Arc::new(ghost_runtime::GhostRuntime::new(root.clone()));
 
         let sentient = Arc::new(Sentient::new(
@@ -647,38 +667,26 @@ impl EditorState {
             sentient.memory_store.clone(),
             root.clone(),
         ));
-        let ci_for_spawn = context_indexer.clone();
-        crate::event_sink::spawn_detached(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-            ci_for_spawn.start_background_indexing().await;
-        });
-
+        // Optimization: Local AI stays dormant on launch unless user starts it.
+        // Background indexing and worker loops are NOT spawned automatically.
         let vector_indexer = Arc::new(
-            VectorIndexer::new(root.clone(), config_dir.clone())
-                .unwrap_or_else(|e| {
-                    eprintln!("[VectorIndexer] init failed ({e}); using config dir fallback");
-                    VectorIndexer::new(config_dir.join("default_workspace"), config_dir.clone())
-                        .expect("Failed to init vector indexer in config dir")
-                }),
+            VectorIndexer::new(root.clone(), config_dir.clone()).unwrap_or_else(|e| {
+                eprintln!("[VectorIndexer] init failed ({e}); using config dir fallback");
+                VectorIndexer::new(config_dir.join("default_workspace"), config_dir.clone())
+                    .expect("Failed to init vector indexer in config dir")
+            }),
         );
-        {
-            let vi_for_tools = vector_indexer.clone();
-            let tools = sentient.ai_tools.clone();
-            crate::event_sink::spawn_detached(async move {
-                tools.set_vector_indexer(vi_for_tools).await;
-            });
-        }
-
         let bloat_enforcer = Arc::new(tokio::sync::Mutex::new(CodeBloatEnforcer::new()));
         let blueprints = Arc::new(StructuralBlueprints::new(root.clone()));
         let git_checkpoints = Arc::new(GitCheckpoint::new(root.clone()));
-
-        let specs_db = Arc::new(specs_db::SpecDb::new(config_dir.join("specs.db")).expect("Failed to init specs DB"));
-        let worker_manager = Arc::new(workers::WorkerManager::new(specs_db.clone(), sentient.clone(), root.clone()));
-        let wm_clone = worker_manager.clone();
-        crate::event_sink::spawn_detached(async move {
-            wm_clone.start_loop().await;
-        });
+        let specs_db = Arc::new(
+            specs_db::SpecDb::new(config_dir.join("specs.db")).expect("Failed to init specs DB"),
+        );
+        let worker_manager = Arc::new(workers::WorkerManager::new(
+            specs_db.clone(),
+            sentient.clone(),
+            root.clone(),
+        ));
 
         let kairos = Arc::new(kairos::KairosEngine::new(
             context_indexer.clone(),
@@ -723,7 +731,11 @@ impl EditorState {
                     ane
                 },
                 apex: {
-                    let apex_inst = Arc::new(ApexOrchestrator::new("http://localhost:1536", Some(root), Some(config_dir.clone())));
+                    let apex_inst = Arc::new(ApexOrchestrator::new(
+                        "http://localhost:1536",
+                        Some(root),
+                        Some(config_dir.clone()),
+                    ));
                     let apex_for_tools = apex_inst.clone();
                     let tools = sentient.ai_tools.clone();
                     crate::event_sink::spawn_detached(async move {
@@ -756,9 +768,9 @@ impl EditorState {
                 git_checkpoints,
                 patch_engine,
                 shadow_workspace,
-                firewall: Arc::new(tokio::sync::Mutex::new(
-                    SemanticFirewall::new(shared_lsp_diags.clone()),
-                )),
+                firewall: Arc::new(tokio::sync::Mutex::new(SemanticFirewall::new(
+                    shared_lsp_diags.clone(),
+                ))),
                 ghost_runtime,
                 kairos,
                 tool_permissions: sentient.permission_senders.clone(),

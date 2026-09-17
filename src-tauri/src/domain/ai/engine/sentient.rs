@@ -235,7 +235,7 @@ impl Sentient {
         let ane_engine = Arc::new(tokio::sync::Mutex::new(None));
 
         let client = Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(10))
+            .connect_timeout(std::time::Duration::from_secs(120))
             // 24/7 coding: a long local generation (or a cold model load) must NOT be
             // killed by a total-request cap. The real hang guard is the per-chunk
             // inter-token timeout in the streaming loop (no bytes for N s → error).

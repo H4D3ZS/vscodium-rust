@@ -1,0 +1,22 @@
+[Desktop Entry]
+Name=VSCodium Rust
+Comment=Native GPU-accelerated Code Editor & Security IDE
+GenericName=Text Editor
+Exec=vscodium-rust %F
+Icon=vscodium-rust
+Type=Application
+StartupNotify=true
+StartupWMClass=vscodium-rust
+Categories=Development;IDE;Utility;Security;
+MimeType=text/plain;inode/directory;
+Actions=new-window;device-window;
+
+[Desktop Action new-window]
+Name=New Window
+Exec=vscodium-rust --new-window %F
+Icon=vscodium-rust
+
+[Desktop Action device-window]
+Name=Open Device Mirror Panel
+Exec=vscodium-ip-panel
+Icon=vscodium-rust

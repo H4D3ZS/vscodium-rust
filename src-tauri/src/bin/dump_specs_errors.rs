@@ -2,8 +2,10 @@ use rusqlite::Connection;
 use std::path::PathBuf;
 
 fn main() {
-    let db_path =
-        PathBuf::from(r"C:\Users\HADES\AppData\Roaming\com.hades.vscode-rust-app\specs.db");
+    let appdata = std::env::var("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."));
+    let db_path = appdata.join("com.hades.vscode-rust-app").join("specs.db");
     let conn = Connection::open(&db_path).expect("Failed to open DB");
 
     let mut stmt = conn

@@ -1,0 +1,44 @@
+version: 1
+script:
+  - echo "AppImageBuilder for VSCodium Rust"
+
+AppDir:
+  path: ./AppDir
+  app_info:
+    id: org.parrotsec.vscodium-rust
+    name: VSCodium Rust
+    icon: vscodium-rust
+    version: !ENV ${VERSION:-1.0.0}
+    exec: usr/bin/vscodium-rust
+    exec_args: $@
+
+  files:
+    include:
+      - usr/bin/vscodium-rust
+      - usr/bin/binaries/**
+      - usr/bin/ext-host/**
+      - usr/share/applications/vscodium-rust.desktop
+      - usr/share/icons/hicolor/512x512/apps/vscodium-rust.png
+
+  runtime:
+    env:
+      # Ensure Vulkan ICD is discoverable
+      VK_ICD_FILENAMES: "${APPDIR}/usr/share/vulkan/icd.d/*.json"
+
+  apt:
+    arch: amd64
+    sources:
+      - sourceline: deb http://deb.debian.org/debian bookworm main
+    include:
+      - libx11-6
+      - libxkbcommon0
+      - libfontconfig1
+      - libwayland-client0
+      - libvulkan1
+      - libegl1
+      - libgbm1
+
+AppImage:
+  arch: x86_64
+  comp: gzip
+  update-information: guess

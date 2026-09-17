@@ -37,6 +37,8 @@ tauri = [
     "dep:tauri-plugin-dialog",
     "dep:daemon",
     "dep:candle-core",
+    "dep:aim-proxy",
+    "dep:half",
 ]
 
 [dependencies]
@@ -67,10 +69,10 @@ walkdir = "2"
 tauri-plugin-dialog = { version = "2", optional = true }
 portable-pty = "0.9.0"
 tokio-util = { version = "0.7.10", features = ["codec"] }
-lsp-types = "0.94.1"
+lsp-types = "0.97"
 axum = "0.7"
 anyhow = "1"
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
 ripgrep = "15.1.0"
 ripgrep-api = "0.2.0"
 sysinfo = "0.30"
@@ -94,10 +96,10 @@ rusqlite = { version = "0.39.0", features = ["bundled"] }
 chrono = "0.4"
 dirs = "5"
 libaim = { path = "../kortex/libaim" }
-aim-proxy = { path = "../kortex/aim-proxy" }
+aim-proxy = { path = "../kortex/aim-proxy", optional = true }
 daemon = { path = "../kortex/daemon", optional = true }
 candle-core = { version = "=0.7.1", optional = true }
-half = { version = "2.3", default-features = false, features = ["num-traits", "rand_distr"] }
+half = { version = "2.3", default-features = false, features = ["num-traits", "rand_distr"], optional = true }
 which = "6.0"
 diffy = "0.3"
 notify = "6.1"

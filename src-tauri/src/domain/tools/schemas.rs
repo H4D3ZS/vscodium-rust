@@ -1,7 +1,7 @@
 //! Tool schema catalog: list_tools() JSON definitions + canonical naming.
-use serde_json::json;
 use super::registry::AiTools;
 use super::registry::ToolDefinition;
+use serde_json::json;
 
 /// Construct a ToolDefinition from name, description, and JSON schema.
 fn td(name: &str, desc: &str, schema: serde_json::Value) -> ToolDefinition {
@@ -16,10 +16,9 @@ fn td(name: &str, desc: &str, schema: serde_json::Value) -> ToolDefinition {
 fn obj_schema(required: &[&str], props: serde_json::Value) -> serde_json::Value {
     let mut s = json!({ "type": "object", "properties": props });
     if !required.is_empty() {
-        s.as_object_mut().unwrap().insert(
-            "required".to_string(),
-            json!(required),
-        );
+        s.as_object_mut()
+            .unwrap()
+            .insert("required".to_string(), json!(required));
     }
     s
 }
@@ -293,6 +292,119 @@ impl AiTools {
                obj_schema(&["type"], json!({ "type": str_prop("Payload type") }))),
             td("oast_interactions", "Check for OAST interactions.",
                obj_schema(&[], json!({}))),
+
+            // ── Sentinel (FlutterSentinel bug-bounty stack) ──
+            td("sentinel_analyze_jwt", "Analyze a JWT: decode headers/claims, flag alg=none, brute common HMAC secrets, check exp/iat. Returns issue list with severity. Use on any JWT from the target.",
+               obj_schema(&["token"], json!({
+                   "token": str_prop("The JWT (3 dot-separated segments)"),
+                   "provided_secret": opt_str("Known/guest secret to verify against, if any")
+               }))),
+            td("sentinel_forge_jwt", "Forge a JWT for testing (alg=none, HS256/384/512). Supply role/escalation claims and (for HS*) a recovered secret. Only for targets in-scope.",
+               obj_schema(&["payload", "alg"], json!({
+                   "payload": json!({ "type": "object", "description": "Claims to forge, e.g. {\"sub\":\"admin\",\"role\":\"admin\"}" }),
+                   "secret": opt_str("HMAC secret (HS256/384/512); omit for alg=none"),
+                   "alg": str_prop("HS256 | HS384 | HS512 | none")
+               }))),
+            td("sentinel_rsa_recover", "Recover an RSA private key from a weak modulus (small prime factor) — n_hex/e_hex. Returns p, q, d.",
+               obj_schema(&["n_hex"], json!({
+                   "n_hex": str_prop("Modulus N as hex"),
+                   "e_hex": opt_str("Public exponent as hex (default 10001)")
+               }))),
+            td("sentinel_analyze_crypto", "Scan text/code for weak-crypto usage: MD5, SHA-1, RC4, DES, ECB, static IV, hardcoded salt, PEM private keys.",
+               obj_schema(&["text"], json!({ "text": str_prop("Blob to scan") }))),
+            td("sentinel_scan_secrets", "Scan text for hardcoded provider secrets (GitHub/Slack/Stripe/AWS/OpenAI/Google/Twilio) with entropy scoring. Values are redacted unless format-valid.",
+               obj_schema(&["text"], json!({ "text": str_prop("Text to scan") }))),
+            td("sentinel_validate_secret", "Structurally validate a secret candidate for a provider (no network).",
+               obj_schema(&["kind", "value"], json!({
+                   "kind": str_prop("github | slack | stripe | aws | openai | google | twilio | generic"),
+                   "value": str_prop("Secret candidate")
+               }))),
+            td("sentinel_gen_poc", "Generate a runnable Python PoC for a finding class (rce/ssrf/sqli/xss/idor/jwt_none/rsa_weak/path_traversal). Writes to sentinel work_dir/pocs.",
+               obj_schema(&["kind", "target", "endpoint"], json!({
+                   "kind": str_prop("rce | ssrf | sqli | xss | idor | jwt_none | rsa_weak | path_traversal | generic"),
+                   "target": str_prop("scheme://host[:port]"),
+                   "endpoint": str_prop("Path, e.g. /api/search"),
+                   "method": opt_str("GET/POST (default GET)"),
+                   "param": opt_str("Vulnerable parameter (default q)"),
+                   "auth_header": opt_str("Authorization header value, if authed"),
+                   "extra": opt_str("Kind-specific: OAST collab URL (ssrf) or modulus hex (rsa_weak)")
+               }))),
+            td("sentinel_make_report", "Render a platform-ready bug bounty report (HackerOne/Bugcrowd/Intigriti/YesWeHack) with CVSS estimate. Writes to sentinel work_dir/reports and saves a draft row.",
+               obj_schema(&["platform", "title", "target", "severity"], json!({
+                   "platform": str_prop("hackerone | bugcrowd | intigriti | yeswehack | generic"),
+                   "title": str_prop("Finding title"),
+                   "target": str_prop("Affected asset/domain"),
+                   "severity": str_prop("critical | high | medium | low | info"),
+                   "cwe": opt_str("CWE id, e.g. CWE-79"),
+                   "owasp": opt_str("OWASP category"),
+                   "description": opt_str("Summary/description"),
+                   "evidence": opt_str("Request/response or PoC output"),
+                   "remediation": opt_str("Suggested fix")
+               }))),
+            td("sentinel_sidecar_status", "Status of the FlutterSentinel sidecars (fbhbot :3001, backend :4000, mobsf :8000, ai-hunter :3000).",
+               obj_schema(&[], json!({}))),
+            td("sentinel_sidecar_start", "Start a FlutterSentinel service as a hidden sidecar.",
+               obj_schema(&["kind"], json!({ "kind": str_prop("fbhbot | backend | mobsf | ai-hunter | mcp-server") }))),
+            td("sentinel_sidecar_stop", "Stop a running FlutterSentinel sidecar.",
+               obj_schema(&["kind"], json!({ "kind": str_prop("fbhbot | backend | mobsf | ai-hunter | mcp-server") }))),
+            td("sentinel_stats", "Bug-bounty work stats: targets, findings, open findings, reports, severity distribution.",
+               obj_schema(&[], json!({}))),
+            td("sentinel_list_findings", "List findings (optionally filtered by target_id).",
+               obj_schema(&[], json!({ "target_id": opt_str("Filter by target") }))),
+            td("sentinel_list_targets", "List bug-bounty targets in the work DB.",
+               obj_schema(&[], json!({}))),
+            td("sentinel_create_target", "Register a new bug-bounty target in the work DB.",
+               obj_schema(&["name"], json!({
+                   "name": str_prop("Target name/domain"),
+                   "root_domain": opt_str("Root domain"),
+                   "platform": opt_str("hackerone/bugcrowd/..."),
+                   "scope": opt_str("Scope description"),
+                   "program": opt_str("Program label"),
+                   "scope_type": opt_str("wildcard/domain/endpoint")
+               }))),
+            td("sentinel_add_finding", "Log a finding against a target in the work DB.",
+               obj_schema(&["target_id", "title"], json!({
+                   "target_id": str_prop("Target id from sentinel_list_targets"),
+                   "title": str_prop("Finding title"),
+                   "severity": opt_str("critical | high | medium | low | info"),
+                   "cwe": opt_str("CWE id"),
+                   "owasp": opt_str("OWASP category"),
+                   "description": opt_str("Description"),
+                   "evidence": opt_str("Evidence snippet")
+               }))),
+            td("sentinel_mobile_discover", "List APK/AAB/IPA files pending analysis in sentinel work_dir/uploads.",
+               obj_schema(&[], json!({}))),
+            td("sentinel_mobile_assets", "List previously analyzed mobile assets (package, severity, findings count, scan method).",
+               obj_schema(&[], json!({}))),
+            td("sentinel_mobsf_status", "Check the MobSF sidecar: port reachability + REST API ping.",
+               obj_schema(&[], json!({}))),
+            td("sentinel_mobile_analyze", "Run the mobile bounty pipeline on an app: MobSF static analysis (upload->scan->report) or local dex-strings fallback; persists an asset row. Read the analysis.findings/endpoints for reportable bugs.",
+               obj_schema(&["apk"], json!({
+                   "apk": str_prop("APK/AAB/IPA path (absolute, or relative to work_dir/uploads, e.g. from sentinel_mobile_discover)")
+               }))),
+            td("sentinel_mobile_pull", "Pull an installed app from a connected adb device into work_dir/uploads for analysis.",
+               obj_schema(&["package"], json!({ "package": str_prop("Android package id, e.g. com.example.app") }))),
+            td("sentinel_mobile_delete", "Remove a scanned mobile asset row from the work DB.",
+               obj_schema(&["id"], json!({ "id": str_prop("Asset id from sentinel_mobile_assets") }))),
+            td("sentinel_gen_frida_script", "Generate a ready-to-run Frida bypass script (SSL pinning / root-hide). Writes to work_dir/frida.",
+               obj_schema(&["kind"], json!({ "kind": str_prop("ssl_unpin | ssl_unpin_ios | root_hide") }))),
+            td("sentinel_jb_status", "Check jailbreak ops toolchain: go-ios / frida / ssh presence and connected device (expects a jailbroken iPhone over USB).",
+               obj_schema(&[], json!({}))),
+            td("sentinel_jb_devices", "List connected devices via go-ios (udid + raw line).",
+               obj_schema(&[], json!({}))),
+            td("sentinel_jb_apps", "List installed apps on the jailbroken device via go-ios apps.",
+               obj_schema(&["udid"], json!({ "udid": opt_str("Device udid; omit to let go-ios pick the default") }))),
+            td("sentinel_jb_live_scan", "Run a one-shot Frida live scan on the device: enum_classes, trace_objc, sniff_writes, keychain_snoop, openurl_hunter, ssl_unpin. Returns JSON events.",
+               obj_schema(&["target", "kind", "filter"], json!({
+                   "target": str_prop("Bundle id (spawn) or process name"),
+                   "kind": str_prop("enum_classes | trace_objc | sniff_writes | keychain_snoop | openurl_hunter | ssl_unpin"),
+                   "filter": opt_str("Class/regex filter (default .*)")
+               }))),
+            td("sentinel_jb_dump", "Dump an installed app bundle from the jailbroken device, repackage to .ipa, and run the full MobSF/local analysis pipeline. Returns the asset scan.",
+               obj_schema(&["bundle", "udid"], json!({
+                   "bundle": str_prop("Bundle id, e.g. com.example.app"),
+                   "udid": opt_str("Device udid; omit to auto-detect")
+               }))),
 
             // ── Web ──
             td("web_fetch", "Fetch content from a URL.",

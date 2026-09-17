@@ -55,10 +55,10 @@ pub struct RemoteInfo {
     pub url: String,
 }
 
-/// Start the bridge. Idempotent — returns the existing token if already up.
-#[tauri::command]
-pub async fn remote_bridge_start(
-    state: tauri::State<'_, std::sync::Arc<crate::EditorState>>,
+/// Core start logic — call this directly from the gpui shell.
+pub async fn remote_bridge_start_inner(
+    engine: std::sync::Arc<crate::domain::ai::engine::Sentient>,
+    current_model: String,
     port: Option<u16>,
 ) -> Result<RemoteInfo, String> {
     {
@@ -80,8 +80,6 @@ pub async fn remote_bridge_start(
         .map_err(|e| format!("bind 127.0.0.1:{port} failed: {e}"))?;
 
     let (tx, mut rx) = oneshot::channel::<()>();
-    let engine = state.ai.engine.clone();
-    let current_model = state.ai.current_model.lock().await.clone();
     let tok = token.clone();
 
     tokio::spawn(async move {
@@ -107,7 +105,11 @@ pub async fn remote_bridge_start(
         }
     });
 
-    *SERVER.lock().unwrap() = Some(Handle { port, token: token.clone(), shutdown: tx });
+    *SERVER.lock().unwrap() = Some(Handle {
+        port,
+        token: token.clone(),
+        shutdown: tx,
+    });
     Ok(RemoteInfo {
         running: true,
         port,
@@ -116,26 +118,53 @@ pub async fn remote_bridge_start(
     })
 }
 
+/// Tauri command adapter — thin wrapper around `remote_bridge_start_inner`.
+#[cfg(feature = "tauri")]
 #[tauri::command]
-pub async fn remote_bridge_stop() -> Result<(), String> {
+pub async fn remote_bridge_start(
+    state: tauri::State<'_, std::sync::Arc<crate::EditorState>>,
+    port: Option<u16>,
+) -> Result<RemoteInfo, String> {
+    let engine = state.ai.engine.clone();
+    let current_model = state.ai.current_model.lock().await.clone();
+    remote_bridge_start_inner(engine, current_model, port).await
+}
+
+pub async fn remote_bridge_stop_inner() -> Result<(), String> {
     if let Some(h) = SERVER.lock().unwrap().take() {
         let _ = h.shutdown.send(());
     }
     Ok(())
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
-pub async fn remote_bridge_status() -> Result<RemoteInfo, String> {
+pub async fn remote_bridge_stop() -> Result<(), String> {
+    remote_bridge_stop_inner().await
+}
+
+pub async fn remote_bridge_status_inner() -> Result<RemoteInfo, String> {
     let g = SERVER.lock().unwrap();
     Ok(match g.as_ref() {
         Some(h) => RemoteInfo {
             running: true,
             port: h.port,
-            token: String::new(), // status never leaks the token
+            token: String::new(),
             url: format!("ws://127.0.0.1:{}/agent", h.port),
         },
-        None => RemoteInfo { running: false, port: 0, token: String::new(), url: String::new() },
+        None => RemoteInfo {
+            running: false,
+            port: 0,
+            token: String::new(),
+            url: String::new(),
+        },
     })
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub async fn remote_bridge_status() -> Result<RemoteInfo, String> {
+    remote_bridge_status_inner().await
 }
 
 /// Auto-start from `KORTEX_REMOTE=1` (`KORTEX_REMOTE_PORT` optional). Called
@@ -149,7 +178,9 @@ pub fn maybe_autostart(state: std::sync::Arc<crate::EditorState>) {
     if !on {
         return;
     }
-    let port = std::env::var("KORTEX_REMOTE_PORT").ok().and_then(|p| p.parse().ok());
+    let port = std::env::var("KORTEX_REMOTE_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok());
     tokio::spawn(async move {
         // reuse the command body via a lightweight State shim isn't possible;
         // inline the same start path.
@@ -162,10 +193,12 @@ pub fn maybe_autostart(state: std::sync::Arc<crate::EditorState>) {
         let (tx, mut rx) = oneshot::channel::<()>();
         let engine = state.ai.engine.clone();
         let model = state.ai.current_model.lock().await.clone();
-        tracing::info!(
-            "[remote-bridge] autostarted — ws://127.0.0.1:{port}/agent?token={token}"
-        );
-        *SERVER.lock().unwrap() = Some(Handle { port, token: token.clone(), shutdown: tx });
+        tracing::info!("[remote-bridge] autostarted — ws://127.0.0.1:{port}/agent?token={token}");
+        *SERVER.lock().unwrap() = Some(Handle {
+            port,
+            token: token.clone(),
+            shutdown: tx,
+        });
         loop {
             tokio::select! {
                 _ = &mut rx => break,
@@ -201,6 +234,7 @@ fn token_from_request(req: &Request, expected: &str) -> bool {
     false
 }
 
+#[allow(unused_assignments)]
 async fn handle_conn(
     stream: tokio::net::TcpStream,
     token: String,
@@ -234,6 +268,7 @@ async fn handle_conn(
 
     let _ = out_tx.send(Message::Text(json!({ "type": "ready" }).to_string()));
 
+    #[allow(unused_assignments)]
     let mut busy = false;
     while let Some(frame) = source.next().await {
         let frame = match frame {
@@ -265,10 +300,14 @@ async fn handle_conn(
             }
             "prompt" => {
                 if busy {
-                    let _ = out_tx.send(err_frame("a prompt is already running on this connection"));
+                    let _ =
+                        out_tx.send(err_frame("a prompt is already running on this connection"));
                     continue;
                 }
-                let Some(prompt) = v.get("text").and_then(Value::as_str).filter(|s| !s.trim().is_empty())
+                let Some(prompt) = v
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.trim().is_empty())
                 else {
                     let _ = out_tx.send(err_frame("prompt needs a non-empty 'text'"));
                     continue;
@@ -279,7 +318,9 @@ async fn handle_conn(
                     &model,
                     prompt,
                     v.get("mode").and_then(Value::as_str).unwrap_or("Agent"),
-                    v.get("root_access").and_then(Value::as_bool).unwrap_or(false),
+                    v.get("root_access")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                     &out_tx,
                 )
                 .await;

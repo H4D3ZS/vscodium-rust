@@ -20,7 +20,11 @@ fn resolve_vphone_root() -> Option<PathBuf> {
         }
     }
     if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
-        candidates.push(PathBuf::from(&home).join("Desktop").join("Virtual-iPhone-Emulator"));
+        candidates.push(
+            PathBuf::from(&home)
+                .join("Desktop")
+                .join("Virtual-iPhone-Emulator"),
+        );
         candidates.push(
             PathBuf::from(&home)
                 .join("Desktop")
@@ -28,12 +32,6 @@ fn resolve_vphone_root() -> Option<PathBuf> {
                 .join("Virtual-iPhone-Emulator"),
         );
     }
-    candidates.push(PathBuf::from(
-        r"C:\Users\HADES\Desktop\Virtual-iPhone-Emulator",
-    ));
-    candidates.push(PathBuf::from(
-        r"C:\Users\HADES\Desktop\vscodium-rust\Virtual-iPhone-Emulator",
-    ));
     for c in candidates {
         if c.is_dir() {
             return Some(c);
@@ -68,7 +66,7 @@ fn run_script(script: &Path) -> Result<(String, String, i32), String> {
     ))
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "tauri", tauri::command)]
 pub fn resolve_mobile_toolchain_paths() -> Result<Value, String> {
     let root = resolve_vphone_root();
     let toolchain = root.as_ref().map(|r| toolchain_dir(r));
@@ -92,10 +90,11 @@ pub fn resolve_mobile_toolchain_paths() -> Result<Value, String> {
     }))
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "tauri", tauri::command)]
 pub fn run_vphone_doctor() -> Result<Value, String> {
-    let root = resolve_vphone_root()
-        .ok_or_else(|| "Virtual-iPhone-Emulator not found. Set VPHONE_ROOT or clone beside the IDE.".to_string())?;
+    let root = resolve_vphone_root().ok_or_else(|| {
+        "Virtual-iPhone-Emulator not found. Set VPHONE_ROOT or clone beside the IDE.".to_string()
+    })?;
     let tc = toolchain_dir(&root);
     #[cfg(windows)]
     let script = tc.join("vphone-doctor.bat");
@@ -112,7 +111,7 @@ pub fn run_vphone_doctor() -> Result<Value, String> {
     }))
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "tauri", tauri::command)]
 pub fn install_vphone_toolchain() -> Result<Value, String> {
     let root = resolve_vphone_root()
         .ok_or_else(|| "Virtual-iPhone-Emulator not found. Set VPHONE_ROOT.".to_string())?;
@@ -131,7 +130,7 @@ pub fn install_vphone_toolchain() -> Result<Value, String> {
     }))
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "tauri", tauri::command)]
 pub fn get_mobile_toolchain_env() -> Result<Value, String> {
     let root = resolve_vphone_root();
     let developer_dir = root.as_ref().map(|r| {

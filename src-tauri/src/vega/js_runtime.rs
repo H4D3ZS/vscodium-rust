@@ -251,7 +251,7 @@ impl JsModuleHost {
     }
 
     /// Resolve a raw JS alert against the registry, filling in title/severity.
-    pub fn resolve_alert_public(&self, raw: RawAlert, ts_ms: u64) -> Alert {
+    pub(crate) fn resolve_alert_public(&self, raw: RawAlert, ts_ms: u64) -> Alert {
         self.resolve_alert(raw, ts_ms)
     }
 

@@ -121,14 +121,14 @@ pub fn lemonade_role_candidates(role: ModelRole) -> &'static [&'static str] {
         // security work that single-turn benchmarks cannot measure. Do not
         // reorder this on benchmark scores alone.
         ModelRole::Agent => &[
-            "Qwen3.6-35B-A3B-Abliterated-Heretic-GGUF-Q4_K_M",
-            "Huihui-Qwen3.6-35B-A3B-abliterated-MTP-GGUF-Q2_K",
-            "Huihui-gemma-4-12B-agentic-fable5-abliterated-i1-Q4_K_M",
+            "Qwen3.8-27B-GGUF-IQ3_XXS",
+            "Escha-W2-35B-A3B-ROCmFP2-Qwen3.6-35B-A3B-Escha-W2-ROCmFP2.gguf",
+            "Qwen3.5-4B-GGUF-Q5_K_M",
         ],
         // Smallest first — this role is latency-bound, not quality-bound.
         ModelRole::Completion => &[
-            "Qwen3-0.6B-GGUF-BF16",
-            "Huihui-gemma-4-12B-agentic-fable5-abliterated-i1-Q4_K_M",
+            "Qwen3.5-4B-GGUF-Q5_K_M",
+            "Qwen3.8-27B-GGUF-IQ3_XXS",
         ],
         // Capable-but-fast first. gemma-12B is 30.3 tok/s with 8/8 tool calls and
         // is abliterated, so it does not refuse security work. Deliberately NO

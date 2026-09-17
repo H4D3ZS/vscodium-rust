@@ -358,9 +358,14 @@ impl MemoryStore {
     }
 
     /// Surgically update the .aim file: rewrite header with kortex data + existing binary body
-    async fn persist(&self) {
+    pub async fn persist(&self) {
         let path_lock = self.aim_path.read().await;
-        if let Some(path) = path_lock.as_ref() {
+        let fallback_path = std::env::current_dir().ok().map(|d| d.join(".aim").join("memory.aim"));
+        let target_path = path_lock.as_ref().cloned().or(fallback_path);
+        if let Some(path) = target_path {
+            if let Some(parent) = path.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
             let mut header = self.binary_header_raw.read().await.clone();
             
             // Inject current Kortex snapshot into the header
@@ -401,12 +406,19 @@ impl MemoryStore {
     pub async fn store_conversation(&self, messages: &[ChatMessage]) {
         let mut lock = self.messages.write().await;
         lock.clear();
-        lock.extend_from_slice(messages);
+        for m in messages {
+            if m.role != "system" {
+                lock.push(m.clone());
+            }
+        }
         drop(lock);
         self.is_dirty.store(true, Ordering::SeqCst);
     }
 
     pub async fn store_message(&self, message: &ChatMessage) {
+        if message.role == "system" {
+            return;
+        }
         let mut lock = self.messages.write().await;
         lock.push(message.clone());
         // Cap at 500 messages to prevent unbounded growth
@@ -420,6 +432,9 @@ impl MemoryStore {
     }
 
     pub async fn store_message_params(&self, role: String, content: String, timestamp: i64) {
+        if role == "system" {
+            return;
+        }
         let mut lock = self.messages.write().await;
         
         // Phase 25: Enhanced Upsert Logic for Streaming
@@ -1191,10 +1206,13 @@ impl MemoryStore {
     }
 
     pub async fn flush_to_disk(&self) {
-        if self.is_dirty.load(Ordering::SeqCst) {
-            self.persist().await;
-            self.is_dirty.store(false, Ordering::SeqCst);
-        }
+        self.persist().await;
+        self.is_dirty.store(false, Ordering::SeqCst);
+    }
+
+    pub async fn persist_now(&self) {
+        self.persist().await;
+        self.is_dirty.store(false, Ordering::SeqCst);
     }
 
     pub async fn archive_current_session(&self) {

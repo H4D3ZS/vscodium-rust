@@ -11,6 +11,7 @@ pub mod registry;
 pub mod schemas;
 pub mod search_tools;
 pub mod security_tools;
+pub mod sentinel_tools;
 pub mod shell;
 pub mod task_store;
 pub mod terminal_tools;
