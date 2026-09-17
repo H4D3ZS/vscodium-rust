@@ -221,7 +221,7 @@ FlutterSentinel/
 /MobHunt/
 go-ios/
 monaco-editor/
-src-native/
+## src-native/target/ already excluded above (line 164)
 
 # ── Runtime / editor caches ──
 .cursor/
