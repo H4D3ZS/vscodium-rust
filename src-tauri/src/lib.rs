@@ -5,43 +5,45 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 mod state;
 pub use state::EditorState;
+pub mod services;
+pub use services::AppServices;
 pub mod event_sink;
 pub use event_sink::EventSink;
-pub mod vega;
 pub mod infrastructure;
+pub mod vega;
 // ── Overhaul shims (services/workspace/compat batch) — deleted in A1 cleanup.
-pub(crate) use infrastructure::airi_bridge;
 pub(crate) use domain::compat::antigravity_compat;
 #[cfg(feature = "tauri")]
 pub(crate) use domain::workspace::attachment_manager;
+pub(crate) use infrastructure::airi_bridge;
 #[cfg(not(feature = "tauri"))]
 mod attachment_manager_stub;
-#[cfg(not(feature = "tauri"))]
-pub(crate) use attachment_manager_stub as attachment_manager;
-pub(crate) use domain::compat::cursor_compat;
-pub(crate) use infrastructure::ghost_runtime;
-#[cfg(feature = "tauri")]
-pub(crate) use infrastructure::hermes_gateway;
-pub(crate) use domain::extensions::hermes_skills;
-pub(crate) use domain::workspace::ide_shell;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::ai::reliability_stats;
 #[cfg(feature = "tauri")]
 pub use application::jobs;
-pub(crate) use domain::workspace::kairos;
+#[cfg(not(feature = "tauri"))]
+pub(crate) use attachment_manager_stub as attachment_manager;
 #[cfg(feature = "tauri")]
 pub(crate) use domain::ai::ml_studio;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::ai::reliability_stats;
+pub(crate) use domain::compat::cursor_compat;
+pub(crate) use domain::compat::workspace_compat;
+pub(crate) use domain::extensions::hermes_skills;
 pub(crate) use domain::extensions::module_registry;
 pub(crate) use domain::extensions::skill_audit;
 pub(crate) use domain::extensions::skill_store;
+pub(crate) use domain::workspace::ide_shell;
+pub(crate) use domain::workspace::kairos;
 pub use domain::workspace::specs_db;
 #[cfg(feature = "tauri")]
 pub(crate) use domain::workspace::stop_hooks;
-pub use infrastructure::system_profile;
 pub(crate) use domain::workspace::test_runner_service;
 pub(crate) use domain::workspace::visual_lab;
 pub(crate) use domain::workspace::workers;
-pub(crate) use domain::compat::workspace_compat;
+pub(crate) use infrastructure::ghost_runtime;
+#[cfg(feature = "tauri")]
+pub(crate) use infrastructure::hermes_gateway;
+pub use infrastructure::system_profile;
 pub mod application;
 #[cfg(feature = "tauri")]
 pub(crate) use application::asymmetric_orchestrator as triage;
@@ -50,10 +52,6 @@ pub(crate) use application::autonomous_supervisor as supervisor;
 // ── Overhaul shims (commands batch) — deleted in the A1 cleanup commit.
 #[cfg(feature = "tauri")]
 pub(crate) use application::commands::ai as ai_commands;
-#[cfg(feature = "tauri")]
-pub(crate) use application::commands::claude_code as claude_code_commands;
-#[cfg(feature = "tauri")]
-pub(crate) use application::commands::fcc as fcc_commands;
 #[cfg(feature = "tauri")]
 pub(crate) use application::commands::ai_agent as ai_agent_commands;
 #[cfg(feature = "tauri")]
@@ -73,6 +71,8 @@ pub(crate) use application::commands::api_keys as api_keys_commands;
 #[cfg(feature = "tauri")]
 pub(crate) use application::commands::chunk_secrets as chunk_secrets_commands;
 #[cfg(feature = "tauri")]
+pub(crate) use application::commands::claude_code as claude_code_commands;
+#[cfg(feature = "tauri")]
 pub(crate) use application::commands::cursor as cursor_commands;
 #[cfg(feature = "tauri")]
 pub(crate) use application::commands::debug as debug_commands;
@@ -80,6 +80,8 @@ pub(crate) use application::commands::debug as debug_commands;
 pub(crate) use application::commands::editor as editor_commands;
 #[cfg(feature = "tauri")]
 pub(crate) use application::commands::extensions as extensions_commands;
+#[cfg(feature = "tauri")]
+pub(crate) use application::commands::fcc as fcc_commands;
 #[cfg(feature = "tauri")]
 pub(crate) use application::commands::file as file_commands;
 #[cfg(feature = "tauri")]
@@ -119,6 +121,8 @@ pub(crate) use application::commands::remote as remote_commands;
 #[cfg(feature = "tauri")]
 pub(crate) use application::commands::security_generator as security_generator_commands;
 #[cfg(feature = "tauri")]
+pub(crate) use application::commands::sentinel as sentinel_commands;
+#[cfg(feature = "tauri")]
 pub(crate) use application::commands::specs as specs_commands;
 #[cfg(feature = "tauri")]
 pub(crate) use application::commands::system as system_commands;
@@ -144,96 +148,47 @@ pub(crate) use application::commands::workspace as workspace_commands;
 #[cfg(feature = "tauri")]
 pub(crate) use application::commands::workspace_settings as workspace_settings_commands;
 // ── Overhaul shims (infrastructure batch) — deleted in the A1 cleanup commit.
+pub use infrastructure::browser;
 #[cfg(feature = "tauri")]
 pub use infrastructure::browser_actuation;
-pub use infrastructure::process_ext;
-pub use infrastructure::process_registry;
-pub(crate) use infrastructure::browser;
 pub(crate) use infrastructure::mcp_client;
 pub(crate) use infrastructure::mcp_registry;
 pub(crate) use infrastructure::mcp_resolver;
 pub(crate) use infrastructure::mcp_server;
 pub(crate) use infrastructure::performance;
+pub use infrastructure::process_ext;
+pub use infrastructure::process_registry;
 pub(crate) use infrastructure::vfs_bridge;
 
 pub mod domain;
 // ── Overhaul shims: old flat-module paths re-exported from their new DDD homes.
 // Deleted in the A1 cleanup commit. See ARCHITECTURE.md.
-pub(crate) use domain::vcs::git;
-pub(crate) use domain::vcs::git_checkpoints;
-pub(crate) use domain::vcs::patch_engine;
-pub(crate) use domain::vcs::semantic_firewall;
-pub(crate) use domain::vcs::shadow_workspace;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::android_sdk;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::emulator_stream;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::ios_simulator;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::ios_crosscompile;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::ios_package;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::ios_run;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::ios_stream;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::iphone_control;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::iphone_device;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::iphone_deploy;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::iphone_emulator;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::logcat_service;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::mobile_toolchain;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::mobile::scrcpy;
-#[cfg(feature = "tauri")]
-pub use domain::services::auth;
-#[cfg(feature = "tauri")]
-pub use domain::services::account;
-#[cfg(feature = "tauri")]
-pub use domain::services::enterprise_audit;
-#[cfg(feature = "tauri")]
-pub use domain::services::enterprise_governance;
-pub use domain::security::apex_orchestrator;
-pub use domain::security::apex_red_team;
-pub use domain::security::finding_ledger;
-pub use domain::security::pentest_executor;
-pub use domain::security::pentest_report;
-pub use domain::security::pentest_scope;
-pub use domain::security::probe_engine;
-pub use domain::security::sec_distro;
-pub(crate) use domain::security::chunk_secrets;
-pub(crate) use domain::security::intercept_proxy;
-pub(crate) use domain::security::intruder;
-pub(crate) use domain::security::oast;
-pub(crate) use domain::security::repeater;
-pub(crate) use domain::security::security_distiller;
-pub(crate) use domain::security::security_generators;
-pub(crate) use domain::security::security_native;
-pub(crate) use domain::security::security_patterns;
 #[cfg(feature = "tauri")]
 pub(crate) use application::commands::probe as probe_commands;
-pub use domain::memory::aim_store;
-pub use domain::memory::context_quantizer;
-pub use domain::memory::memory_offload;
-pub use domain::memory::memory_optimizer;
-pub(crate) use domain::memory::memory_layer;
-pub(crate) use domain::memory::memory_store;
-pub(crate) use domain::indexing::ann_index;
-pub(crate) use domain::indexing::code_bloat_enforcer;
-pub(crate) use domain::indexing::context_indexer;
-pub(crate) use domain::indexing::embeddings;
-pub(crate) use domain::indexing::knowledge_distiller;
-pub(crate) use domain::indexing::ripgrep_search;
-pub(crate) use domain::indexing::structural_blueprints;
-pub(crate) use domain::indexing::symbols;
-pub(crate) use domain::indexing::vector_indexer;
+pub(crate) use domain::ai::agent_harness;
+pub(crate) use domain::ai::ai_prompts;
+pub use domain::ai::ane;
+pub use domain::ai::ane_inference;
+pub use domain::ai::engine as ai_engine;
+pub use domain::ai::gpu_offload;
+pub(crate) use domain::ai::hades_harness;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::ai::hades_vision;
+pub(crate) use domain::ai::image_gen;
+pub use domain::ai::model_manager;
+pub use domain::ai::optimized_inference;
+pub(crate) use domain::ai::rules_engine;
+pub(crate) use domain::ai::streaming_tool_executor;
+pub(crate) use domain::ai::task_planner;
+pub use domain::ai::tool_aliases;
+pub(crate) use domain::ai::tool_invoker;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::ai::vision;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::ai::vision_bridge;
+pub(crate) use domain::ai::vision_sidecar;
+pub(crate) use domain::ai::workflow_engine;
+pub use domain::correlation;
 #[cfg(feature = "tauri")]
 pub(crate) use domain::editor::debug_adapter;
 pub(crate) use domain::editor::lsp;
@@ -250,30 +205,84 @@ pub(crate) use domain::extensions::context_key;
 pub(crate) use domain::extensions::extension_host;
 pub(crate) use domain::extensions::keybindings;
 pub(crate) use domain::extensions::marketplace;
-pub use domain::ai::engine as ai_engine;
+pub use domain::fingerprint;
+pub(crate) use domain::indexing::ann_index;
+pub(crate) use domain::indexing::code_bloat_enforcer;
+pub(crate) use domain::indexing::context_indexer;
+pub(crate) use domain::indexing::embeddings;
+pub(crate) use domain::indexing::knowledge_distiller;
+pub(crate) use domain::indexing::ripgrep_search;
+pub(crate) use domain::indexing::structural_blueprints;
+pub use domain::indexing::symbols;
+pub use domain::indexing::vector_indexer;
+pub use domain::memory::aim_store;
+pub use domain::memory::context_quantizer;
+pub(crate) use domain::memory::memory_layer;
+pub use domain::memory::memory_offload;
+pub use domain::memory::memory_optimizer;
+pub(crate) use domain::memory::memory_store;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::android_sdk;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::emulator_stream;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::ios_crosscompile;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::ios_package;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::ios_run;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::ios_simulator;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::ios_stream;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::iphone_control;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::iphone_bounty;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::iphone_deploy;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::iphone_device;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::iphone_emulator;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::logcat_service;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::mobile_toolchain;
+#[cfg(feature = "tauri")]
+pub(crate) use domain::mobile::scrcpy;
+pub use domain::security::apex_orchestrator;
+pub use domain::security::apex_red_team;
+pub(crate) use domain::security::chunk_secrets;
+pub use domain::security::finding_ledger;
+pub use domain::security::intercept_proxy;
+pub use domain::security::intruder;
+pub use domain::security::oast;
+pub use domain::security::pentest_executor;
+pub use domain::security::pentest_report;
+pub use domain::security::pentest_scope;
+pub use domain::security::probe_engine;
+pub use domain::security::repeater;
+pub use domain::security::sec_distro;
+pub(crate) use domain::security::security_distiller;
+pub(crate) use domain::security::security_generators;
+pub(crate) use domain::security::security_native;
+pub(crate) use domain::security::security_patterns;
+#[cfg(feature = "tauri")]
+pub use domain::services::account;
+#[cfg(feature = "tauri")]
+pub use domain::services::auth;
+#[cfg(feature = "tauri")]
+pub use domain::services::enterprise_audit;
+#[cfg(feature = "tauri")]
+pub use domain::services::enterprise_governance;
 pub use domain::tools as ai_tools;
-pub use domain::ai::ane;
-pub use domain::ai::ane_inference;
-pub use domain::ai::model_manager;
-pub use domain::ai::gpu_offload;
-pub use domain::ai::optimized_inference;
-pub use domain::ai::tool_aliases;
-pub(crate) use domain::ai::agent_harness;
-pub(crate) use domain::ai::ai_prompts;
-pub(crate) use domain::ai::hades_harness;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::ai::hades_vision;
-pub(crate) use domain::ai::image_gen;
-pub(crate) use domain::ai::rules_engine;
-pub(crate) use domain::ai::streaming_tool_executor;
-pub(crate) use domain::ai::task_planner;
-pub(crate) use domain::ai::tool_invoker;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::ai::vision;
-#[cfg(feature = "tauri")]
-pub(crate) use domain::ai::vision_bridge;
-pub(crate) use domain::ai::vision_sidecar;
-pub(crate) use domain::ai::workflow_engine;
+pub(crate) use domain::vcs::git;
+pub(crate) use domain::vcs::git_checkpoints;
+pub(crate) use domain::vcs::patch_engine;
+pub(crate) use domain::vcs::semantic_firewall;
+pub(crate) use domain::vcs::shadow_workspace;
+pub mod kortex_bin;
 #[cfg(feature = "tauri")]
 pub mod kortex_gac;
 pub mod kortex_harness;
@@ -281,15 +290,14 @@ pub mod kortex_harness;
 pub mod kortex_kvcache;
 #[cfg(feature = "tauri")]
 pub mod kortex_retrieval;
-pub mod kortex_bin;
-pub mod remote_bridge;
 #[cfg(feature = "tauri")]
 pub mod kortex_vfs;
+pub mod remote_bridge;
 
 // ═══ APEX Intelligence Framework ═══
 mod architecture;
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "tauri"))]
 extern "system" {
     fn GetCurrentProcess() -> isize;
     fn SetProcessWorkingSetSize(
@@ -414,6 +422,34 @@ pub fn run() {
             // Ensure config dir exists
             if !state.config_dir.exists() {
                 fs::create_dir_all(&state.config_dir).ok();
+            }
+
+            // ── Sentinel (FlutterSentinel bug-bounty stack) ──
+            // Managed state for the Tauri command layer + global register for
+            // the domain/tools layer (same engine instance either way).
+            {
+                let cfg = state.config_dir.clone();
+                match crate::domain::sentinel::SentinelEngine::new(&cfg) {
+                    Ok(engine) => {
+                        let engine = std::sync::Arc::new(engine);
+                        let _ = crate::domain::sentinel::register(engine.clone());
+                        app.manage(engine.clone());
+                        println!(
+                            "[sentinel] ready — work_dir={} root={:?}",
+                            engine.work_dir().display(),
+                            engine.settings().sentinel_root
+                        );
+                        if engine.settings().auto_start_sidecars {
+                            tauri::async_runtime::spawn(async move {
+                                match engine.bootstrap_sidecars() {
+                                    Ok(v) => println!("[sentinel] sidecars boot: {v}"),
+                                    Err(e) => eprintln!("[sentinel] sidecar boot: {e}"),
+                                }
+                            });
+                        }
+                    }
+                    Err(e) => eprintln!("[sentinel] engine init failed (continuing without): {e}"),
+                }
             }
 
             // Potato mode: <9GB RAM (or HADES_LITE=1) defers/disables non-essential boot work.
@@ -619,6 +655,47 @@ pub fn run() {
             security_generator_commands::security_csp_analyze,
             security_generator_commands::security_shellcode_recipe,
             security_generator_commands::security_encode_payload,
+            // ═══ Sentinel (FlutterSentinel bug-bounty stack) ═══
+            sentinel_commands::sentinel_get_settings,
+            sentinel_commands::sentinel_save_settings,
+            sentinel_commands::sentinel_boot_info,
+            sentinel_commands::sentinel_reload_settings,
+            sentinel_commands::sentinel_stats,
+            sentinel_commands::sentinel_list_targets,
+            sentinel_commands::sentinel_create_target,
+            sentinel_commands::sentinel_update_target,
+            sentinel_commands::sentinel_delete_target,
+            sentinel_commands::sentinel_list_findings,
+            sentinel_commands::sentinel_create_finding,
+            sentinel_commands::sentinel_update_finding_status,
+            sentinel_commands::sentinel_list_reports,
+            sentinel_commands::sentinel_analyze_jwt,
+            sentinel_commands::sentinel_forge_jwt,
+            sentinel_commands::sentinel_analyze_crypto_text,
+            sentinel_commands::sentinel_rsa_recover,
+            sentinel_commands::sentinel_scan_secrets,
+            sentinel_commands::sentinel_validate_secret,
+            sentinel_commands::sentinel_live_secret_check,
+            sentinel_commands::sentinel_gen_poc,
+            sentinel_commands::sentinel_make_report,
+            sentinel_commands::sentinel_sidecars_status,
+            sentinel_commands::sentinel_sidecar_start,
+            sentinel_commands::sentinel_sidecar_stop,
+            sentinel_commands::sentinel_bootstrap_sidecars,
+            sentinel_commands::sentinel_mobile_discover,
+            sentinel_commands::sentinel_mobile_assets,
+            sentinel_commands::sentinel_mobile_analyze,
+            sentinel_commands::sentinel_mobile_pull,
+            sentinel_commands::sentinel_mobile_delete,
+            sentinel_commands::sentinel_mobsf_status,
+            sentinel_commands::sentinel_gen_frida_script,
+            sentinel_commands::sentinel_jb_status,
+            sentinel_commands::sentinel_jb_devices,
+            sentinel_commands::sentinel_jb_apps,
+            sentinel_commands::sentinel_jb_live_scan,
+            sentinel_commands::sentinel_jb_tunnel,
+            sentinel_commands::sentinel_jb_ssh,
+            sentinel_commands::sentinel_jb_dump,
             // ═══ Multi-Key API Probe Engine (brutecat methodology) ═══
             probe_commands::probe_create_session,
             probe_commands::probe_add_keys,
@@ -1264,6 +1341,51 @@ pub fn run() {
             port_commands::list_listening_ports,
             port_commands::port_forward_add,
             port_commands::port_forward_remove,
+            // ═══ Sentinel Commands ═══
+            sentinel_commands::sentinel_get_settings,
+            sentinel_commands::sentinel_save_settings,
+            sentinel_commands::sentinel_stats,
+            sentinel_commands::sentinel_list_targets,
+            sentinel_commands::sentinel_create_target,
+            sentinel_commands::sentinel_update_target,
+            sentinel_commands::sentinel_delete_target,
+            sentinel_commands::sentinel_list_findings,
+            sentinel_commands::sentinel_create_finding,
+            sentinel_commands::sentinel_update_finding_status,
+            sentinel_commands::sentinel_list_reports,
+            sentinel_commands::sentinel_analyze_jwt,
+            sentinel_commands::sentinel_forge_jwt,
+            sentinel_commands::sentinel_analyze_crypto_text,
+            sentinel_commands::sentinel_rsa_recover,
+            sentinel_commands::sentinel_scan_secrets,
+            sentinel_commands::sentinel_validate_secret,
+            sentinel_commands::sentinel_live_secret_check,
+            sentinel_commands::sentinel_gen_poc,
+            sentinel_commands::sentinel_make_report,
+            sentinel_commands::sentinel_sidecars_status,
+            sentinel_commands::sentinel_sidecar_start,
+            sentinel_commands::sentinel_sidecar_stop,
+            sentinel_commands::sentinel_bootstrap_sidecars,
+            sentinel_commands::sentinel_boot_info,
+            sentinel_commands::sentinel_reload_settings,
+            sentinel_commands::sentinel_mobile_discover,
+            sentinel_commands::sentinel_mobile_assets,
+            sentinel_commands::sentinel_mobile_analyze,
+            sentinel_commands::sentinel_mobile_pull,
+            sentinel_commands::sentinel_mobile_delete,
+            sentinel_commands::sentinel_mobsf_status,
+            sentinel_commands::sentinel_gen_frida_script,
+            sentinel_commands::sentinel_jb_status,
+            sentinel_commands::sentinel_jb_devices,
+            sentinel_commands::sentinel_jb_apps,
+            sentinel_commands::sentinel_jb_live_scan,
+            sentinel_commands::sentinel_jb_tunnel,
+            sentinel_commands::sentinel_jb_ssh,
+            sentinel_commands::sentinel_jb_dump,
+            // ═══ iPhone Bounty Commands ═══
+            iphone_bounty::bounty_start_ssh_tunnel,
+            iphone_bounty::bounty_execute_over_ssh,
+            iphone_bounty::bounty_inject_frida_payload,
             // ═══ Extra Commands ═══
             file_commands::open_folder,
             iphone_emulator::launch_iphone_emulator,

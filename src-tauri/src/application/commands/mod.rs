@@ -1,7 +1,7 @@
 //! All #[tauri::command] handlers, grouped by domain. Registered in lib.rs.
 
+pub mod account;
 pub mod ai;
-pub mod claude_code;
 pub mod ai_agent;
 pub mod ai_patch;
 pub mod ai_project;
@@ -10,11 +10,11 @@ pub mod ane;
 pub mod antigravity;
 pub mod apex;
 pub mod api_keys;
-pub mod account;
-pub mod diagrams;
 pub mod chunk_secrets;
+pub mod claude_code;
 pub mod cursor;
 pub mod debug;
+pub mod diagrams;
 pub mod editor;
 pub mod extensions;
 pub mod fcc;
@@ -34,11 +34,12 @@ pub mod module;
 pub mod oast;
 pub mod offensive;
 pub mod performance;
-pub mod probe;
 pub mod port;
+pub mod probe;
 pub mod pytorch;
 pub mod remote;
 pub mod security_generator;
+pub mod sentinel;
 pub mod specs;
 pub mod system;
 pub mod terminal;

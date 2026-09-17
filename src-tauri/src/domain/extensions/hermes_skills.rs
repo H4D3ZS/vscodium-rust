@@ -9,7 +9,13 @@ use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
 static EXCLUDED: &[&str] = &[
-    ".git", ".github", ".venv", "venv", "node_modules", "__pycache__", "site-packages",
+    ".git",
+    ".github",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    "site-packages",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,7 +93,7 @@ fn skill_store_installed_root() -> Option<PathBuf> {
     }
 }
 
-fn skill_store_installed_count() -> usize {
+pub fn skill_store_installed_count() -> usize {
     let dir = ide_shell::hades_home().join("skills").join("installed");
     if !dir.is_dir() {
         return 0;
@@ -119,7 +125,10 @@ fn parse_frontmatter(content: &str) -> (HashMap<String, String>, String) {
         let fm = &body[3..3 + end];
         for line in fm.lines() {
             if let Some((k, v)) = line.split_once(':') {
-                meta.insert(k.trim().to_lowercase(), v.trim().trim_matches('"').to_string());
+                meta.insert(
+                    k.trim().to_lowercase(),
+                    v.trim().trim_matches('"').to_string(),
+                );
             }
         }
         let rest = body[3 + end + 4..].trim_start();
@@ -155,7 +164,9 @@ pub fn scan_integrated_skills() -> Vec<IntegratedSkill> {
     let mut seen = std::collections::HashSet::new();
 
     for (root, source) in hermes_skills_roots() {
-        let walker = walkdir::WalkDir::new(&root).into_iter().filter_map(|e| e.ok());
+        let walker = walkdir::WalkDir::new(&root)
+            .into_iter()
+            .filter_map(|e| e.ok());
         for entry in walker {
             let path = entry.path();
             if path.file_name().and_then(|n| n.to_str()) != Some("SKILL.md") {
@@ -272,7 +283,6 @@ pub fn search_skills(query: &str, limit: usize) -> Vec<IntegratedSkill> {
 }
 
 #[cfg(feature = "tauri")]
-#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn hermes_skills_list(limit: Option<usize>) -> Result<Value, String> {
     let all = cached_skills();
@@ -286,7 +296,6 @@ pub fn hermes_skills_list(limit: Option<usize>) -> Result<Value, String> {
 }
 
 #[cfg(feature = "tauri")]
-#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn hermes_skills_get(id: String) -> Result<Value, String> {
     let skill = find_skill(&id).ok_or_else(|| format!("Skill not found: {id}"))?;
@@ -298,14 +307,12 @@ pub fn hermes_skills_get(id: String) -> Result<Value, String> {
 }
 
 #[cfg(feature = "tauri")]
-#[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn hermes_skills_search(query: String, limit: Option<usize>) -> Result<Value, String> {
     let hits = search_skills(&query, limit.unwrap_or(20).min(50));
     Ok(json!({ "query": query, "results": hits }))
 }
 
-#[cfg(feature = "tauri")]
 #[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn hermes_integration_status() -> Result<Value, String> {

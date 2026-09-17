@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.parrotsec.vscodium-rust</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>VSCodium Rust</name>
+  <summary>Native GPU-accelerated Code Editor &amp; Security IDE</summary>
+  <description>
+    <p>
+      VSCodium Rust is an ultra-fast, native GPU-accelerated code editor and IDE
+      built with the GPUI framework and tailored for security researchers,
+      penetration testers, and reverse engineers on Parrot Security OS.
+    </p>
+    <p>
+      Features integrated reverse engineering suites (Ghidra, IDA MCP), mobile security
+      auditing (MobSF, Frida instrumentation), hardware-accelerated terminal emulation,
+      and offline zero-telemetry local AI assistants.
+    </p>
+  </description>
+  <launchable type="desktop-id">vscodium-rust.desktop</launchable>
+  <url type="homepage">https://parrotsec.org</url>
+  <provides>
+    <binary>vscodium-rust</binary>
+    <binary>vscodium-ip-panel</binary>
+  </provides>
+  <categories>
+    <category>Development</category>
+    <category>IDE</category>
+    <category>Utility</category>
+    <category>Security</category>
+  </categories>
+</component>

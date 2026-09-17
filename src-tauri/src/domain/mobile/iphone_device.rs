@@ -997,7 +997,7 @@ pub async fn iphone_start_mirror(app: AppHandle, udid: String) -> Result<MirrorS
     // reader. The 6s wait below then timed out and killed a screenshot server
     // that had started correctly, reporting "Mirror failed to start".
     let tx_shared = std::sync::Arc::new(Mutex::new(Some(tx_url)));
-    let mut watch = |reader: Option<tokio::process::ChildStdout>,
+    let watch = |reader: Option<tokio::process::ChildStdout>,
                      err_reader: Option<tokio::process::ChildStderr>,
                      tag: &'static str| {
         let app2 = app.clone();

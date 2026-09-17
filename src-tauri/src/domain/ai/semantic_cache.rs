@@ -90,7 +90,7 @@ fn hash64(s: &str) -> u64 {
 pub fn embed(text: &str, dim: usize) -> Vec<f32> {
     let toks = tokenize(text);
     let mut v = vec![0f32; dim.max(1)];
-    let mut bump = |feat: &str, v: &mut [f32]| {
+    let bump = |feat: &str, v: &mut [f32]| {
         let h = hash64(feat);
         let idx = (h % dim as u64) as usize;
         let sign = if (h >> 63) & 1 == 0 { 1.0 } else { -1.0 };

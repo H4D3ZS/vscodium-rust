@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package
+    Name="VSCodium Rust"
+    Manufacturer="Hades Cyber Systems"
+    Version="1.0.0"
+    UpgradeCode="D3F9B7A2-1C2E-4D88-9B7E-99C128D3F921"
+    Language="1033"
+    Codepage="1252"
+    InstallerVersion="500"
+    Compressed="yes"
+    Scope="perUser">
+
+    <MajorUpgrade
+      DowngradeErrorMessage="A newer version of VSCodium Rust is already installed."
+      AllowSameVersionUpgrades="yes" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <ui:WixUI Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="VSCodium Rust" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="VSCodium Rust" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="ProductFeature" Title="VSCodium Rust" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentRef Id="ApplicationShortcuts" />
+      <ComponentRef Id="DesktopShortcut" />
+      <ComponentRef Id="PathEntry" />
+      <ComponentRef Id="ContextMenuFile" />
+      <ComponentRef Id="ContextMenuDir" />
+      <ComponentRef Id="ContextMenuDirBg" />
+    </Feature>
+
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Component Id="MainExe" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+        <File Id="VscodiumRustExe"
+              Source="release-bundle\vscodium-rust.exe"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="PanelExe" Guid="B2C3D4E5-F6A7-8901-BCDE-F12345678901">
+        <File Id="VscodiumIpPanelExe"
+              Source="release-bundle\vscodium-ip-panel.exe" />
+      </Component>
+      <Component Id="BrowserAgent" Guid="C3D4E5F6-A7B8-9012-CDEF-123456789012">
+        <File Id="BrowserAgentExe"
+              Source="release-bundle\browser-agent.exe" />
+      </Component>
+      <Component Id="RipgrepExe" Guid="D4E5F6A7-B8C9-0123-DEF0-234567890123">
+        <File Id="RgExe" Source="release-bundle\rg.exe" />
+      </Component>
+      <Component Id="FridaExe" Guid="E5F6A7B8-C9D0-1234-EF01-345678901234">
+        <File Id="FridaExeFile" Source="release-bundle\frida.exe" />
+      </Component>
+      <Component Id="IosExe" Guid="F6A7B8C9-D0E1-2345-F012-456789012345">
+        <File Id="IosExeFile" Source="release-bundle\ios.exe" />
+      </Component>
+      <Component Id="McpConfig" Guid="A7B8C9D0-E1F2-3456-0123-567890123456">
+        <File Id="McpConfigJson" Source="release-bundle\mcp_config.json" />
+      </Component>
+    </ComponentGroup>
+
+    <Component Id="ApplicationShortcuts" Directory="ApplicationProgramsFolder"
+               Guid="B8C9D0E1-F2A3-4567-1234-678901234567">
+      <Shortcut Id="AppStartMenuShortcut"
+                Name="VSCodium Rust"
+                Description="AI-native GPU-accelerated IDE"
+                Target="[INSTALLFOLDER]vscodium-rust.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon" />
+      <Shortcut Id="UninstallShortcut"
+                Name="Uninstall VSCodium Rust"
+                Target="[SystemFolder]msiexec.exe"
+                Arguments="/x [ProductCode]" />
+      <RemoveFolder Id="CleanupAppProgramsFolder"
+                    Directory="ApplicationProgramsFolder"
+                    On="uninstall" />
+      <RegistryValue Root="HKCU"
+                     Key="Software\HadesCyberSystems\VSCodiumRust"
+                     Name="StartMenuInstalled"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="DesktopShortcut" Directory="DesktopFolder"
+               Guid="C9D0E1F2-A3B4-5678-2345-789012345678">
+      <Shortcut Id="AppDesktopShortcut"
+                Name="VSCodium Rust"
+                Target="[INSTALLFOLDER]vscodium-rust.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon" />
+      <RegistryValue Root="HKCU"
+                     Key="Software\HadesCyberSystems\VSCodiumRust"
+                     Name="DesktopInstalled"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="PathEntry" Directory="INSTALLFOLDER"
+               Guid="D0E1F2A3-B4C5-6789-3456-890123456789">
+      <Environment Id="UserPath"
+                   Action="set"
+                   Name="PATH"
+                   Part="last"
+                   Permanent="no"
+                   System="no"
+                   Value="[INSTALLFOLDER]" />
+      <RegistryValue Root="HKCU"
+                     Key="Software\HadesCyberSystems\VSCodiumRust"
+                     Name="PathInstalled"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="ContextMenuFile" Directory="INSTALLFOLDER"
+               Guid="E1F2A3B4-C5D6-7890-4567-901234567890">
+      <RegistryKey Root="HKCU" Key="Software\Classes\*\shell\VSCodiumRust">
+        <RegistryValue Type="string" Value="Open with VSCodium Rust" />
+        <RegistryValue Name="Icon" Type="string"
+                       Value="[INSTALLFOLDER]vscodium-rust.exe,0" />
+      </RegistryKey>
+      <RegistryKey Root="HKCU" Key="Software\Classes\*\shell\VSCodiumRust\command">
+        <RegistryValue Type="string"
+                       Value="&quot;[INSTALLFOLDER]vscodium-rust.exe&quot; &quot;%1&quot;" />
+      </RegistryKey>
+      <RegistryValue Root="HKCU"
+                     Key="Software\HadesCyberSystems\VSCodiumRust"
+                     Name="ContextMenuFile"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="ContextMenuDir" Directory="INSTALLFOLDER"
+               Guid="F2A3B4C5-D6E7-8901-5678-012345678901">
+      <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\VSCodiumRust">
+        <RegistryValue Type="string" Value="Open with VSCodium Rust" />
+        <RegistryValue Name="Icon" Type="string"
+                       Value="[INSTALLFOLDER]vscodium-rust.exe,0" />
+      </RegistryKey>
+      <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\VSCodiumRust\command">
+        <RegistryValue Type="string"
+                       Value="&quot;[INSTALLFOLDER]vscodium-rust.exe&quot; &quot;%V&quot;" />
+      </RegistryKey>
+      <RegistryValue Root="HKCU"
+                     Key="Software\HadesCyberSystems\VSCodiumRust"
+                     Name="ContextMenuDir"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="ContextMenuDirBg" Directory="INSTALLFOLDER"
+               Guid="A3B4C5D6-E7F8-9012-6789-123456789012">
+      <RegistryKey Root="HKCU" Key="Software\Classes\Directory\Background\shell\VSCodiumRust">
+        <RegistryValue Type="string" Value="Open with VSCodium Rust" />
+        <RegistryValue Name="Icon" Type="string"
+                       Value="[INSTALLFOLDER]vscodium-rust.exe,0" />
+      </RegistryKey>
+      <RegistryKey Root="HKCU" Key="Software\Classes\Directory\Background\shell\VSCodiumRust\command">
+        <RegistryValue Type="string"
+                       Value="&quot;[INSTALLFOLDER]vscodium-rust.exe&quot; &quot;%V&quot;" />
+      </RegistryKey>
+      <RegistryValue Root="HKCU"
+                     Key="Software\HadesCyberSystems\VSCodiumRust"
+                     Name="ContextMenuDirBg"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Icon Id="AppIcon" SourceFile="src-native\app_icon.ico" />
+
+    <CustomAction Id="LaunchApp"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="vscodium-rust.exe"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+
+    <InstallExecuteSequence>
+      <Custom Action="LaunchApp" After="InstallFinalize"
+              Condition="NOT Installed AND NOT REMOVE" />
+    </InstallExecuteSequence>
+
+  </Package>
+</Wix>

@@ -141,7 +141,24 @@ impl Sentient {
         };
         
         if let Ok(val) = std::env::var(env_var) {
-            if !val.is_empty() { return val; }
+            if !val.trim().is_empty() { return val.trim().to_string(); }
+        }
+
+        // Check alternate standard environment variables
+        if provider_base == "modelscope" || provider_base == "qwen-ambassador" {
+            if let Ok(val) = std::env::var("MODELSCOPE_TOKEN") {
+                if !val.trim().is_empty() { return val.trim().to_string(); }
+            }
+        }
+        if provider_base == "google" || provider_base == "gemini" {
+            if let Ok(val) = std::env::var("GEMINI_API_KEY") {
+                if !val.trim().is_empty() { return val.trim().to_string(); }
+            }
+        }
+        if provider_base == "anthropic" {
+            if let Ok(val) = std::env::var("CLAUDE_API_KEY") {
+                if !val.trim().is_empty() { return val.trim().to_string(); }
+            }
         }
 
         // Fallback to api_keys.json in config dir — check BOTH locations
@@ -161,6 +178,11 @@ impl Sentient {
                     }
                     if let Some(key) = keys[provider_base.clone()].as_str() {
                         if !key.is_empty() { return key.to_string(); }
+                    }
+                    if provider_base == "modelscope" || provider_base == "qwen-ambassador" {
+                        if let Some(key) = keys["modelscope_api_key"].as_str() {
+                            if !key.is_empty() { return key.to_string(); }
+                        }
                     }
                 }
             }
@@ -412,7 +434,16 @@ impl Sentient {
                             .and_then(|k| k["modelscope_base_url"].as_str().map(|s| s.to_string()))
                             .filter(|s| !s.trim().is_empty())
                     })
-                    .unwrap_or_else(|| "https://api-inference.modelscope.ai/v1".to_string());
+                    .or_else(|| {
+                        let fallback_keys = self.brain_parent().parent()
+                            .unwrap_or(self.brain_parent())
+                            .join("vscodium-rust").join("api_keys.json");
+                        std::fs::read_to_string(fallback_keys).ok()
+                            .and_then(|c| serde_json::from_str::<Value>(&c).ok())
+                            .and_then(|k| k["modelscope_base_url"].as_str().map(|s| s.to_string()))
+                            .filter(|s| !s.trim().is_empty())
+                    })
+                    .unwrap_or_else(|| "https://api-inference.modelscope.cn/v1".to_string());
                 let base = configured.trim().trim_end_matches('/').to_string();
                 if base.ends_with("/chat/completions") { base }
                 else if base.ends_with("/v1") { format!("{}/chat/completions", base) }

@@ -1,0 +1,66 @@
+[package]
+name = "vscodium-rust"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "vscodium-rust"
+path = "src/main.rs"
+
+[dependencies]
+vscode-rust-app = { package = "vscode-rust-app", path = "../src-tauri", default-features = false }
+gpui-kit = "0.6.1"
+gpui-kit-assets = "0.6.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+anyhow = "1"
+dirs = "5"
+walkdir = "2"
+chrono = "0.4"
+portable-pty = "0.9.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+zip = "0.6"
+urlencoding = "2.1"
+regex = "1.10"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+smallvec = "1"
+rfd = "0.17.2"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[package.metadata.deb]
+name = "vscodium-rust"
+maintainer = "Parrot Security Team <team@parrotsec.org>"
+copyright = "2026, Hades & Parrot Security"
+license-file = ["../LICENSE", "4"]
+extended-description = """\
+VSCodium Rust is an ultra-fast, native GPU-accelerated code editor and \
+IDE tailored for security researchers and reverse engineers. Features built-in \
+reverse engineering suites (Ghidra, IDA MCP), mobile security (MobSF, Frida), \
+native terminal emulation, and zero-telemetry local AI."""
+section = "devel"
+priority = "optional"
+depends = "$auto, libx11-6, libxkbcommon0, libfontconfig1, libwayland-client0, libvulkan1"
+recommends = "git, python3, gdb"
+assets = [
+    ["target/release/vscodium-rust", "usr/bin/vscodium-rust", "755"],
+    ["../debian/vscodium-ip-panel", "usr/bin/vscodium-ip-panel", "755"],
+    ["../src-tauri/icons/icon.png", "usr/share/icons/hicolor/512x512/apps/vscodium-rust.png", "644"],
+    ["../debian/vscodium-rust.desktop", "usr/share/applications/vscodium-rust.desktop", "644"],
+    ["../debian/vscodium-rust.metainfo.xml", "usr/share/metainfo/vscodium-rust.metainfo.xml", "644"],
+]
+
+[patch.crates-io]
+rand = { git = "https://github.com/rust-random/rand", tag = "0.8.6" }
+rand_core = { git = "https://github.com/rust-random/rand", tag = "0.8.6" }
+rand_chacha = { git = "https://github.com/rust-random/rand", tag = "0.8.6" }
+
+# Debug builds were unoptimized (~2-5x slower rendering, typing, and panel
+# switches). Optimize the app crate lightly and dependencies at -O3.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

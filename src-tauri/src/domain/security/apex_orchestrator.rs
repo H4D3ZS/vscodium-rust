@@ -697,8 +697,7 @@ impl ApexOrchestrator {
         // OpenAI-compatible wire. We POST to `inference_url`, which is the
         // Kortex KV-cache proxy when it's running (prefix reuse + harness
         // compression on the APEX sweep) and Lemonade directly otherwise —
-        // Kortex and Lemonade hand in hand. The dead Ollama-native
-        // `/api/generate` path this replaced no longer had a server to talk to.
+        // Kortex and Lemonade hand in hand.
         let url = self.inference_url.lock().await.clone();
 
         // DeepHat-V1-7B performs best with its own persona prompt. When it's the
@@ -789,7 +788,6 @@ impl ApexOrchestrator {
                     })?;
                     let content = result["choices"][0]["message"]["content"]
                         .as_str()
-                        // tolerate a plain-text or Ollama-style body from an odd gateway
                         .or_else(|| result["response"].as_str())
                         .or_else(|| result["content"].as_str())
                         .ok_or_else(|| format!("[APEX-{}] no choices[0].message.content", engine))?;

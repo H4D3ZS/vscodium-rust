@@ -362,7 +362,22 @@ pub fn prepare_server_config(
                 let ida_in = out_env
                     .get("IDA_INSTALL_DIR")
                     .cloned()
-                    .unwrap_or_else(|| "E:\\IDA Professional 9.1".to_string());
+                    .or_else(|| std::env::var("IDA_INSTALL_DIR").ok())
+                    .or_else(|| {
+                        for cand in [
+                            r"C:\Program Files\IDA Professional 9.1",
+                            r"C:\Program Files\IDA Professional 9.0",
+                            r"C:\Program Files\IDA Pro 9.1",
+                            r"C:\Program Files\IDA Pro 9.0",
+                            r"E:\IDA Professional 9.1",
+                        ] {
+                            if std::path::Path::new(cand).exists() {
+                                return Some(cand.to_string());
+                            }
+                        }
+                        None
+                    })
+                    .unwrap_or_else(|| "C:\\Program Files\\IDA Professional 9.1".to_string());
                 let resolved = resolve_ida_install_dir(&ida_in)?;
                 ensure_idalib_activated(&resolved)?;
                 out_env.insert("IDA_INSTALL_DIR".to_string(), resolved.clone());
@@ -379,7 +394,20 @@ pub fn prepare_server_config(
                 let ghidra_in = out_env
                     .get("GHIDRA_INSTALL_DIR")
                     .cloned()
-                    .unwrap_or_else(|| "E:\\Ghidra".to_string());
+                    .or_else(|| std::env::var("GHIDRA_INSTALL_DIR").ok())
+                    .or_else(|| {
+                        for cand in [
+                            r"C:\Tools\ghidra",
+                            r"C:\Program Files\ghidra",
+                            r"E:\Ghidra",
+                        ] {
+                            if std::path::Path::new(cand).exists() {
+                                return Some(cand.to_string());
+                            }
+                        }
+                        None
+                    })
+                    .unwrap_or_else(|| "C:\\Tools\\ghidra".to_string());
                 let resolved = resolve_ghidra_install_dir(&ghidra_in)?;
                 out_env.insert("GHIDRA_INSTALL_DIR".to_string(), resolved);
 

@@ -96,7 +96,11 @@ const DEV_ENTITLEMENTS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 "#;
 
 fn find_signer(name: &str) -> Option<PathBuf> {
-    super::iphone_device::find_bundled_tool(&[name]).or_else(|| which::which(name).ok())
+    #[cfg(feature = "tauri")]
+    if let Some(p) = super::iphone_device::find_bundled_tool(&[name]) {
+        return Some(p);
+    }
+    which::which(name).ok()
 }
 
 /// Build `Payload/<App>.app`, sign it, zip to `.ipa`.
@@ -143,7 +147,11 @@ pub fn ios_package_app(req: PackageRequest) -> Result<PackageResult, String> {
                 Ok(o) if o.status.success() => signed_with = "zsign".into(),
                 Ok(o) => notes.push(format!(
                     "zsign failed: {}",
-                    String::from_utf8_lossy(&o.stderr).trim().chars().take(300).collect::<String>()
+                    String::from_utf8_lossy(&o.stderr)
+                        .trim()
+                        .chars()
+                        .take(300)
+                        .collect::<String>()
                 )),
                 Err(e) => notes.push(format!("zsign could not run: {e}")),
             }
@@ -159,7 +167,8 @@ pub fn ios_package_app(req: PackageRequest) -> Result<PackageResult, String> {
             // does not exist, and it aborts with an opaque _assert() in ldid.cpp.
             // Run from inside the bundle and pass bare filenames.
             let ents = app_dir.join("entitlements.plist");
-            std::fs::write(&ents, DEV_ENTITLEMENTS).map_err(|e| format!("write entitlements: {e}"))?;
+            std::fs::write(&ents, DEV_ENTITLEMENTS)
+                .map_err(|e| format!("write entitlements: {e}"))?;
             match crate::process_ext::hidden_command(&ldid)
                 .current_dir(&app_dir)
                 .arg("-Sentitlements.plist")
@@ -176,7 +185,11 @@ pub fn ios_package_app(req: PackageRequest) -> Result<PackageResult, String> {
                 }
                 Ok(o) => notes.push(format!(
                     "ldid failed: {}",
-                    String::from_utf8_lossy(&o.stderr).trim().chars().take(300).collect::<String>()
+                    String::from_utf8_lossy(&o.stderr)
+                        .trim()
+                        .chars()
+                        .take(300)
+                        .collect::<String>()
                 )),
                 Err(e) => notes.push(format!("ldid could not run: {e}")),
             }
@@ -208,8 +221,8 @@ pub fn ios_package_app(req: PackageRequest) -> Result<PackageResult, String> {
 fn zip_dir(dir: &Path, out: &Path, base: &Path) -> std::io::Result<()> {
     let file = std::fs::File::create(out)?;
     let mut zip = zip::ZipWriter::new(file);
-    let opts = zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let opts =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     fn walk(
         zip: &mut zip::ZipWriter<std::fs::File>,
@@ -299,9 +312,17 @@ mod tests {
 
         let f = std::fs::File::open(&out).unwrap();
         let mut z = zip::ZipArchive::new(f).unwrap();
-        let names: Vec<String> = (0..z.len()).map(|i| z.by_index(i).unwrap().name().to_string()).collect();
-        assert!(names.iter().any(|n| n.starts_with("Payload/")), "got {names:?}");
-        assert!(names.iter().any(|n| n == "Payload/Demo.app/Demo"), "got {names:?}");
+        let names: Vec<String> = (0..z.len())
+            .map(|i| z.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(
+            names.iter().any(|n| n.starts_with("Payload/")),
+            "got {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n == "Payload/Demo.app/Demo"),
+            "got {names:?}"
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

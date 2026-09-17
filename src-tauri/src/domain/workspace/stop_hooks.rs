@@ -55,7 +55,11 @@ pub fn save_stop_hooks(root: &str, cfg: &StopHooksConfig) -> Result<(), String> 
 pub fn run_stop_hooks(root: &str, agent_summary: &str) -> Vec<(String, bool, String)> {
     let cfg = load_stop_hooks(root);
     let mut results = Vec::new();
-    for hook in cfg.hooks.iter().filter(|h| h.enabled && !h.command.trim().is_empty()) {
+    for hook in cfg
+        .hooks
+        .iter()
+        .filter(|h| h.enabled && !h.command.trim().is_empty())
+    {
         let mut cmd = if cfg!(windows) {
             hidden_command("cmd")
         } else {
@@ -84,16 +88,19 @@ pub fn run_stop_hooks(root: &str, agent_summary: &str) -> Vec<(String, bool, Str
     results
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub async fn stop_hooks_get(root: String) -> Result<StopHooksConfig, String> {
     Ok(load_stop_hooks(&root))
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub async fn stop_hooks_save(root: String, config: StopHooksConfig) -> Result<(), String> {
     save_stop_hooks(&root, &config)
 }
 
+#[cfg(feature = "tauri")]
 #[tauri::command]
 pub async fn stop_hooks_run(root: String, summary: String) -> Result<serde_json::Value, String> {
     let results = run_stop_hooks(&root, &summary);

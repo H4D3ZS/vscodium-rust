@@ -1,0 +1,7 @@
+vscodium-rust (1.0.0-1parrot1) rolling; urgency=medium
+
+  * Initial official release for Parrot Security OS.
+  * Native GPU-accelerated code editor with built-in security auditing suites.
+  * Packaged for Lorenzo Faletra (Palinuro) and the Parrot OS team.
+
+ -- Lorenzo Faletra (Palinuro) <palinuro@parrotsec.org>  Thu, 17 Sep 2026 17:50:00 +0800

@@ -101,14 +101,12 @@ pub struct Capabilities {
 // ─── Frame I/O ───────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
-struct Frame {
-    msg_type: u16,
-    #[allow(dead_code)]
-    flags: u32,
-    stream_id: u64,
-    #[allow(dead_code)]
-    seq: u64,
-    payload: Vec<u8>,
+pub struct Frame {
+    pub msg_type: u16,
+    pub flags: u32,
+    pub stream_id: u64,
+    pub seq: u64,
+    pub payload: Vec<u8>,
 }
 
 fn write_frame<W: Write>(
@@ -281,7 +279,7 @@ impl IoscpySession {
     /// Open a session on an already-forwarded port. The daemon must be reachable
     /// at `127.0.0.1:forwarded_port`.
     pub fn connect(forwarded_port: u16) -> Result<(Self, HelloAck), String> {
-        let ack = probe_daemon(forwarded_port)?;
+        let _ack = probe_daemon(forwarded_port)?;
         let addr = format!("127.0.0.1:{forwarded_port}");
         let mut stream = TcpStream::connect(&addr)
             .map_err(|e| format!("connect: {e}"))?;

@@ -103,11 +103,17 @@ pub fn resolve_sdk_root() -> Option<PathBuf> {
             candidates.push(dir.join("resources").join("sdk").join("iPhoneOS.sdk"));
         }
     }
-    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sdk").join("iPhoneOS.sdk"));
+    candidates.push(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("sdk")
+            .join("iPhoneOS.sdk"),
+    );
     if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
         candidates.push(PathBuf::from(home).join("iPhoneOS.sdk"));
     }
-    candidates.into_iter().find(|c| c.join("usr").join("include").is_dir())
+    candidates
+        .into_iter()
+        .find(|c| c.join("usr").join("include").is_dir())
 }
 
 /// Is the Rust `aarch64-apple-ios` target installed?
@@ -131,16 +137,23 @@ pub fn ios_crosscompile_status() -> CrossCompileStatus {
     let lld = which("ld64.lld").or_else(|| which("lld"));
     // zsign signs with a real cert/profile; ldid fake-signs for jailbroken or
     // emulator targets. Either is enough to produce a loadable binary.
-    let signer = super::iphone_device::find_bundled_tool(&["zsign", "ldid"])
-        .or_else(|| which("zsign"))
-        .or_else(|| which("ldid"));
+    let signer = {
+        #[cfg(feature = "tauri")]
+        let bundled = super::iphone_device::find_bundled_tool(&["zsign", "ldid"]);
+        #[cfg(not(feature = "tauri"))]
+        let bundled: Option<std::path::PathBuf> = None;
+        bundled.or_else(|| which("zsign")).or_else(|| which("ldid"))
+    };
     let rust_target = rust_ios_target_installed();
 
     let tools = vec![
         ToolStatus {
             name: "iPhoneOS.sdk".into(),
             found: sdk.is_some(),
-            path: sdk.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+            path: sdk
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
             detail: "Headers and .tbd framework stubs. Apple's licence prevents us shipping it — \
                      unpack an Xcode .xip (7-Zip handles .xip on Windows) and point SDKROOT at \
                      Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk."
@@ -149,7 +162,10 @@ pub fn ios_crosscompile_status() -> CrossCompileStatus {
         ToolStatus {
             name: "clang".into(),
             found: clang.is_some(),
-            path: clang.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+            path: clang
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
             detail: "Compiles C/C++/ObjC to ARM64 Mach-O with -target aarch64-apple-ios. Any \
                      stock LLVM works; the Mach-O backend is not macOS-specific."
                 .into(),
@@ -157,19 +173,29 @@ pub fn ios_crosscompile_status() -> CrossCompileStatus {
         ToolStatus {
             name: "ld64.lld".into(),
             found: lld.is_some(),
-            path: lld.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+            path: lld
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
             detail: "LLVM's Mach-O linker, replacing Apple's ld64. Ships with LLVM.".into(),
         },
         ToolStatus {
             name: "rust aarch64-apple-ios".into(),
             found: rust_target,
-            path: if rust_target { "installed".into() } else { String::new() },
+            path: if rust_target {
+                "installed".into()
+            } else {
+                String::new()
+            },
             detail: "rustup target add aarch64-apple-ios".into(),
         },
         ToolStatus {
             name: "zsign / ldid".into(),
             found: signer.is_some(),
-            path: signer.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+            path: signer
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
             detail: "Replaces Apple's codesign. zsign signs with a .p12 + .mobileprovision; \
                      ldid fake-signs with entitlements for jailbroken/emulator targets."
                 .into(),
@@ -224,8 +250,11 @@ pub fn ios_import_sdk(source: String) -> Result<String, String> {
     // A framework stub proves the .tbd files survived the transfer; a copy that
     // flattened symlinks keeps the folders but loses these, and then nothing links.
     let stub = src
-        .join("System").join("Library").join("Frameworks")
-        .join("Foundation.framework").join("Foundation.tbd");
+        .join("System")
+        .join("Library")
+        .join("Frameworks")
+        .join("Foundation.framework")
+        .join("Foundation.tbd");
     if !stub.is_file() {
         return Err(
             "The SDK is missing Foundation.tbd — the link stubs did not survive the copy.              Re-transfer it as a tar archive (tar -czf on macOS, extract with WSL) so the              symlinks are preserved."
@@ -238,7 +267,8 @@ pub fn ios_import_sdk(source: String) -> Result<String, String> {
     if dest.exists() {
         std::fs::remove_dir_all(&dest).map_err(|e| format!("clear {}: {e}", dest.display()))?;
     }
-    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("create {}: {e}", dest_dir.display()))?;
+    std::fs::create_dir_all(&dest_dir)
+        .map_err(|e| format!("create {}: {e}", dest_dir.display()))?;
     copy_tree(&src, &dest).map_err(|e| format!("copy SDK: {e}"))?;
     Ok(dest.display().to_string())
 }
@@ -291,8 +321,17 @@ mod tests {
     fn status_lists_all_prerequisites() {
         let s = ios_crosscompile_status();
         let names: Vec<&str> = s.tools.iter().map(|t| t.name.as_str()).collect();
-        for expected in ["iPhoneOS.sdk", "clang", "ld64.lld", "rust aarch64-apple-ios", "zsign / ldid"] {
-            assert!(names.contains(&expected), "missing {expected} from the checklist");
+        for expected in [
+            "iPhoneOS.sdk",
+            "clang",
+            "ld64.lld",
+            "rust aarch64-apple-ios",
+            "zsign / ldid",
+        ] {
+            assert!(
+                names.contains(&expected),
+                "missing {expected} from the checklist"
+            );
         }
         assert_eq!(s.ready, s.missing_steps.is_empty());
     }

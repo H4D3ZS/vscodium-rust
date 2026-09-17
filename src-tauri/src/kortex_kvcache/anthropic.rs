@@ -289,7 +289,7 @@ pub fn openai_response_to_anthropic(o: &Value) -> Value {
 /// satisfied.
 pub fn anthropic_message_to_sse(msg: &Value) -> String {
     let mut out = String::new();
-    let mut ev = |event: &str, data: Value, out: &mut String| {
+    let ev = |event: &str, data: Value, out: &mut String| {
         out.push_str("event: ");
         out.push_str(event);
         out.push_str("\ndata: ");

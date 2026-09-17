@@ -362,14 +362,24 @@ impl Sentient {
                     if role_lc == "tool" {
                         text = Self::truncate_for_local(&text, TOOL_CONTENT_MAX);
                     }
-                    let mut obj = json!({ "role": role, "content": text });
+                    // Lemonade (llama.cpp) rejects `"content": ""` with
+                    // "model output must contain either output text or tool calls".
+                    // Use null for empty content — the spec allows null and local
+                    // servers accept it without error.
+                    let content_val = if text.is_empty() {
+                        serde_json::Value::Null
+                    } else {
+                        json!(text)
+                    };
+                    let mut obj = json!({ "role": role, "content": content_val });
                     // Pass tool_calls through if present (native /api tools)
                     if let Some(tc) = &m.tool_calls {
                         if !tc.is_empty() {
                             obj["tool_calls"] = Self::native_tool_calls_json(tc, openai_compat);
-                            // Duplicate ```json tool blocks in content break the local backend parsers.
+                            // When tool_calls present, content must be null (not "")
+                            // per OpenAI spec; local backends enforce this strictly.
                             if role_lc == "assistant" {
-                                obj["content"] = json!("");
+                                obj["content"] = serde_json::Value::Null;
                             }
                         }
                     }
@@ -874,7 +884,16 @@ impl Sentient {
                         .and_then(|k| k["modelscope_base_url"].as_str().map(|s| s.to_string()))
                         .filter(|s| !s.trim().is_empty())
                 })
-                .unwrap_or_else(|| "https://api-inference.modelscope.ai/v1".to_string());
+                .or_else(|| {
+                    let fallback_keys = self.brain_dir.parent().and_then(|p| p.parent())
+                        .unwrap_or(self.brain_dir.as_path())
+                        .join("vscodium-rust").join("api_keys.json");
+                    std::fs::read_to_string(fallback_keys).ok()
+                        .and_then(|c| serde_json::from_str::<Value>(&c).ok())
+                        .and_then(|k| k["modelscope_base_url"].as_str().map(|s| s.to_string()))
+                        .filter(|s| !s.trim().is_empty())
+                })
+                .unwrap_or_else(|| "https://api-inference.modelscope.cn/v1".to_string());
             let base = configured.trim().trim_end_matches('/').to_string();
             let models_url = if base.ends_with("/v1") {
                 format!("{}/models", base)

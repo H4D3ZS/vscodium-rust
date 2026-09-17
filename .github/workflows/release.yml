@@ -1,0 +1,299 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+env:
+  CARGO_TERM_COLOR: always
+  VERSION: ${{ github.ref_name || github.event.inputs.version }}
+
+permissions:
+  contents: write
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Windows — Inno Setup .exe installer
+  # ═══════════════════════════════════════════════════════════════════════════
+  windows:
+    name: Windows x64 Installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-native -> target
+
+      - name: Build native binary
+        run: cargo build --release --manifest-path src-native/Cargo.toml
+
+      - name: Assemble release bundle
+        shell: pwsh
+        run: |
+          $BundleDir = "release-bundle"
+          New-Item -ItemType Directory -Force -Path $BundleDir | Out-Null
+
+          Copy-Item "target\release\vscodium-rust.exe" "$BundleDir\vscodium-rust.exe"
+          Copy-Item "target\release\vscodium-rust.exe" "$BundleDir\vscodium-ip-panel.exe"
+
+          # Copy supplementary files if they exist
+          foreach ($item in @("ios.exe", "frida.exe", "mcp_config.json")) {
+            if (Test-Path $item) { Copy-Item $item "$BundleDir\$item" }
+          }
+          foreach ($dir in @("binaries", "ext-host", "devimages")) {
+            if (Test-Path $dir) { Copy-Item -Recurse $dir "$BundleDir\$dir" }
+          }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          echo "C:\Program Files (x86)\Inno Setup 6" | Out-File -Append $env:GITHUB_PATH
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $tag = "${{ env.VERSION }}" -replace '^v', ''
+          $outName = "VSCodium-Rust-Setup-v${tag}-windows-x64"
+          iscc /DMyAppVersion="$tag" /O"dist" /F"$outName" installer.iss
+
+      - name: Generate checksum
+        shell: pwsh
+        run: |
+          cd dist
+          Get-ChildItem *.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)" | Out-File -Append SHA256SUMS-windows.txt -Encoding utf8
+          }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            dist/*.exe
+            dist/SHA256SUMS-windows.txt
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Linux — .deb + .rpm + AppImage
+  # ═══════════════════════════════════════════════════════════════════════════
+  linux:
+    name: Linux x64 Packages
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libfontconfig1-dev \
+            libx11-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libvulkan-dev \
+            libssl-dev \
+            debhelper \
+            devscripts \
+            rpm \
+            fuse \
+            libfuse2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-native -> target
+
+      - name: Build native binary
+        run: cargo build --release --manifest-path src-native/Cargo.toml
+
+      - name: Create dist directory
+        run: mkdir -p dist
+
+      # ── Debian package ──────────────────────────────────────────────────
+      - name: Build .deb package
+        run: |
+          dpkg-buildpackage -us -uc -b --no-check-builddeps 2>&1 | tail -20
+          find .. -maxdepth 1 -name "vscodium-rust_*.deb" -exec mv {} dist/ \;
+        continue-on-error: true
+
+      # ── RPM package ─────────────────────────────────────────────────────
+      - name: Build .rpm package
+        run: |
+          tag="${{ env.VERSION }}"
+          ver="${tag#v}"
+          mkdir -p rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
+          cp rpm/vscodium-rust.spec rpmbuild/SPECS/
+
+          # Create minimal source tarball
+          tar czf "rpmbuild/SOURCES/vscodium-rust-${ver}.tar.gz" \
+            --transform="s/^\./vscodium-rust-${ver}/" \
+            ./src-native ./src-tauri ./debian ./LICENSE ./README.md
+
+          rpmbuild --define "_topdir $(pwd)/rpmbuild" \
+                   --define "version ${ver}" \
+                   -bb rpmbuild/SPECS/vscodium-rust.spec 2>&1 | tail -20
+
+          find rpmbuild/RPMS -name "*.rpm" -exec mv {} dist/ \;
+        continue-on-error: true
+
+      # ── AppImage ────────────────────────────────────────────────────────
+      - name: Build AppImage
+        run: |
+          tag="${{ env.VERSION }}"
+          ver="${tag#v}"
+
+          # Download linuxdeploy
+          wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" \
+            -O linuxdeploy
+          chmod +x linuxdeploy
+
+          # Create AppDir structure
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/512x512/apps
+
+          cp target/release/vscodium-rust AppDir/usr/bin/
+          cp appimage/vscodium-rust.desktop AppDir/usr/share/applications/
+          cp src-tauri/icons/icon.png AppDir/usr/share/icons/hicolor/512x512/apps/vscodium-rust.png
+
+          # Copy supplementary bundles
+          for dir in binaries ext-host; do
+            [ -d "$dir" ] && cp -r "$dir" AppDir/usr/bin/
+          done
+
+          export OUTPUT="VSCodium_Rust-${ver}-x86_64.AppImage"
+          ./linuxdeploy --appdir AppDir \
+            --desktop-file AppDir/usr/share/applications/vscodium-rust.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/512x512/apps/vscodium-rust.png \
+            --output appimage
+
+          mv *.AppImage dist/ 2>/dev/null || true
+        continue-on-error: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.deb *.rpm *.AppImage 2>/dev/null > SHA256SUMS-linux.txt || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.AppImage
+            dist/SHA256SUMS-linux.txt
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # macOS — Universal DMG
+  # ═══════════════════════════════════════════════════════════════════════════
+  macos:
+    name: macOS Universal DMG
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-native -> target
+
+      - name: Build universal binary
+        run: |
+          cargo build --release --manifest-path src-native/Cargo.toml --target x86_64-apple-darwin
+          cargo build --release --manifest-path src-native/Cargo.toml --target aarch64-apple-darwin
+
+          mkdir -p target/universal-release
+          lipo -create \
+            target/x86_64-apple-darwin/release/vscodium-rust \
+            target/aarch64-apple-darwin/release/vscodium-rust \
+            -output target/universal-release/vscodium-rust
+
+      - name: Build DMG
+        run: |
+          export VERSION="${{ env.VERSION }}"
+          export VERSION="${VERSION#v}"
+          bash scripts/build-macos-dmg.sh
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+
+      - name: Generate checksum
+        run: |
+          cd dist
+          shasum -a 256 *.dmg > SHA256SUMS-macos.txt 2>/dev/null || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: |
+            dist/*.dmg
+            dist/SHA256SUMS-macos.txt
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Create GitHub Release with all platform artifacts
+  # ═══════════════════════════════════════════════════════════════════════════
+  release:
+    name: Create GitHub Release
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Merge checksums
+        run: |
+          cd artifacts
+          cat */SHA256SUMS-*.txt > SHA256SUMS.txt 2>/dev/null || true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "VSCodium Rust ${{ github.ref_name }}"
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/windows-installer/*.exe
+            artifacts/linux-packages/*.deb
+            artifacts/linux-packages/*.rpm
+            artifacts/linux-packages/*.AppImage
+            artifacts/macos-dmg/*.dmg
+            artifacts/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

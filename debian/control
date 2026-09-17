@@ -1,0 +1,46 @@
+Source: vscodium-rust
+Section: devel
+Priority: optional
+Maintainer: Parrot Security Team <team@parrotsec.org>
+Uploaders: H4D3ZS <hades@cyber-ifrit.org>
+Build-Depends: debhelper-compat (= 13),
+               cargo (>= 0.70),
+               rustc (>= 1.75),
+               pkg-config,
+               libfontconfig1-dev,
+               libx11-dev,
+               libxkbcommon-dev,
+               libwayland-dev,
+               libvulkan-dev,
+               libssl-dev
+Standards-Version: 4.6.2
+Homepage: https://parrotsec.org
+Rules-Requires-Root: no
+
+Package: vscodium-rust
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         libx11-6,
+         libxkbcommon0,
+         libfontconfig1,
+         libwayland-client0,
+         libvulkan1
+Recommends: git,
+            python3,
+            gdb,
+            frida,
+            adb
+Suggests: ghidra,
+          ida-pro-mcp
+Description: Native GPU-accelerated code editor and security research IDE
+ VSCodium Rust is an ultra-fast, native GPU-accelerated code editor and IDE
+ built with the GPUI framework and tailored for security researchers,
+ penetration testers, and reverse engineers on Parrot Security OS.
+ .
+ Features include:
+  * Pure native GPU-accelerated rendering with sub-millisecond typing latency
+  * Zero web/Electron runtime memory footprint
+  * Integrated mobile security auditing (MobSF, Frida instrumentation)
+  * Dynamic MCP server integration (Ghidra, IDA Pro headless)
+  * Hardware-accelerated terminal emulation and local zero-telemetry AI assistants

@@ -32,15 +32,36 @@ pub fn classify_tool(name: &str) -> ToolLevel {
     }
     match name {
         // Destructive / irreversible — shell execution, deletions, git history changes
-        "remove_item" | "run_command" | "ghost_test" | "terminal_send_data"
-        | "git_commit" | "git_push" | "git_reset"
-        | "spawn_subagent" | "browser_subagent" => ToolLevel::Dangerous,
+        "remove_item" | "run_command" | "ghost_test" | "terminal_send_data" | "git_commit"
+        | "git_push" | "git_reset" | "spawn_subagent" | "browser_subagent" => ToolLevel::Dangerous,
 
         // Write operations
-        "write_to_file" | "str_replace" | "search_replace_edit" | "fast_apply"
-        | "patch_file_content" | "apply_shadow_patch" | "replace_file_content"
-        | "multi_replace_file_content" | "apply_patch" | "create_directory"
-        | "rename_path" | "git_add" | "git_stash" => ToolLevel::Caution,
+        "write_to_file"
+        | "str_replace"
+        | "search_replace_edit"
+        | "fast_apply"
+        | "patch_file_content"
+        | "apply_shadow_patch"
+        | "replace_file_content"
+        | "multi_replace_file_content"
+        | "apply_patch"
+        | "create_directory"
+        | "rename_path"
+        | "git_add"
+        | "git_stash"
+        | "sentinel_gen_poc"
+        | "sentinel_make_report"
+        | "sentinel_add_finding"
+        | "sentinel_create_target"
+        | "sentinel_mobile_analyze"
+        | "sentinel_mobile_pull"
+        | "sentinel_mobile_delete"
+        | "sentinel_gen_frida_script"
+        | "sentinel_jb_live_scan"
+        | "sentinel_jb_dump" => ToolLevel::Caution,
+
+        // Sidecar process control — spawns/kills long-lived services.
+        "sentinel_sidecar_start" | "sentinel_sidecar_stop" => ToolLevel::Dangerous,
 
         // Offensive security analysis tools — read-only by design.
         // These produce reports/findings but do NOT execute attacks. Misclassifying
@@ -74,7 +95,11 @@ fn is_mcp_mutation_tool(name: &str) -> bool {
             | "dbg_step_into"
             | "dbg_step_over"
             | "idb_save"
-    ) || (name.starts_with("dbg_") && !matches!(name, "dbg_regs" | "dbg_regs_all" | "dbg_gpregs" | "dbg_stacktrace" | "dbg_bps" | "dbg_read"))
+    ) || (name.starts_with("dbg_")
+        && !matches!(
+            name,
+            "dbg_regs" | "dbg_regs_all" | "dbg_gpregs" | "dbg_stacktrace" | "dbg_bps" | "dbg_read"
+        ))
 }
 
 /// MCP tools that rename/annotate/type — reversible but write to the database.
@@ -96,7 +121,11 @@ fn is_mcp_write_tool(name: &str) -> bool {
 }
 
 impl ToolInvoker {
-    pub fn new(ai_tools: Arc<AiTools>, mcp_registry: Arc<McpRegistry>, config_dir: PathBuf) -> Self {
+    pub fn new(
+        ai_tools: Arc<AiTools>,
+        mcp_registry: Arc<McpRegistry>,
+        config_dir: PathBuf,
+    ) -> Self {
         Self {
             ai_tools,
             mcp_registry,
@@ -104,7 +133,12 @@ impl ToolInvoker {
         }
     }
 
-    fn check_governance(&self, _name: &str, _args: &Value, _agent_mode: Option<&str>) -> Option<Value> {
+    fn check_governance(
+        &self,
+        _name: &str,
+        _args: &Value,
+        _agent_mode: Option<&str>,
+    ) -> Option<Value> {
         // OSS edition: no enterprise governance — all tools allowed
         None
     }
@@ -114,8 +148,7 @@ impl ToolInvoker {
     /// to emit the `tool_permission_request` event.
     #[instrument(skip(self))]
     pub async fn execute_tool(&self, name: &str, args: &str) -> Result<Value> {
-        self.execute_tool_inner(name, args, None, None, None)
-            .await
+        self.execute_tool_inner(name, args, None, None, None).await
     }
 
     /// Extended execute with permission check. Dangerous tools emit a
@@ -125,7 +158,13 @@ impl ToolInvoker {
         &self,
         name: &str,
         args: &str,
-        permission_senders: Option<&Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>>>,
+        permission_senders: Option<
+            &Arc<
+                std::sync::Mutex<
+                    std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>,
+                >,
+            >,
+        >,
         agent_mode: Option<&str>,
     ) -> Result<Value> {
         self.execute_tool_inner(name, args, permission_senders, agent_mode, None)
@@ -136,7 +175,13 @@ impl ToolInvoker {
         &self,
         name: &str,
         args: &str,
-        permission_senders: Option<&Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>>>,
+        permission_senders: Option<
+            &Arc<
+                std::sync::Mutex<
+                    std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>,
+                >,
+            >,
+        >,
         agent_mode: Option<&str>,
         skip_permission: Option<bool>,
     ) -> Result<Value> {
@@ -149,12 +194,23 @@ impl ToolInvoker {
 
         // Yolo bypass: if YOLO flag is set, skip all permission gates.
         // This is how the autonomous loop opts out of dialogs during long missions.
-        let yolo = self.ai_tools.yolo_flag.load(std::sync::atomic::Ordering::Relaxed);
+        let yolo = self
+            .ai_tools
+            .yolo_flag
+            .load(std::sync::atomic::Ordering::Relaxed);
 
         // For dangerous tools (and yolo is off): emit permission request and wait for response
         if matches!(level, ToolLevel::Dangerous) && !yolo && !skip_permission.unwrap_or(false) {
             if let Some(senders) = permission_senders {
-                let tool_id = format!("{}-{}", name, uuid::Uuid::new_v4().to_string().chars().take(8).collect::<String>());
+                let tool_id = format!(
+                    "{}-{}",
+                    name,
+                    uuid::Uuid::new_v4()
+                        .to_string()
+                        .chars()
+                        .take(8)
+                        .collect::<String>()
+                );
                 let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
 
                 {
@@ -162,18 +218,19 @@ impl ToolInvoker {
                     map.insert(tool_id.clone(), tx);
                 }
 
-                self.ai_tools.emit_tool_event("tool_permission_request", serde_json::json!({
-                    "id": tool_id,
-                    "tool": name,
-                    "args": arguments,
-                    "level": "dangerous"
-                }));
+                self.ai_tools.emit_tool_event(
+                    "tool_permission_request",
+                    serde_json::json!({
+                        "id": tool_id,
+                        "tool": name,
+                        "args": arguments,
+                        "level": "dangerous"
+                    }),
+                );
 
                 // Await approval with 60s timeout
-                let approved = tokio::time::timeout(
-                    std::time::Duration::from_secs(60),
-                    rx,
-                ).await
+                let approved = tokio::time::timeout(std::time::Duration::from_secs(60), rx)
+                    .await
                     .unwrap_or(Ok(false))
                     .unwrap_or(false);
 
@@ -218,9 +275,15 @@ impl ToolInvoker {
 mod tests {
     use super::*;
 
-    fn is_safe(name: &str) -> bool { matches!(classify_tool(name), ToolLevel::Safe) }
-    fn is_caution(name: &str) -> bool { matches!(classify_tool(name), ToolLevel::Caution) }
-    fn is_dangerous(name: &str) -> bool { matches!(classify_tool(name), ToolLevel::Dangerous) }
+    fn is_safe(name: &str) -> bool {
+        matches!(classify_tool(name), ToolLevel::Safe)
+    }
+    fn is_caution(name: &str) -> bool {
+        matches!(classify_tool(name), ToolLevel::Caution)
+    }
+    fn is_dangerous(name: &str) -> bool {
+        matches!(classify_tool(name), ToolLevel::Dangerous)
+    }
 
     /// REGRESSION GUARD: the offensive-security analysis tools are a core IDE
     /// strength and MUST stay Safe (analysis-only, no execution). If anyone
@@ -243,7 +306,10 @@ mod tests {
             "apex_pentest_report",
             "apex_scan_url",
         ] {
-            assert!(is_safe(tool), "{tool} must be Safe (analysis-only), not gated");
+            assert!(
+                is_safe(tool),
+                "{tool} must be Safe (analysis-only), not gated"
+            );
         }
     }
 
@@ -251,7 +317,7 @@ mod tests {
     #[test]
     fn destructive_tools_are_dangerous() {
         for tool in [
-            "run_command",       // shell execution — the real attack vector
+            "run_command", // shell execution — the real attack vector
             "remove_item",
             "ghost_test",
             "terminal_send_data",
@@ -261,7 +327,10 @@ mod tests {
             "spawn_subagent",
             "browser_subagent",
         ] {
-            assert!(is_dangerous(tool), "{tool} must be Dangerous (executes/irreversible)");
+            assert!(
+                is_dangerous(tool),
+                "{tool} must be Dangerous (executes/irreversible)"
+            );
         }
     }
 
@@ -300,7 +369,13 @@ mod tests {
     /// Read-only tools (and unknown tools) default to Safe.
     #[test]
     fn read_only_tools_default_safe() {
-        for tool in ["read_file", "list_files", "grep", "view_file", "some_unknown_tool"] {
+        for tool in [
+            "read_file",
+            "list_files",
+            "grep",
+            "view_file",
+            "some_unknown_tool",
+        ] {
             assert!(is_safe(tool), "{tool} should default to Safe");
         }
     }

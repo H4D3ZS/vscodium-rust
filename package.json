@@ -8,6 +8,9 @@
   },
   "scripts": {
     "dev": "vite --configLoader native --host 0.0.0.0",
+    "dev:native": "cargo run --manifest-path src-native/Cargo.toml",
+    "native": "src-native\\target\\debug\\hades-native.exe",
+    "start": "cargo run --manifest-path src-native/Cargo.toml",
     "dev:direct": "vite --configLoader native",
     "dev:full": "npx tauri dev",
     "dev:tauri": "npx tauri dev",

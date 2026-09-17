@@ -355,6 +355,8 @@ const localModels: Record<string, ModelCapabilities> = {
     'devstral:latest': { contextWindow: 131_000, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 14 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
     'FastContext-1.0-4B-SFT': { contextWindow: 262_144, reservedOutputTokenSpace: 4_096, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 8 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
     'gemma-4-12B-coder-fable5-composer2.5-v1': { contextWindow: 131_072, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 7 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
+    'Qwen3.8-27B-Uncensored-Cyber-agentic-imatrix': { contextWindow: 65_536, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 16.1 }, supportsFIM: true, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: true, openSourceThinkTags: ['<think>', '</think>'] } },
+    'Qwen3.8-35B-A3B-Distill': { contextWindow: 65_536, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 21.7 }, supportsFIM: true, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: true, openSourceThinkTags: ['<think>', '</think>'] } },
 };
 
 export const recommendedLocalModels = ['qwen2.5-coder:7b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest', 'gemma2:2b'];
