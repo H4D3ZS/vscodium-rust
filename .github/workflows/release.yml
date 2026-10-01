@@ -82,7 +82,7 @@ jobs:
           }
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-installer
           path: |
@@ -199,7 +199,7 @@ jobs:
           sha256sum *.deb *.rpm *.AppImage 2>/dev/null > SHA256SUMS-linux.txt || true
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-packages
           path: |
@@ -255,7 +255,7 @@ jobs:
           shasum -a 256 *.dmg > SHA256SUMS-macos.txt 2>/dev/null || true
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-dmg
           path: |
